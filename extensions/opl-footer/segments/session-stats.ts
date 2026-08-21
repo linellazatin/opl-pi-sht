@@ -42,16 +42,19 @@ export const sessionStatsSegment = {
 export const perfStatsSegment = {
   id: "perf_stats" as const,
   render(ctx: SegmentContext): RenderedSegment {
-    const { turns, llmMs, toolMs, ttftSamples } = ctx.sessionStats;
+    const { turns, llmMs, toolMs, ttftSamples, lastTurnaroundMs } = ctx.sessionStats;
     if (turns === 0) return { content: "", visible: false };
 
     const { input, output, cacheRead } = ctx.usageStats;
 
     const parts: string[] = []
 
-    // LLM · Tool time
+    // LLM (last-turn TAT) · Tool time
+    const tat = lastTurnaroundMs > 0
+      ? dim(ctx, " (") + val(ctx, formatMs(lastTurnaroundMs)) + dim(ctx, ")")
+      : "";
     parts.push(
-      dim(ctx, "LLM ") + val(ctx, formatMs(llmMs)) +
+      dim(ctx, "LLM ") + val(ctx, formatMs(llmMs)) + tat +
       dim(ctx, " · Tool ") + val(ctx, formatMs(toolMs)),
     );
 

@@ -106,6 +106,7 @@ export interface SessionStats {
   llmMs: number;
   toolMs: number;
   ttftSamples: number[];
+  lastTurnaroundMs: number;
 }
 
 // Context passed to segment render functions
