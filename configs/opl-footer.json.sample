@@ -1,0 +1,48 @@
+{
+  "_comment": "Available segment IDs: pi, model, path, git, thinking, caveman, plan_mode, chat_mode, mode_switcher, separator, token_in, token_out, token_total, cache_read, cache_write, cost, context_pct, context_total, session_stats, perf_stats, text:<literal>",
+  "row1LeftSegments": ["pi", "separator", "model", "separator", "path", "git"],
+  "row1RightSegments": ["context_pct"],
+  "row2LeftSegments": [
+    "thinking",
+    "separator",
+    "mode_switcher"
+  ],
+  "row2RightSegments": ["token_total", "separator", "cost"],
+  "row3LeftSegments": ["session_stats"],
+  "row3RightSegments": ["perf_stats"],
+  "icons": {
+    "pi": "\ue22c",
+    "folder": "\uf115",
+    "branch": "\uf126",
+    "git": "\uf1d3",
+    "separator": "|"
+  },
+  "colors": {
+    "model": "#c07898",
+    "thinkingHigh": "#afb9fe",
+    "thinkingXhigh": "#9575cd",
+    "thinkingMax": "#ce93d8",
+    "separator": "#87827a"
+  },
+  "segmentOptions": {
+    "path": {
+      "mode": "full"
+    },
+    "git": {
+      "showBranch": true,
+      "showStaged": true,
+      "showUnstaged": true,
+      "showUntracked": true
+    },
+    "contextBar": {
+      "barWidth": 18,
+      "filledChar": "▋",
+      "unfilledChar": "▋",
+      "unfilledColor": "#4e4c49",
+      "gradientStart": "#f29373",
+      "gradientMid": "#d67858",
+      "gradientEnd": "#ae4f2f",
+      "gradientMidPoint": 0.55
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "opl-pi-sht",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npm run test:opl-footer && npm run test:opl-init && npm run test:opl-input && npm run test:opl-modes && npm run test:opl-questionnaire && npm run test:opl-todo && npm run test:opl-webaccess",    "test:opl-footer": "node tests/extension-smoke.mjs opl-footer",
+    "test:opl-init": "node tests/extension-smoke.mjs opl-init",
+    "test:opl-input": "node tests/extension-smoke.mjs opl-input",
+    "test:opl-modes": "node tests/extension-smoke.mjs opl-modes",
+    "test:opl-questionnaire": "node tests/extension-smoke.mjs opl-questionnaire",
+    "test:opl-todo": "node tests/extension-smoke.mjs opl-todo",
+    "test:opl-webaccess": "node tests/extension-smoke.mjs opl-webaccess"
+  }
+}

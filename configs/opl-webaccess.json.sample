@@ -1,0 +1,31 @@
+{
+  "provider": "searxng",
+  "providers": {
+    "gemini": {
+      "apiKeyEnv": "GEMINI_API_KEY",
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "model": "gemini-3.5-flash-lite",
+      "_available_models": ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro"]
+    },
+    "tavily": {
+      "apiKeyEnv": "TAVILY_API_KEY",
+      "maxResults": 5
+    },
+    "ddgs": {
+      "apiUrl": "http://192.168.1.100:8000",
+      "maxResults": 12
+    },
+    "searxng": {
+      "instanceUrl": "http://192.168.1.100:8888",
+      "maxResults": 12,
+      "categories": "general",
+      "safeSearch": 0
+    },
+    "exa": {
+      "apiKeyEnv": "EXA_API_KEY",
+      "maxResults": 5,
+      "searchType": "auto",
+      "includeSummary": true
+    }
+  }
+}

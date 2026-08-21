@@ -1,0 +1,12 @@
+{
+  "allDoneHideMs": 10000,
+  "shortcuts": {
+    "toggleWidget": "ctrl+alt+t",
+    "resetDone": "ctrl+alt+r"
+  },
+  "widget": {
+    "widthPercent": 33,
+    "maxHeightPercent": 50,
+    "minWidth": 32
+  }
+}
