@@ -114,6 +114,8 @@ export default function footer(pi: ExtensionAPI) {
   let turnStartMs = 0;
   let toolMsThisTurn = 0;
   let ttftRecordedThisTurn = false;
+  let agentStartMs = 0;
+  let lastTurnaroundMs = 0;
   const toolStartTimes = new Map<string, number>();
 
   // Track session start
@@ -132,10 +134,27 @@ export default function footer(pi: ExtensionAPI) {
     turnStartMs = 0;
     toolMsThisTurn = 0;
     ttftRecordedThisTurn = false;
+    agentStartMs = 0;
+    lastTurnaroundMs = 0;
     toolStartTimes.clear();
 
     if (ctx.hasUI) {
       setupFooter(ctx);
+    }
+  });
+
+  // Track user-prompt-to-completion turnaround. agent_start may fire multiple
+  // times per user turn (retries/compaction); only the first since the last
+  // settle marks when the user's prompt began processing. agent_settled is the
+  // authoritative "fully done, no auto-continuation" signal.
+  pi.on("agent_start", async (_event: unknown, _ctx: ExtensionContext) => {
+    if (agentStartMs === 0) agentStartMs = Date.now();
+  });
+
+  pi.on("agent_settled", async (_event: unknown, _ctx: ExtensionContext) => {
+    if (agentStartMs > 0) {
+      lastTurnaroundMs = Date.now() - agentStartMs;
+      agentStartMs = 0;
     }
   });
 
@@ -291,7 +310,7 @@ export default function footer(pi: ExtensionAPI) {
       theme,
       colors,
       icons: getIcons(effectiveConfig.icons),
-      sessionStats: { turns: branchTurns, steps: branchSteps, modelRequests: branchModelRequests, modelToolCalls: branchModelToolCalls, llmMs, toolMs, ttftSamples },
+      sessionStats: { turns: branchTurns, steps: branchSteps, modelRequests: branchModelRequests, modelToolCalls: branchModelToolCalls, llmMs, toolMs, ttftSamples, lastTurnaroundMs },
     };
   }
 

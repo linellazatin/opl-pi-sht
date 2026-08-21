@@ -14,7 +14,7 @@ Row 2 left:  Thinking: <LEVEL> | <active mode>
 Row 2 right: T: <total> (<cached> cached) ↑ <in> ↓ <out> | $<cost>
 
 Row 3 left:  <turns> turns · <steps> steps · <model requests> mreq · <tool calls> mtool
-Row 3 right: LLM <time> · Tool <time> | TTFT <time> · <tokens>/s | Cache <percent>%
+Row 3 right: LLM <time> (<last-turn TAT>) · Tool <time> | TTFT <time> · <tokens>/s | Cache <percent>%
 ```
 
 The third row is populated after the first completed turn. Its session and performance values are reconstructed from the current session branch where possible; timing values are process-local.
@@ -26,7 +26,7 @@ The third row is populated after the first completed turn. Its session and perfo
 - **Git integration**: branch plus staged, unstaged, and untracked counts, with invalidation after relevant file and Git commands
 - **Token and cost tracking**: total, cache, input/output, and accumulated cost segments
 - **Session statistics**: turns, tool steps, model requests, and model tool calls
-- **Performance statistics**: LLM/tool duration, average time to first token, output rate, and cache-hit percentage
+- **Performance statistics**: cumulative LLM/tool duration, most recent user-prompt-to-completion turnaround time, average time to first token, output rate, and cache-hit percentage
 - **Thinking and mode indicators**: thinking-level colors plus caveman, plan, chat, or unified mode segments when available
 - **Nerd Font support**: automatic detection with plain-icon fallbacks
 - **Live updates**: branch changes and session events request footer re-rendering
@@ -138,6 +138,12 @@ The `git` segment shows:
 - `*N` — unstaged changes
 - `+N` — staged changes
 - `?N` — untracked files
+
+## Session and Performance Statistics
+
+The `session_stats` segment shows turns, tool steps, and (when available) model requests and model tool calls for the current branch; turns and steps are reconstructed from session history so they survive quit/resume.
+
+The `perf_stats` segment shows cumulative session LLM and tool time, average time to first token, output tokens/sec, and cache-hit percentage. The `LLM` figure is followed by the most recent user-prompt-to-completion turnaround time in parentheses, e.g. `LLM 18m 22s (2m 13s)`. This turnaround reflects only fully-settled turns (the `agent_settled` signal, after any retries or compaction), so it stays blank until the first turn completes. All `perf_stats` timing values are ephemeral — they reset each session and are not reconstructed from branch history.
 
 ## Icons
 
