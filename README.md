@@ -5,15 +5,15 @@ A tracked collection of customized Pi coding-agent extensions and their portable
 
 ## Extensions
 
-| Extension | Description | Documentation |
-|---|---|---|
-| `opl-footer`* | Multi-row status footer with model, path, Git, context, token, cost, and session statistics. | [README](extensions/opl-footer/README.md) |
-| `opl-init` | `/init` repository crawler that creates or updates fingerprinted `AGENTS.md` contributor guides. | [README](extensions/opl-init/README.md) |
-| `opl-input`* | Configurable chat editor with boxed/unboxed rendering, mode-aware colors, and optional animated companion. | [README](extensions/opl-input/README.md) |
-| `opl-modes`* | Unified chat, plan, execute, and custom mode manager with tool/Bash restrictions and plan files. | [README](extensions/opl-modes/README.md) |
-| `opl-questionnaire` | Model-invoked TUI questionnaire for selectable single or multi-question clarification. | [README](extensions/opl-questionnaire/README.md) |
-| `opl-todo` | Session-branch-aware `todo` tool, overlay widget, shortcuts, and `/todos` command. | [README](extensions/opl-todo/README.md) |
-| `opl-webaccess` | Multi-provider web search, URL extraction, PDF extraction, and stored-result retrieval tools. | [README](extensions/opl-webaccess/README.md) |
+| Extension | Description |
+|---|---|
+| [`opl-init`](extensions/opl-init/README.md) | `/init` repository crawler that creates or updates fingerprinted `AGENTS.md` contributor guides. |
+| [`opl-webaccess`](extensions/opl-webaccess/README.md) | Multi-provider web search, URL extraction, PDF extraction, and stored-result retrieval tools. |
+| [`opl-todo`](extensions/opl-todo/README.md) | Session-branch-aware `todo` tool, overlay widget, shortcuts, and `/todos` command. |
+| [`opl-questionnaire`](extensions/opl-questionnaire/README.md) | Model-invoked TUI questionnaire for selectable single or multi-question clarification. |
+| [`opl-input`](extensions/opl-input/README.md)* | Configurable chat editor with boxed/unboxed rendering, mode-aware colors, and optional animated companion. |
+| [`opl-modes`](extensions/opl-modes/README.md)* | Unified chat, plan, execute, and custom mode manager with tool/Bash restrictions and plan files. |
+| [`opl-footer`](extensions/opl-footer/README.md)* | Multi-row status footer with model, path, Git, context, token, cost, and session statistics. |
 
 `* required bundled`
 

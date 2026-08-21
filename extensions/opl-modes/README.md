@@ -1,37 +1,46 @@
 # opl-modes
 
-Unified mode manager for Pi. It provides read-only chat and planning modes, plan execution, custom configured modes, and compatibility aliases for existing workflows.
+Unified mode manager for Pi. It provides normal, read-only chat, read-only planning, plan execution, and configurable custom modes. It also publishes shared mode state consumed by `opl-input` and `opl-footer`.
 
-## Commands and flags
+## Commands, flags, and shortcut
 
-- `/mode` opens the mode picker; `/mode chat`, `/mode plan`, and `/mode normal` select modes.
+- `/mode` opens the picker; `/mode chat`, `/mode plan`, and `/mode normal` select built-in modes.
 - `/chat` toggles chat mode; `/chat off` exits it.
-- `/plan` creates, loads, refines, saves, or discards plan files.
-- `/execute` executes an existing plan.
-- `--chat` and `--plan` start Pi in the corresponding mode.
-- The configured cycle shortcut rotates through visible enabled modes.
+- `/plan` toggles plan mode, creates or loads a named plan, or accepts `/plan off`.
+- `/execute` selects or executes an existing plan; `/execute <name>` runs a named plan.
+- `--chat` and `--plan` start Pi in the corresponding read-only mode.
+- The configured cycle shortcut rotates through enabled visible modes. Execute mode is excluded from cycling because it requires an active plan.
 
-Plans are stored under `.pi/plans/`. `plan_complete` is available only in execute mode and exits the mode after completion. Plan mode and chat mode use configurable read-only tool and Bash allowlists. Custom modes can define prompts, tools, safety patterns, labels, and optional model overrides.
+Plans are Markdown files under `.pi/plans/` with the `plan-` filename prefix. `plan_complete` is available only in execute mode. On completion, the plan file is deleted when `cleanup.cleanupOnComplete` is enabled. If execution ends without `plan_complete`, execute mode is exited automatically.
+
+## Mode behavior
+
+Chat and plan modes replace the active tools with configurable read-only tool lists and restrict Bash to safe inspection patterns. Destructive patterns are checked even when a command matches a safe pattern. User-provided safe and destructive pattern arrays replace the built-in lists, rather than extending them.
+
+Custom modes can add or override modes with prompts, tool lists, Bash patterns, model overrides, visibility, enabled state, `plan_complete` permission, and labels. Custom modes are also available to `opl-input` for per-mode prefix and border styling.
+
+Mode state is persisted in session entries and restored on session resume or branch changes. The `mode-switcher` entry type and legacy chat/plan event identifiers are compatibility contracts.
 
 ## Configuration
 
-Create `~/.pi/agent/configs/opl-modes.json` or copy [`configs/opl-modes.json`](../../configs/opl-modes.json). All fields are optional. The loader falls back to built-in modes, tool lists, safety patterns, labels, and defaults when fields are omitted or the file cannot be parsed. Configuration is read when the extension loads; restart Pi or run `/reload` after changes.
+Create `~/.pi/agent/configs/opl-modes.json` or copy [`configs/opl-modes.json`](../../configs/opl-modes.json). All fields are optional. The module reads the file when loaded; restart Pi or run `/reload` after changes.
 
 ```json
 {
   "ui": { "hideNotify": false, "hideWidget": true },
-  "shortcuts": { "cycleMode": "shift+tab" },
-  "cleanup": { "cleanupOnComplete": false },
+  "shortcuts": { "cycleMode": "ctrl+alt+m" },
+  "cleanup": { "cleanupOnComplete": true },
+  "defaultNotifyTemplate": "✓ {Name} mode ON",
   "chatAllowedTools": ["read", "bash", "grep", "find", "ls"],
   "planAllowedTools": ["read", "bash", "grep", "find", "ls"],
   "bashPatterns": {
-    "safePatterns": ["^\\s*cat\\b", "^\\s*git\\s+(status|log|diff)"],
-    "destructivePatterns": ["\\brm\\b", "\\bgit\\s+(commit|push)\\b"]
+    "safePatterns": ["^\\s*cat\\b"],
+    "destructivePatterns": ["\\brm\\b"]
   },
   "modes": {
     "review": {
       "enabled": true,
-      "prompt": "Review changes without modifying files.",
+      "prompt": "Review without modifying files.",
       "tools": ["read", "grep", "find", "ls"],
       "labels": { "widgetColor": "accent" }
     }
@@ -39,6 +48,15 @@ Create `~/.pi/agent/configs/opl-modes.json` or copy [`configs/opl-modes.json`](.
 }
 ```
 
-`chatAllowedTools` and `planAllowedTools` replace the built-in read-only tool lists. `safePatterns` and `destructivePatterns` replace the corresponding Bash rules, so include every rule you need when overriding them. Custom entries under `modes` can add or override modes with prompts, tools, Bash rules, model overrides, visibility, completion permissions, and labels. Use Pi theme color tokens for widget colors.
+| Area | Behavior |
+|---|---|
+| `ui.hideNotify` / `ui.hideWidget` | Suppress mode notifications or widgets. |
+| `shortcuts.cycleMode` | Keybinding for cycling enabled visible modes. |
+| `cleanup.cleanupOnComplete` | Delete the active plan after successful `plan_complete`. |
+| `defaultNotifyTemplate` | Notification template for custom modes; `{Name}` is capitalized mode name. |
+| `chatAllowedTools` / `planAllowedTools` | Replace the built-in read-only tools. |
+| `bashPatterns.safePatterns` | Replace the shared safe Bash patterns for chat and plan. |
+| `bashPatterns.destructivePatterns` | Replace the shared destructive Bash patterns. |
+| `modes.<name>` | Add or override a mode, including `model`, `tools`, patterns, `allowPlanComplete`, `visible`, `enabled`, `prompt`, and `labels`. |
 
-The extension persists mode state in session entries and reconstructs it on resume or session-tree changes. It publishes mode state for companion extensions such as `opl-input` and `opl-footer`.
+Model overrides are resolved through Pi's model registry when entering a mode and the previously active model is restored on exit when applicable. Use Pi theme color tokens for widget label colors.

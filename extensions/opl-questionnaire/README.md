@@ -1,50 +1,32 @@
-# questionnaire
+# opl-questionnaire
 
-Registers a `questionnaire` tool the model calls to ask the user one or more
-questions with selectable options, instead of listing questions in plain text.
+Registers a model-callable `questionnaire` tool for asking one or more questions with selectable options. A single question uses a compact option list; multiple questions use a tabbed interface with a final Submit tab.
 
-- **Single question** — a simple numbered options list.
-- **Multiple questions** — a tab bar to navigate between questions, then a Submit tab.
+## Behavior
 
-Answers are returned to the model as structured text (which option was selected,
-or free text the user typed).
+- The model receives prompt guidance to use the tool for discrete choices, clarification, preferences, and confirmations instead of listing questions in prose.
+- Each question has an `id`, `prompt`, `options`, optional `label`, and optional `allowOther` free-text choice.
+- Answers preserve the question ID, selected value and label, whether the user wrote custom text, and the selected option index when applicable.
+- Duplicate IDs are rejected before the UI opens because answers are keyed by ID.
+- A question with no options and `allowOther: false` is rejected because it cannot be answered.
+- Empty custom answers are returned as `(no response)`.
+- The tool returns a clear error in non-TUI/headless sessions; the model should fall back to plain-text questions.
 
 ## Configuration
 
-`opl-questionnaire` has no external configuration file. The tool schema, prompt guidance, validation, and keyboard controls are defined in `index.ts`; availability is controlled by Pi's active tool set and mode configuration.
-
-Entirely model-invoked. There is no slash command or keybinding — the LLM decides
-to call it. Two things make that happen reliably:
-
-- `promptGuidelines` / `promptSnippet` on the tool registration nudge the model to
-  prefer this tool over prose Q&A (appended to the system prompt while the tool is active).
-- The tool must be in the active tool set for the current mode. It is included in the
-  `mode-switcher` defaults for Plan and Chat modes and in the `audit`/`review` custom
-  modes (see `~/.pi/agent/configs/opl-modes.json`). In normal ("off") mode all
-  registered tools are active, so it is available there too.
-
-If the tool errors (e.g. a non-interactive/headless session where `ctx.mode !== "tui"`),
-the model is instructed to fall back to asking the questions in plain text.
+`opl-questionnaire` has no external configuration file. Tool schema, prompt guidance, validation, rendering, and keyboard controls are defined in `index.ts`. Availability depends on Pi's active tool set and mode configuration. The default `opl-modes` chat and plan tool lists include `questionnaire`; custom modes must list it explicitly if they need it.
 
 ## Controls
 
-- `↑↓` — move selection
-- `1`-`9` (and `0` for a 10th option) — jump to and select that numbered option
-- `Enter` — confirm selection / submit
-- `Tab` / `←→` — switch between questions (multi-question only)
-- `Esc` — cancel
+- `↑`/`↓`: move through options.
+- `1`-`9` and `0`: select options 1-10 directly.
+- `Enter`: select or submit.
+- `Tab`/`Shift+Tab` or `←`/`→`: switch questions in multi-question mode.
+- `Esc`: cancel, or leave custom-answer editing.
 
-Each question may include a "Type something." option (`allowOther`, default true) that
-opens an inline editor for a free-text answer.
+Selecting `Type something.` opens an inline editor. Multi-question mode shows answered/unanswered tabs and prevents submission until every question has an answer.
 
 ## Files
 
-- `index.ts` — tool registration, validation, and the custom TUI component
-- `types.ts` — shared types and TypeBox parameter schemas
-
-## Validation
-
-`execute()` rejects, before showing any UI:
-
-- duplicate question `id`s (answers are keyed by id and would silently collide)
-- a question with no `options` and `allowOther: false` (nothing would be selectable)
+- `index.ts`: tool registration, validation, custom TUI, and result rendering.
+- `types.ts`: TypeBox parameter schema and shared answer/question types.

@@ -1,31 +1,41 @@
 # opl-footer
 
-A customizable two-row footer for the pi coding agent. Provides a rich status bar at the bottom of the terminal showing model info, git status, token usage, and more.
+A customizable three-row footer for the Pi coding agent. It shows model, path, Git, context, thinking, mode, token, cost, session, and performance information in configurable left/right segments.
 
 ## Layout
+
+The default footer has three content rows separated by horizontal dividers:
 
 ```
 Row 1 left:  π | <model name> (<provider>) | <folder> <path> <branch> <dirty>
 Row 1 right: <context bar> <pct%> / <max tokens>
 
-Row 2 left:  Thinking: <LEVEL> | Caveman mode: <VALUE> | Plan mode: <VALUE> | Chat mode: <VALUE>
+Row 2 left:  Thinking: <LEVEL> | <active mode>
 Row 2 right: T: <total> (<cached> cached) ↑ <in> ↓ <out> | $<cost>
+
+Row 3 left:  <turns> turns · <steps> steps · <model requests> mreq · <tool calls> mtool
+Row 3 right: LLM <time> · Tool <time> | TTFT <time> · <tokens>/s | Cache <percent>%
 ```
+
+The third row is populated after the first completed turn. Its session and performance values are reconstructed from the current session branch where possible; timing values are process-local.
 
 ## Features
 
-- **Two-row layout**: Info grouped by purpose across two lines
-- **Context bar**: 20-character gradient block bar with configurable colours and % indicator
-- **Git integration**: Shows current branch and working tree status (staged, unstaged, untracked)
-- **Token tracking**: Composite `T:` line with total, cached, input, and output counts
-- **Thinking level**: Faint label + CAPS level name with per-level colour
-- **Caveman mode indicator**: Shows active caveman mode when the caveman extension is loaded
-- **Nerd Font support**: Automatic detection with ASCII fallbacks
-- **Live updates**: Git status refreshes automatically as you work
+- **Three-row layout**: independent left and right segment lists for model/context, mode/usage, and session/performance data
+- **Context bar**: configurable gradient bar with percentage and context-window size
+- **Git integration**: branch plus staged, unstaged, and untracked counts, with invalidation after relevant file and Git commands
+- **Token and cost tracking**: total, cache, input/output, and accumulated cost segments
+- **Session statistics**: turns, tool steps, model requests, and model tool calls
+- **Performance statistics**: LLM/tool duration, average time to first token, output rate, and cache-hit percentage
+- **Thinking and mode indicators**: thinking-level colors plus caveman, plan, chat, or unified mode segments when available
+- **Nerd Font support**: automatic detection with plain-icon fallbacks
+- **Live updates**: branch changes and session events request footer re-rendering
 
 ## Configuration
 
-Create `~/.pi/agent/configs/opl-footer.json` or copy the tracked example from [`configs/opl-footer.json`](../../configs/opl-footer.json). The file is read at runtime and supports custom row layouts, colors, icons, path/Git display, and the context bar. Unknown or invalid file contents use the extension defaults.
+Create `~/.pi/agent/configs/opl-footer.json` or copy the tracked example from [`configs/opl-footer.json`](../../configs/opl-footer.json). Configure all six row-side arrays (`row1LeftSegments` through `row3RightSegments`) to change the layout. Colors, icons, path/Git display, and the context bar are also configurable. Unknown or invalid JSON uses the extension defaults.
+
+The config is cached for five seconds. Changes normally appear automatically; use `/reload` or restart Pi if needed.
 
 ```json
 {
@@ -34,44 +44,11 @@ Create `~/.pi/agent/configs/opl-footer.json` or copy the tracked example from [`
   "row2LeftSegments": ["thinking", "separator", "mode_switcher"],
   "row2RightSegments": ["token_total", "separator", "cost"],
   "row3LeftSegments": ["session_stats"],
-  "row3RightSegments": ["perf_stats"],
-  "colors": { "model": "#c07898", "separator": "#87827a" },
-  "segmentOptions": {
-    "path": { "mode": "full" },
-    "git": { "showBranch": true, "showStaged": true, "showUnstaged": true, "showUntracked": true },
-    "contextBar": { "barWidth": 18, "gradientStart": "#f29373", "gradientMid": "#d67858", "gradientEnd": "#ae4f2f" }
-  }
+  "row3RightSegments": ["perf_stats"]
 }
 ```
 
-Segment IDs, color fields, context-bar options, thinking-level colors, and icon overrides are documented below. Color values accept Pi theme tokens or hex strings. Changes are picked up within the config cache interval; restart or reload Pi if necessary.
-
-```json
-{
-  "row1LeftSegments":  ["pi", "separator", "model", "separator", "path", "git"],
-  "row1RightSegments": ["context_pct"],
-  "row2LeftSegments":  ["thinking", "separator", "caveman", "separator", "plan_mode", "separator", "chat_mode"],
-  "row2RightSegments": ["token_total", "separator", "cost"],
-
-  "colors": {
-    "model": "#c07898",
-    "thinkingHigh": "#afb9fe",
-    "separator": "#87827a"
-  },
-
-  "segmentOptions": {
-    "path": { "mode": "full" },
-    "git": {
-      "showBranch": true,
-      "showStaged": true,
-      "showUnstaged": true,
-      "showUntracked": true
-    }
-  }
-}
-```
-
-See the tracked [`configs/opl-footer.json`](../../configs/opl-footer.json) for a complete example.
+See the tracked [`configs/opl-footer.json`](../../configs/opl-footer.json) for a complete example. Segment IDs, color fields, context-bar options, thinking-level colors, and icon overrides are documented below. Colors accept Pi theme tokens or hex strings.
 
 ## Available Segments
 
@@ -84,6 +61,7 @@ See the tracked [`configs/opl-footer.json`](../../configs/opl-footer.json) for a
 | `context_pct` | Gradient bar + `X.X%` + max tokens | Bar fully configurable via `segmentOptions.contextBar` (see below). % and max tokens use `contextLabel` colour. Max tokens formatted with K/M suffix (e.g. `128k`, `2M`). Set `DEBUG_PCT` in `context.ts` to a number (0–100) to pin the bar at a fixed value for visual testing. |
 | `cost` | `$<amount>` | `$` dim, amount in `cost` colour (`muted` by default) |
 | `thinking` | `Thinking: <LEVEL>` | Dim label, CAPS level with per-level colour; always visible |
+| `mode_switcher` | Unified active mode label | Reads the mode state published by `opl-modes`; hidden when unavailable |
 | `caveman` | `Caveman mode: <MODE>` | Hidden when caveman extension not loaded |
 | `plan_mode` | `Plan mode: <MODE>` | Hidden when plan-mode extension not loaded |
 | `chat_mode` | `Chat mode: <MODE>` | Hidden when chat-mode extension not loaded |

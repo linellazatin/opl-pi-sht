@@ -6,7 +6,7 @@ Provides `/init`, which generates or updates a repository `AGENTS.md` agent guid
 
 `/init` asks the model for repository-specific information rather than a generic contributor template. Depending on the available evidence, it covers what the project is, commands, architecture, configuration and installation, testing or operational quirks, and key files. It calls out meaningful absent commands and avoids generic Git or pull-request advice unless the repository provides concrete facts.
 
-## Configuration
+## How to
 
 `opl-init` has no external configuration file. Its crawl depth, ignored directories, tree limit, manifest list, fingerprinting, and prompt are defined in `index.ts`. Run `/init` from the repository root; it creates or updates `AGENTS.md` only when the embedded fingerprint is missing or stale.
 
