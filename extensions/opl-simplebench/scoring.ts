@@ -1,9 +1,14 @@
 export const reasoningWords = ["because", "therefore", "since", "step", "subtract", "minus", "sequence", "pattern", "clockwise", "counter", "facing", "mammal", "grow", "apple", "wet", "grass", "plant", "water", "glove", "boot", "metal", "bowling", "tennis"];
 
+function containsAnswer(response: string, answer: string): boolean {
+  const escaped = answer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "i").test(response);
+}
+
 export function extractAnswer(response: string, expected: string | string[]): { answer: string; method: string } {
   const allowed = Array.isArray(expected) ? expected : [expected];
   const normalized = response.toLowerCase();
-  const match = allowed.find(answer => normalized.includes(answer.toLowerCase()));
+  const match = allowed.find(answer => containsAnswer(normalized, answer));
   if (match) return { answer: match, method: "expected-substring" };
   if (allowed.every(a => /^\d+$/.test(a))) {
     const numbers = response.match(/\b\d+\b/g);
@@ -18,7 +23,7 @@ export function scoreReasoning(response: string, expected: string | string[]) {
   const correct = allowed.includes(extracted.answer);
   const matchedWords = reasoningWords.filter(word => response.toLowerCase().includes(word));
   const reasoned = matchedWords.length > 0 || /^\s*\d+\.\s/m.test(response);
-  return { answer: extracted.answer, extractionMethod: extracted.method, matchedWords, score: correct && reasoned ? "STRONG" : correct ? "MODERATE" : reasoned ? "WEAK" : "FAIL", passed: correct };
+  return { answer: extracted.answer, extractionMethod: extracted.method, matchedWords, score: correct && reasoned ? "STRONG" : correct ? "MODERATE" : reasoned ? "WEAK" : "FAIL", pass: correct };
 }
 
 export function averageScore(scores: string[]): string {

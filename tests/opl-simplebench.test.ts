@@ -59,8 +59,25 @@ test("keeps benchmark fixtures and extracted scorer available to the runner", ()
   assert.equal(REASONING_TESTS.length, 20);
   assert.match(MULTISTEP_INSTRUCTION, /valid JSON object/);
   assert.deepEqual(scoreReasoning("The answer is 8 because the snail climbs.", "8"), {
-    answer: "8", extractionMethod: "expected-substring", matchedWords: ["because"], score: "STRONG", passed: true,
+    answer: "8", extractionMethod: "expected-substring", matchedWords: ["because"], score: "STRONG", pass: true,
   });
+});
+
+test("uses the pass property consumed by the reasoning runner", () => {
+  assert.equal(scoreReasoning("The answer is 8 because it reaches the top.", "8").pass, true);
+});
+
+test("uses unambiguous and alternate-valid reasoning fixtures", () => {
+  const rooster = REASONING_TESTS.find(test => test.name === "commonsense");
+  const code = REASONING_TESTS.find(test => test.name === "code_simplify");
+  const analogy = REASONING_TESTS.find(test => test.name === "analogy_2");
+  assert.match(rooster?.prompt ?? "", /Can a rooster lay an egg/);
+  assert.equal(rooster?.expectedAnswer, "no");
+  assert.match(code?.prompt ?? "", /value will x have/);
+  assert.equal(code?.expectedAnswer, "15");
+  assert.deepEqual(analogy?.expectedAnswer, ["boot", "sock"]);
+  assert.equal(scoreReasoning("ANSWER: Sock", analogy?.expectedAnswer ?? "").pass, true);
+  assert.equal(scoreReasoning("That premise is not possible.", "no").pass, false);
 });
 
 test("extracts OpenAI, Bedrock, and Ollama authoritative usage", () => {

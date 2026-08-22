@@ -1,7 +1,7 @@
 export interface ReasoningFixture {
   name: string;
   prompt: string;
-  expectedAnswer: string;
+  expectedAnswer: string | string[];
   category: string;
 }
 
@@ -10,8 +10,8 @@ export const REASONING_TESTS: ReasoningFixture[] = [
     { name: "snail_wall", prompt: "A snail climbs 3 feet up a wall each day, but slides back 2 feet each night. The wall is 10 feet tall. How many days does it take the snail to reach the top? Think step by step. ANSWER: <number>", expectedAnswer: "8", category: "logic" },
     { name: "math_sequence", prompt: "What is the next number in this sequence: 2, 6, 18, 54, ? Think step by step. ANSWER: <number>", expectedAnswer: "162", category: "math" },
     { name: "spatial_directions", prompt: "If you face north and turn 90 degrees clockwise, then face west and turn 180 degrees counter-clockwise, which direction are you facing? ANSWER: <direction>", expectedAnswer: "south", category: "spatial" },
-    { name: "commonsense", prompt: "A rooster laid an egg on top of the world's highest building. Which side is the egg on? ANSWER: <side>", expectedAnswer: "the other side", category: "commonsense" },
-    { name: "code_simplify", prompt: "Simplify this code to one line: let x = 0; for(let i=1; i<=5; i++) x += i; ANSWER: <code>", expectedAnswer: "15", category: "code" },
+    { name: "commonsense", prompt: "Can a rooster lay an egg? Answer yes or no. ANSWER: <yes-or-no>", expectedAnswer: "no", category: "commonsense" },
+    { name: "code_simplify", prompt: "What value will x have after this code runs: let x = 0; for(let i=1; i<=5; i++) x += i; ANSWER: <number>", expectedAnswer: "15", category: "code" },
     // Phase 2: Counter-intuitive reasoning
     { name: "bat_and_ball", prompt: "A bat and a ball cost $1.10 total. The bat costs $1 more than the ball. How much does the ball cost? Think step by step. ANSWER: <number> cents", expectedAnswer: "5", category: "counterint" },
     { name: "scale_weight", prompt: "A scale weight is 100g. A similar scale weight is 4 times as heavy. How much does the second one weigh? Answer in grams. ANSWER: <number>", expectedAnswer: "400", category: "counterint" },
@@ -24,7 +24,7 @@ export const REASONING_TESTS: ReasoningFixture[] = [
     { name: "relative_quantities", prompt: "Tom has 3 times as many apples as Sara. Sara has 5 apples. How many apples does Tom have? ANSWER: <number>", expectedAnswer: "15", category: "comparative" },
     // Phase 2: Analogical reasoning
     { name: "analogy_1", prompt: "Book is to Shelf as Chair is to what? Think about relationships. ANSWER: <container>", expectedAnswer: "room", category: "analogy" },
-    { name: "analogy_2", prompt: "Hand is to Glove as Foot is to what? ANSWER: <item>", expectedAnswer: "boot", category: "analogy" },
+    { name: "analogy_2", prompt: "Hand is to Glove as Foot is to what? ANSWER: <item>", expectedAnswer: ["boot", "sock"], category: "analogy" },
     // Phase 2: Common sense (physical properties)
     { name: "physics_1", prompt: "Does a bowling ball or a tennis ball have more mass? ANSWER: <object>", expectedAnswer: "bowling ball", category: "commonsense" },
     { name: "physics_2", prompt: "What happens to a metal spoon when heated? It usually becomes...? ANSWER: <state>", expectedAnswer: "hot", category: "commonsense" },

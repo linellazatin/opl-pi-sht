@@ -507,7 +507,7 @@ interface ReasoningTestResult {
   metrics: ReturnType<typeof emptyMetrics>;
   score: string;
   answer: string;
-  expectedAnswer: string;
+  expectedAnswer: string | string[];
   pass: boolean;
   details?: string;
 }
