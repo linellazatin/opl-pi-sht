@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.1] - 2026-08-23
+
+### Added
+- `opl-simplebench`: added model benchmark, evaluates fixed reasoning, JSON instruction-following, and tool-call generation cases across different providers
+
+### Changed
+- All extension helper, functional, and smoke checks now use Bun's named-test
+- Smoke bundles run with Bun's Node target
+
+### Tests
+- Added `opl-simplebench` coverage for artifact opt-out, cwd artifacts, benchmark fixtures/scoring, provider usage extraction, and aggregate metric behavior.
+
 ## [0.1.0] - 2026-08-22
 
 ### Changed

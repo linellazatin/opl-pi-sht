@@ -1,6 +1,6 @@
 # opl-pi-sht
 
-A portable collection of seven Pi coding-agent extensions and five standard-JSON configuration examples. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
+A portable collection of eight Pi coding-agent extensions and five standard-JSON configuration examples. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
 
 ## Installation
 
@@ -20,6 +20,7 @@ Copy mode overwrites matching destinations. Link mode skips existing destination
 | Extension | Summary | Commands, tools, and configuration |
 |---|---|---|
 | [`opl-init`](extensions/opl-init/README.md) | Fingerprinted repository-guide generator. | `/init`; no config. |
+| [`opl-simplebench`](extensions/opl-simplebench/README.md) | Auditable provider-aware model benchmark with JSON artifacts and metrics. | `/simplebench`, `simplebench`; supports Ollama, OpenAI-compatible providers, and Bedrock; no dedicated config. |
 | [`opl-webaccess`](extensions/opl-webaccess/README.md) | Search plus readable URL/PDF retrieval with session recovery. | `web_search`, `fetch_content`, `get_search_content`; `opl-webaccess.json`. |
 | [`opl-todo`](extensions/opl-todo/README.md) | Branch-aware task tool, overlay, and task list. | `todo`, `/todos`; `opl-todo.json`. |
 | [`opl-questionnaire`](extensions/opl-questionnaire/README.md) | Interactive structured-choice tool. | `questionnaire`; no config. |
@@ -48,7 +49,7 @@ cd extensions/opl-webaccess
 npm install
 ```
 
-Keep provider credentials out of tracked config: `opl-webaccess` reads API keys from configured environment-variable names.
+`opl-simplebench` writes a full JSON benchmark artifact in Pi's current working directory by default. Use `/simplebench --no-artifact` or `simplebench({ no_artifact: true })` when responses must not be written to disk. Provider credentials remain outside tracked configuration; configure them through Pi provider settings, environment variables, or Pi authentication.
 
 ## Tests
 
@@ -56,4 +57,4 @@ Keep provider credentials out of tracked config: `opl-webaccess` reads API keys 
 npm test
 ```
 
-Run one extension suite with `npm run test:opl-<name>` for `footer`, `init`, `input`, `modes`, `questionnaire`, `todo`, or `webaccess`. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.
+Run one extension suite with `npm run test:opl-<name>` for `footer`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, or `simplebench`. Every helper, functional, and selected-entrypoint smoke check uses Bun's named-test reporter; output includes per-test status, timings, and pass/fail totals. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.
