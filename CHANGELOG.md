@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.2] - 2026-08-23
+
+### Hotfix
+- `opl-simplebench`: restored instruction-following report rendering by replacing the undefined `reportInstructionScore` call with the tested `formatInstructionScore` formatter.
+
 ## [0.1.1] - 2026-08-23
 
 ### Added

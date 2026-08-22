@@ -4,7 +4,7 @@ import { section, ok, fail, warn, info, msHuman, truncate, sanitizeForReport } f
 import { getOllamaBaseUrl, detectProvider } from "./util/providers";
 import { debugLog } from "./util/debug";
 import { CONFIG, WEATHER_TOOL_DEFINITION, getEffectiveConfig, type ChatFn } from "./util/config";
-import { branding as sharedBranding, formatTestSummary, recommendation } from "./report";
+import { branding as sharedBranding, formatInstructionScore, formatTestSummary, recommendation } from "./report";
 import { writeArtifact } from "./artifact";
 import { aggregateMetrics, emptyMetrics, metricsFromChat } from "./metrics";
 import { REASONING_TESTS, MULTISTEP_INSTRUCTION, CALC_TOOL_DEFINITION } from "./tests";
@@ -578,7 +578,7 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   await rateLimitDelay();
   const instructions = await testInstructionFollowingExtended(chatFn, model);
   lines.push(info(`Time: ${msHuman(instructions.elapsedMs)}`));
-  reportInstructionScore(lines, instructions);
+  lines.push(formatInstructionScore(instructions));
   lines.push(info(`Output: ${instructions.output}`));
 
   // 3. Extended Tool Usage test
