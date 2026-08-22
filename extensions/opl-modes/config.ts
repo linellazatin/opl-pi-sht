@@ -324,6 +324,19 @@ export function getModeDefinition(name: string): ModeDefinition | undefined {
   return MODE_REGISTRY.get(name);
 }
 
+/** Whether plan execution may be started while `mode` is active. Default: true. */
+export function executeHandoffAllowed(mode: string, registry: Map<string, ModeDefinition> = MODE_REGISTRY): boolean {
+  const def = registry.get(mode);
+  return def ? def.allowExecute !== false : true;
+}
+
+/** Append plan_complete to a tool list when the mode allows it. */
+export function withPlanComplete(mode: string, tools: string[], registry: Map<string, ModeDefinition> = MODE_REGISTRY): string[] {
+  const def = registry.get(mode);
+  if (def?.allowPlanComplete && !tools.includes("plan_complete")) return [...tools, "plan_complete"];
+  return tools;
+}
+
 /** Initialize MODE_REGISTRY with built-in defaults, then merge user-defined modes. */
 function initModeRegistry(): void {
   const customNotifyTemplate = userConfig.defaultNotifyTemplate ?? "✓ {Name} mode ON";
@@ -331,6 +344,7 @@ function initModeRegistry(): void {
   registerMode("off", {
     prompt: "",
     allowPlanComplete: false,
+    allowExecute: true,
     visible: true,
     labels: {
       notify: DEFAULT_CONFIG.LABELS.OFF.NOTIFY,
@@ -346,6 +360,7 @@ function initModeRegistry(): void {
     safePatterns: SAFE_COMMAND_PATTERNS,
     destructivePatterns: DESTRUCTIVE_PATTERNS,
     allowPlanComplete: false,
+    allowExecute: true,
     visible: true,
     labels: USER_CONFIG.labels.chat,
   });
@@ -356,6 +371,7 @@ function initModeRegistry(): void {
     safePatterns: SAFE_COMMAND_PATTERNS,
     destructivePatterns: DESTRUCTIVE_PATTERNS,
     allowPlanComplete: false,
+    allowExecute: true,
     visible: true,
     labels: USER_CONFIG.labels.plan,
   });
@@ -363,6 +379,7 @@ function initModeRegistry(): void {
   registerMode("execute", {
     prompt: "", // Built dynamically with buildExecutePrompt from the active plan file
     allowPlanComplete: true,
+    allowExecute: true,
     visible: false, // entered only via "execute:<plan-file>" picker items, never as a bare menu choice
     labels: USER_CONFIG.labels.execute,
   });
@@ -387,6 +404,7 @@ function initModeRegistry(): void {
           safePatterns: compilePatterns(def.safePatterns),
           destructivePatterns: compilePatterns(def.destructivePatterns),
           allowPlanComplete: def.allowPlanComplete ?? false,
+          allowExecute: def.allowExecute ?? true,
           visible: def.visible ?? true,
           enabled: def.enabled ?? true,
           model: def.model,

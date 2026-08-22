@@ -99,6 +99,8 @@ export interface ModeDefinition {
   labels?: ModeLabelConfig;
   /** Whether plan_complete tool should be available. Default: false */
   allowPlanComplete?: boolean;
+  /** Whether plan execution can be started from this mode (mode-picker "Execute:" items and /execute). Default: true. The plan-mode action menu is always available regardless of this flag. */
+  allowExecute?: boolean;
   /** Whether to show this mode in the picker menu and cycling shortcut. Default: true */
   visible?: boolean;
   /** Whether this mode can be entered via the picker or cycle shortcut. Default: true. Unlike `visible`, disabling does not remove the mode — it can still be reached programmatically (e.g. execute mode via plan selection). */
@@ -115,6 +117,8 @@ export interface UserModeDefinition {
   destructivePatterns?: string[];
   labels?: ModeLabelConfig;
   allowPlanComplete?: boolean;
+  /** Set to false to block starting plan execution while this mode is active (hides picker "Execute:" items and blocks /execute). Default: true. */
+  allowExecute?: boolean;
   visible?: boolean;
   /** Set to false to disable this mode from the picker menu and cycle shortcut. Default: true. */
   enabled?: boolean;

@@ -17,7 +17,17 @@ Plans are Markdown files under `.pi/plans/` with the `plan-` filename prefix. `p
 
 Chat and plan modes replace the active tools with configurable read-only tool lists and restrict Bash to safe inspection patterns. Destructive patterns are checked even when a command matches a safe pattern. User-provided safe and destructive pattern arrays replace the built-in lists, rather than extending them.
 
-Custom modes can add or override modes with prompts, tool lists, Bash patterns, model overrides, visibility, enabled state, `plan_complete` permission, and labels. Custom modes are also available to `opl-input` for per-mode prefix and border styling.
+Custom modes can add or override modes with prompts, tool lists, Bash patterns, model overrides, visibility, enabled state, `plan_complete` permission, execute-handoff permission, and labels. Custom modes are also available to `opl-input` for per-mode prefix and border styling.
+
+### Execute handoff
+
+Any mode can start plan execution via the mode picker's `Execute:` entries or `/execute`, unless it sets `allowExecute: false`. When blocked, the picker hides the `Execute:` entries and `/execute` reports that execution is unavailable from the current mode. The plan-mode action menu (`Execute / Refine / Save & Exit / Discard & Exit`) is the designed plan-to-execute pipeline and is always available in plan mode regardless of this flag.
+
+`allowPlanComplete: true` on a custom mode appends the `plan_complete` tool to that mode's tool list, letting a custom mode finish and exit through the same completion path as execute mode (the `tool_call` gate enforces the flag).
+
+### Tool inheritance warning
+
+A custom mode with no `tools` array inherits **all** tools, including `write` and `edit` — it is write-capable by default. Always specify an explicit read-only tool list for restrictive modes.
 
 Mode state is persisted in session entries and restored on session resume or branch changes. The `mode-switcher` entry type and legacy chat/plan event identifiers are compatibility contracts.
 
@@ -40,9 +50,16 @@ Create `~/.pi/agent/configs/opl-modes.json` or copy [`configs/opl-modes.json`](.
   "modes": {
     "review": {
       "enabled": true,
+      "allowExecute": false,
       "prompt": "Review without modifying files.",
       "tools": ["read", "grep", "find", "ls"],
       "labels": { "widgetColor": "accent" }
+    },
+    "verify": {
+      "enabled": true,
+      "allowPlanComplete": true,
+      "prompt": "Verify the implementation, then call plan_complete.",
+      "tools": ["read", "grep", "bash", "plan_complete"]
     }
   }
 }
@@ -57,6 +74,6 @@ Create `~/.pi/agent/configs/opl-modes.json` or copy [`configs/opl-modes.json`](.
 | `chatAllowedTools` / `planAllowedTools` | Replace the built-in read-only tools. |
 | `bashPatterns.safePatterns` | Replace the shared safe Bash patterns for chat and plan. |
 | `bashPatterns.destructivePatterns` | Replace the shared destructive Bash patterns. |
-| `modes.<name>` | Add or override a mode, including `model`, `tools`, patterns, `allowPlanComplete`, `visible`, `enabled`, `prompt`, and `labels`. |
+| `modes.<name>` | Add or override a mode, including `model`, `tools`, patterns, `allowPlanComplete`, `allowExecute`, `visible`, `enabled`, `prompt`, and `labels`. |
 
 Model overrides are resolved through Pi's model registry when entering a mode and the previously active model is restored on exit when applicable. Use Pi theme color tokens for widget label colors.
