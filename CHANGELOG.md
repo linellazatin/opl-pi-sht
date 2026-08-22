@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.3] - 2026-08-23
+
+### Changed
+- `opl-simplebench`: default runs now leave sampling and reasoning to the provider/model; `--thinking-max` requests explicit maximum reasoning for OpenAI-compatible providers and direct Bedrock models that advertise max thinking in Pi metadata.
+- `opl-simplebench`: direct Bedrock max-thinking runs delegate model-family request construction to Pi's Bedrock adapter, instead of duplicating adaptive and budget-based Claude reasoning rules.
+- `opl-simplebench`: artifacts now record requested/effective thinking mode, logical level, and whether model metadata came from the active context or scoped registry.
+
+### Tests
+- Added metadata-gated Bedrock max-thinking resolution coverage and retained provider-default/OpenAI-compatible mode checks.
+
 ## [0.1.2] - 2026-08-23
 
 ### Hotfix

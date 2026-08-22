@@ -1,7 +1,10 @@
 {
   "name": "opl-pi-sht",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*"
+  },
   "type": "module",
   "scripts": {
     "test": "npm run test:opl-footer && npm run test:opl-init && npm run test:opl-input && npm run test:opl-modes && npm run test:opl-questionnaire && npm run test:opl-todo && npm run test:opl-webaccess && npm run test:opl-simplebench",
