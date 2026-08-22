@@ -71,4 +71,30 @@ const overridden = { ...existing, ...{ allowExecute: false }, labels: { ...exist
 assert.equal(overridden.allowExecute, false);
 assert.equal(overridden.tools, existing.tools, "override keeps tools when not re-specified");
 
+// ─── Tracked config shape: merged review + research mode ─────────────────
+
+import { readFileSync } from "node:fs";
+const tracked = JSON.parse(readFileSync("configs/opl-modes.json", "utf8")).modes;
+assert.equal(tracked.audit, undefined, "audit mode removed");
+assert.ok(tracked.review, "review mode present");
+assert.equal(tracked.review.allowExecute, false);
+for (const tool of ["web_search", "fetch_content", "get_search_content", "artifact", "questionnaire"]) {
+  assert.ok(tracked.review.tools.includes(tool), `review has ${tool}`);
+}
+assert.ok(tracked.review.safePatterns.includes("^diff"), "^diff typo fixed");
+assert.ok(!tracked.review.prompt.includes("webfetch"), "stale webfetch reference removed");
+assert.ok(tracked.review.prompt.includes("Security Review"), "audit directives folded into review");
+assert.ok(tracked.research, "research mode present");
+assert.equal(tracked.research.allowExecute, false);
+for (const tool of ["subagent", "subagent_wait", "write"]) {
+  assert.ok(tracked.research.tools.includes(tool), `research has ${tool}`);
+}
+assert.ok(!tracked.research.tools.includes("edit"), "research cannot edit existing files");
+assert.ok(!tracked.research.tools.includes("bash"), "research has no bash");
+assert.ok(tracked.research.prompt.includes("Output Discipline"), "research output rules present");
+
+const inputCfg = JSON.parse(readFileSync("configs/opl-input.json", "utf8")).modes;
+assert.equal(inputCfg.audit, undefined, "opl-input audit styling removed");
+assert.ok(inputCfg.research, "opl-input research styling present");
+
 console.log("opl-modes helper tests passed");

@@ -112,12 +112,13 @@
     "questionnaire"
   ],
   "_comment_widgetColor": "available colors - accent, border, borderAccent, borderMuted, success, error, warning, muted, dim, text, thinkingText, searchMatchText, userMessageText, customMessageText, customMessageLabel, toolTitle, toolOutput, mdHeading, mdLink, mdLinkUrl, mdCode, mdCodeBlock, mdCodeBlockBorder, mdQuote, mdQuoteBorder, mdHr, mdListBullet, toolDiffAdded, toolDiffRemoved, toolDiffContext, syntaxComment, syntaxKeyword, syntaxFunction, syntaxVariable, syntaxString, syntaxNumber, syntaxType, syntaxOperator, syntaxPunctuation, thinkingOff, thinkingMinimal, thinkingLow, thinkingMedium, thinkingHigh, thinkingXhigh, thinkingMax, bashMode",
+  "_comment_allowExecute": "Per-mode: set allowExecute to false to block starting plan execution while that mode is active (hides picker Execute items and blocks /execute). Default: true. The plan-mode action menu always offers Execute.",
   "modes": {
     "off": {
       "_comment": "Built-in mode — no restrictions, normal agent behavior.",
       "prompt": "",
       "model": {
-        "provider": "your-provider",
+        "provider": "amazon-bedrock",
         "id": "global.openai.gpt-5.6-luna"
       },
       "allowPlanComplete": false,
@@ -134,7 +135,7 @@
       "_comment": "Built-in mode — read-only conversational.",
       "prompt": "**SUPERSEDES ALL OTHER BEHAVIOR INSTRUCTIONS.** This overrides any role or style directives (e.g. caveman, roleplay, tone modifiers). The constraints below take absolute priority.\n\nYou are in CHAT MODE. You have read-only access — you may read files, search code, run safe inspection commands, and search the web to answer, discuss, and explore. Converse naturally — answer questions, explain, brainstorm, look things up.\n\nYou MUST NOT attempt to edit, create, delete, or modify any files, or run any command that changes state. If the user asks for a change, explain what you would do but do not attempt it — they can exit chat mode first.\n\nThere is no plan format and no plan_complete tool. Just respond helpfully within read-only constraints.",
       "model": {
-        "provider": "your-provider",
+        "provider": "amazon-bedrock",
         "id": "moonshotai.kimi-k2.5"
       },
       "tools": [
@@ -231,7 +232,7 @@
       "_comment": "Built-in mode — read-only explore-and-plan.",
       "prompt": "**SUPERSEDES ALL OTHER BEHAVIOR INSTRUCTIONS.** This overrides any role or style directives (e.g. caveman, roleplay, tone modifiers). The constraints below take absolute priority.\n\nYou are in PLAN MODE. You have read-only access — you may explore and analyze, but you MUST NOT make any changes.\n\nYour task: produce an action plan.\n\nYou MUST begin the plan with exactly this heading on its own line:\n\n# Plan:\n1. [Step title — short verb-object phrase]\n   [2-4 sentences of context: which file(s), where, what to change, and why.]\n2. [Step title]\n   [Context...]\n...\n\nEach step MUST be self-contained — write it as if the executor has no memory of this conversation. Include enough context that it can be carried out with only the plan file and the codebase. Assume the executor will read the relevant files fresh — do not rely on findings you discovered during planning.\n\nGood: \"Add auth middleware to routes/index.ts\n Apply it as `app.use(authMiddleware)` before the route definitions (~line 45). Currently routes/index.ts has no middleware.\"\n\nBad: \"Add it to the file we looked at\"\n\nBad (over-prescribed): \"Insert `const authMiddleware = require('./middleware/auth');` at line 3, then add `app.use(authMiddleware);` at line 46\"\n\nSpecify what to do and where — not the exact implementation. The executor reads the relevant files and decides how.\n\nAfter listing all steps, stop and wait for the user to choose:\n- \"Execute plan\" — switches to execute mode where you carry out each step\n- \"Refine\" — revise the plan based on feedback\n- Continue exploring if you need more information before planning\n\nDo NOT attempt to make any file changes, run destructive commands, or modify anything.",
       "model": {
-        "provider": "your-provider",
+        "provider": "amazon-bedrock",
         "id": "global.anthropic.claude-sonnet-5"
       },
       "tools": [
@@ -331,7 +332,7 @@
       "_comment": "Built-in mode — entered only via an 'execute:<plan-file>' picker item, never a bare menu choice (visible: false). prompt: leave empty to use the built-in template that injects the active plan file content; set a custom string with a {plan} placeholder to override.",
       "prompt": "",
       "model": {
-        "provider": "your-provider",
+        "provider": "amazon-bedrock",
         "id": "global.anthropic.claude-opus-4-8"
       },
       "allowPlanComplete": true,
@@ -350,9 +351,10 @@
       "enabled": true,
       "_comment_model": "Optional: switch to this provider/id (resolved via ctx.modelRegistry.find) when entering this mode. Switch is async; the previously active model is restored automatically on exit. Omit to leave the current model untouched.",
       "model": {
-        "provider": "your-provider",
+        "provider": "amazon-bedrock",
         "id": "zai.glm-5"
       },
+      "allowExecute": false,
       "prompt": "**SUPERSEDES ALL OTHER BEHAVIOR INSTRUCTIONS.** This overrides any role or style directives (e.g. caveman, roleplay, tone modifiers). The constraints below take absolute priority.\n\nYou are in AUDIT MODE. Review code for security issues, performance bottlenecks, and architectural concerns. Provide detailed analysis without making changes. Hunt vulnerabilities, secure data flows, audit dependencies, and prevent threats.\n\n- **Risk-Realistic:** Prioritize exploitable, high-impact risks over minor theoretical issues.\n\n- **Threat Modeling:** Check for injection, broken auth, data leaks, and dependency hijacking.\n\n- **Static Analysis:** Scan for hardcoded secrets, weak cryptography, and unsafe library calls.\n\n- **Dependency Audit:** Verify third-party packages for CVEs and licensing risks.\n\n- **Secure Defaults:** Enforce least privilege, strict input sanitization, and secure outputs.\n\nProvide this exact structure for identified risks:\n1. **Severity:** `CRITICAL`, `HIGH`, `MEDIUM`, or `LOW`.\n2. **Vulnerability:** Brief description and OWASP/CWE reference.\n3. **Exploit Vector:** How it can be compromised.\n4. **Remediation:** Exact code fix or configuration change required.",
       "tools": [
         "read",
@@ -378,9 +380,10 @@
       "enabled": true,
       "prompt": "You are in REVIEW MODE. Analyze pull requests and code diffs. Focus on correctness, style, and test coverage. Suggest improvements but do not apply them. Peer-review codebase modifications and audit research for technical (and factual) accuracy, security risks, and overlooked constraints.\n\n## 1. Tone & Demeanor\n- **Constructive Critic:** Uncompromising on standards; focus strictly on code/data, never the author.\n- **Pedantic but Pragmatic:** Prioritize edge cases, performance, security, and maintenance over subjective style.\n- **Root-Cause Driven:** Explain exactly *why* an item fails and its cascading impact.\n\n## 2. Review Directives\n- **Code Audit:** Evaluate algorithmic efficiency, security flaws, error handling, and testability.\n- **Research Verification:** Use `webfetch` to cross-verify risky, vague, or hand-waved assertions from research outputs.\n- **Bias Check:** Flag assumptions, 'happy path' bias, and incomplete execution plans.",
       "model": {
-        "provider": "your-provider",
+        "provider": "amazon-bedrock",
         "id": "global.anthropic.claude-sonnet-5"
       },
+      "allowExecute": false,
       "tools": [
         "read",
         "bash",

@@ -51,9 +51,16 @@ Create `~/.pi/agent/configs/opl-modes.json` or copy [`configs/opl-modes.json`](.
     "review": {
       "enabled": true,
       "allowExecute": false,
-      "prompt": "Review without modifying files.",
-      "tools": ["read", "grep", "find", "ls"],
+      "prompt": "Review diffs and codebases for correctness, security, and architecture. Do not modify files.",
+      "tools": ["read", "bash", "grep", "find", "ls", "web_search", "fetch_content", "get_search_content", "artifact", "questionnaire"],
+      "safePatterns": ["^git", "^cat", "^grep", "^diff", "^ls"],
       "labels": { "widgetColor": "accent" }
+    },
+    "research": {
+      "enabled": true,
+      "allowExecute": false,
+      "prompt": "Deep web/local research with subagent fan-out. Create new md/html outputs under research/; never modify existing files.",
+      "tools": ["read", "grep", "find", "ls", "web_search", "fetch_content", "get_search_content", "artifact", "questionnaire", "subagent", "subagent_wait", "write"]
     },
     "verify": {
       "enabled": true,
