@@ -1,12 +1,17 @@
 // Functional tests for opl-modes config helpers and registry gating. Requires Bun.
 // Run: bun tests/opl-modes-helpers.test.mjs
 import assert from "node:assert/strict";
+import { test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { transition } from "../extensions/opl-modes/state.ts";
 import {
   MODE_REGISTRY,
   getModeDefinition,
   executeHandoffAllowed,
   withPlanComplete,
 } from "../extensions/opl-modes/config.ts";
+
+test("validates mode registry, config policy, and published appearance", () => {
 
 // ─── Registry invariants (built-ins + user config merged) ───────────────────
 
@@ -73,8 +78,6 @@ assert.equal(overridden.tools, existing.tools, "override keeps tools when not re
 
 // ─── Tracked config shape: merged review + research mode ─────────────────
 
-import { readFileSync } from "node:fs";
-import { transition } from "../extensions/opl-modes/state.ts";
 const trackedConfig = JSON.parse(readFileSync("configs/opl-modes.json", "utf8"));
 const tracked = trackedConfig.modes;
 assert.equal(trackedConfig.chatAllowedTools, undefined, "tracked config uses modes.chat.tools");
@@ -126,5 +129,4 @@ assert.deepEqual(globalThis.__agentMode, {
 
 const modeIndex = readFileSync("extensions/opl-modes/index.ts", "utf8");
 assert.doesNotMatch(modeIndex, /__agentMode\s*=\s*\{\s*mode,\s*widgetColor/, "status refresh must not clobber published appearance");
-
-console.log("opl-modes helper tests passed");
+});

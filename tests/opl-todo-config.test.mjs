@@ -1,12 +1,14 @@
 // Functional tests for opl-todo config loading. Requires Bun.
 // Run: bun tests/opl-todo-config.test.mjs
 import assert from "node:assert/strict";
+import { test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadTodoConfig, TODO_DEFAULT_CONFIG } from "../extensions/opl-todo/config.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "opl-todo-"));
+test("loads todo defaults and validates per-field overrides", () => {
 const write = (obj) => {
   const p = join(dir, `${Math.random().toString(36).slice(2)}.json`);
   writeFileSync(p, typeof obj === "string" ? obj : JSON.stringify(obj));
@@ -44,5 +46,4 @@ assert.equal(clamped.widget.minWidth, TODO_DEFAULT_CONFIG.widget.minWidth);
 
 // allDoneHideMs = 0 is valid (>= 0)
 assert.equal(loadTodoConfig(write({ allDoneHideMs: 0 })).allDoneHideMs, 0);
-
-console.log("opl-todo config tests passed");
+});

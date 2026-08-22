@@ -69,7 +69,7 @@ See the tracked [`configs/opl-footer.json`](../../configs/opl-footer.json) for a
 | `path` | Current working directory | `segmentOptions.path.mode`: `"full"` (default) · `"abbreviated"` · `"basename"` |
 | `git` | Git branch and dirty indicators | `showBranch`, `showStaged`, `showUnstaged`, `showUntracked` (all bool) |
 | `context_pct` | Gradient bar + `X.X%` + max tokens | Bar fully configurable via `segmentOptions.contextBar` (see below). % and max tokens use `contextLabel` colour. Max tokens formatted with K/M suffix (e.g. `128k`, `2M`). Set `DEBUG_PCT` in `context.ts` to a number (0–100) to pin the bar at a fixed value for visual testing. |
-| `cost` | `$<amount>` | `$` dim, amount in `cost` colour (`muted` by default) |
+| `cost` | `$<amount>` | `$` dim, amount in `cost` colour (`muted` by default). Shows dim `(no pricing)` when the session total is zero on a non-local model (provider has no pricing configured), and `(local model)` for local models |
 | `thinking` | `Thinking: <LEVEL>` | Dim label, CAPS level with per-level colour; always visible |
 | `mode_switcher` | Unified active mode label | Reads state published by `opl-modes`; `appearance.modeColor` controls the mode value, with hardcoded `muted` fallback |
 | `caveman` | `Caveman mode: <MODE>` | Hidden when caveman extension not loaded |
