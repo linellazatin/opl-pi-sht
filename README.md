@@ -7,7 +7,7 @@ A tracked collection of customized Pi coding-agent extensions and their portable
 
 | Extension | Description |
 |---|---|
-| [`opl-init`](extensions/opl-init/README.md) | `/init` repository crawler that creates or updates fingerprinted `AGENTS.md` contributor guides. |
+| [`opl-init`](extensions/opl-init/README.md) | `/init` repository crawler that creates or updates fingerprinted `AGENTS.md` contributor guides and incorporates existing Cursor, Copilot, Claude, Windsurf, Cline, and Devin rule sources. |
 | [`opl-webaccess`](extensions/opl-webaccess/README.md) | Multi-provider web search, URL extraction, PDF extraction, and stored-result retrieval tools. |
 | [`opl-todo`](extensions/opl-todo/README.md) | Session-branch-aware `todo` tool, overlay widget, shortcuts, and `/todos` command. |
 | [`opl-questionnaire`](extensions/opl-questionnaire/README.md) | Model-invoked TUI questionnaire for selectable single or multi-question clarification. |
