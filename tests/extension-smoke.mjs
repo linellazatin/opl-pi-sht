@@ -14,6 +14,10 @@ if (extension === "opl-init") {
     assert.match(source, new RegExp(`## ${heading}`));
   }
   assert.match(source, /Avoid generic contribution, Git, or pull-request advice/);
+  assert.match(source, /pnpm-workspace\.yaml/);
+  assert.match(source, /MAX_MEMBER_DEPTH/);
+  assert.match(source, /MAX_DIR_ENTRIES/);
+  assert.match(source, /tree truncated at/);
 }
 
 const result = spawnSync("bun", [
