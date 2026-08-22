@@ -74,7 +74,15 @@ assert.equal(overridden.tools, existing.tools, "override keeps tools when not re
 // ─── Tracked config shape: merged review + research mode ─────────────────
 
 import { readFileSync } from "node:fs";
-const tracked = JSON.parse(readFileSync("configs/opl-modes.json", "utf8")).modes;
+import { transition } from "../extensions/opl-modes/state.ts";
+const trackedConfig = JSON.parse(readFileSync("configs/opl-modes.json", "utf8"));
+const tracked = trackedConfig.modes;
+assert.equal(trackedConfig.chatAllowedTools, undefined, "tracked config uses modes.chat.tools");
+assert.equal(trackedConfig.planAllowedTools, undefined, "tracked config uses modes.plan.tools");
+for (const name of ["chat", "plan"]) {
+  assert.equal(tracked[name].safePatterns, undefined, `${name} uses shared bashPatterns`);
+  assert.equal(tracked[name].destructivePatterns, undefined, `${name} uses shared bashPatterns`);
+}
 assert.equal(tracked.audit, undefined, "audit mode removed");
 assert.ok(tracked.review, "review mode present");
 assert.equal(tracked.review.allowExecute, false);
@@ -92,9 +100,31 @@ for (const tool of ["subagent", "subagent_wait", "write"]) {
 assert.ok(!tracked.research.tools.includes("edit"), "research cannot edit existing files");
 assert.ok(!tracked.research.tools.includes("bash"), "research has no bash");
 assert.ok(tracked.research.prompt.includes("Output Discipline"), "research output rules present");
+assert.deepEqual(tracked.off.appearance, { prefix: "❯", prefixColor: "accent", borderColor: "border", modeColor: "dim" });
+assert.deepEqual(tracked.chat.appearance, { prefix: "󰭻", prefixColor: "#157cd6", borderColor: "#157cd6", modeColor: "#157cd6" });
+assert.deepEqual(tracked.plan.appearance, { prefix: "⏸", prefixColor: "#52d90f", borderColor: "#52d90f", modeColor: "#52d90f" });
+assert.deepEqual(tracked.execute.appearance, { prefix: "⏸", prefixColor: "#52d90f", borderColor: "#52d90f", modeColor: "#52d90f" });
+assert.deepEqual(tracked.review.appearance, { prefix: "◎", prefixColor: "#ce93d8", borderColor: "#ce93d8", modeColor: "#ce93d8" });
+assert.deepEqual(tracked.research.appearance, { prefix: "⌕", prefixColor: "#f2eb5a", borderColor: "#f2eb5a", modeColor: "#f2eb5a" });
 
-const inputCfg = JSON.parse(readFileSync("configs/opl-input.json", "utf8")).modes;
-assert.equal(inputCfg.audit, undefined, "opl-input audit styling removed");
-assert.ok(inputCfg.research, "opl-input research styling present");
+const inputCfg = JSON.parse(readFileSync("configs/opl-input.json", "utf8"));
+for (const key of [
+  "borderColor", "prefix", "prefixColor",
+  "planModePrefix", "planModePrefixColor", "planModeBorderColor",
+  "chatModePrefix", "chatModePrefixColor", "chatModeBorderColor", "modes",
+]) assert.equal(inputCfg[key], undefined, `opl-input has no ${key}`);
+
+const footerCfg = JSON.parse(readFileSync("configs/opl-footer.json", "utf8"));
+assert.equal(footerCfg.colors?.modeIndicator, undefined, "footer has no modeIndicator override");
+
+// State publication must keep the configured appearance for renderers.
+transition("research", { appendEntry() {} });
+assert.deepEqual(globalThis.__agentMode, {
+  mode: "research",
+  appearance: getModeDefinition("research")?.appearance,
+});
+
+const modeIndex = readFileSync("extensions/opl-modes/index.ts", "utf8");
+assert.doesNotMatch(modeIndex, /__agentMode\s*=\s*\{\s*mode,\s*widgetColor/, "status refresh must not clobber published appearance");
 
 console.log("opl-modes helper tests passed");
