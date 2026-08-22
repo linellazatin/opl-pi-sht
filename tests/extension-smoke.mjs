@@ -20,6 +20,12 @@ if (extension === "opl-init") {
   assert.match(source, /tree truncated at/);
 }
 
+if (extension === "opl-modes") {
+  const source = readFileSync(`extensions/${extension}/index.ts`, "utf8");
+  assert.match(source, /executeHandoffAllowed/);
+  assert.match(source, /withPlanComplete/);
+}
+
 const result = spawnSync("bun", [
   "build", `extensions/${extension}/index.ts`, "--bundle", "--platform=node",
   "--external", "@earendil-works/pi-coding-agent",
