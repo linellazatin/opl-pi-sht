@@ -4,19 +4,38 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "bun:test";
 import { parseCommandArgs } from "../extensions/opl-simplebench/index";
+import { openAiThinkingOptions, resolveBenchmarkModel, resolveThinkingMode } from "../extensions/opl-simplebench/benchmark";
 import { artifactFileName, writeArtifact } from "../extensions/opl-simplebench/artifact";
 import { formatInstructionScore, recommendation } from "../extensions/opl-simplebench/report";
 import { aggregateMetrics, metricsFromChat, usageFromRaw, emptyMetrics } from "../extensions/opl-simplebench/metrics";
 import { scoreReasoning } from "../extensions/opl-simplebench/scoring";
 import { REASONING_TESTS, MULTISTEP_INSTRUCTION } from "../extensions/opl-simplebench/tests";
 
-test("parses no-artifact for named and all-model runs", () => {
+test("parses artifact and thinking-max benchmark modes", () => {
   assert.deepEqual(parseCommandArgs("global.openai.gpt-5.6-terra --no-artifact"), {
-    model: "global.openai.gpt-5.6-terra", allModels: false, writeArtifact: false,
+    model: "global.openai.gpt-5.6-terra", allModels: false, writeArtifact: false, thinkingMax: false,
   });
   assert.deepEqual(parseCommandArgs("--all --no-artifact"), {
-    model: undefined, allModels: true, writeArtifact: false,
+    model: undefined, allModels: true, writeArtifact: false, thinkingMax: false,
   });
+  assert.deepEqual(parseCommandArgs("global.openai.gpt-5.6-terra --thinking-max"), {
+    model: "global.openai.gpt-5.6-terra", allModels: false, writeArtifact: true, thinkingMax: true,
+  });
+});
+
+test("leaves OpenAI-compatible sampling at provider defaults unless thinking max is requested", () => {
+  assert.deepEqual(openAiThinkingOptions(false), {});
+  assert.deepEqual(openAiThinkingOptions(true), { reasoning_effort: "max" });
+});
+
+test("resolves Bedrock max thinking from Pi model metadata", () => {
+  const active = { id: "anthropic.claude-opus-4-8", provider: "amazon-bedrock", api: "bedrock-converse-stream", reasoning: true, thinkingLevelMap: { max: "max" } };
+  assert.deepEqual(resolveBenchmarkModel({ model: active }, active.id), { model: active, source: "active-context" });
+  assert.deepEqual(resolveBenchmarkModel({ getScopedModels: () => [{ model: active }] }, `amazon-bedrock/${active.id}`), { model: active, source: "scoped-model" });
+  assert.deepEqual(resolveThinkingMode({ kind: "bedrock" }, active, true), {
+    requested: "max", effective: "pi-bedrock-reasoning", level: "max",
+  });
+  assert.throws(() => resolveThinkingMode({ kind: "bedrock" }, { ...active, thinkingLevelMap: {} }, true), /does not advertise max thinking/);
 });
 
 test("writes artifacts in the current working directory", () => {
@@ -25,9 +44,11 @@ test("writes artifacts in the current working directory", () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "simplebench-test-"));
   try {
     process.chdir(temp);
-    const output = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", model: "test/model", provider: "test", providerKind: "test", startedAt: "", finishedAt: "", wallTimeMs: 0, artifactEnabled: true }, tests: [], summary: {} });
+    const output = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", model: "test/model", provider: "test", providerKind: "test", thinking: { requested: "default", effective: "provider-default", level: null, modelMetadataSource: null }, startedAt: "", finishedAt: "", wallTimeMs: 0, artifactEnabled: true }, tests: [], summary: {} });
+    const artifact = JSON.parse(fs.readFileSync(output, "utf8"));
     assert.equal(fs.realpathSync(path.dirname(output)), fs.realpathSync(temp));
-    assert.equal(JSON.parse(fs.readFileSync(output, "utf8")).benchmark.model, "test/model");
+    assert.equal(artifact.benchmark.model, "test/model");
+    assert.deepEqual(artifact.benchmark.thinking, { requested: "default", effective: "provider-default", level: null, modelMetadataSource: null });
   } finally {
     process.chdir(cwd);
     fs.rmSync(temp, { recursive: true });
