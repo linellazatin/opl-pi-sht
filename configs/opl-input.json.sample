@@ -10,7 +10,7 @@
   "chatModePrefix": "󰭻",
   "chatModePrefixColor": "chatModeBorder",
   "chatModeBorderColor": "chatModeBorder",
-  "_comment_customModes": "use same mode names from mode-switcher",
+  "_comment_customModes": "use same mode names from opl-modes",
   "modes": {
     "audit": {
       "prefix": "⚑",
