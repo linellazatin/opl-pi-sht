@@ -13,15 +13,37 @@ const IGNORE = new Set([
 const MANIFESTS = new Set([
   "package.json", "Cargo.toml", "pyproject.toml", "go.mod", "pom.xml",
   "build.gradle", "Gemfile",
+  // Monorepo structure declarations. turbo.json/nx.json are listed for context
+  // only; package locations come from the package manager's workspace config.
+  "pnpm-workspace.yaml", "turbo.json", "nx.json",
 ]);
 const MAX_DEPTH = 3;
+const MAX_MEMBER_DEPTH = 3;
 const MAX_TREE_LINES = 300;
 const MAX_MANIFEST_BYTES = 2048;
+const MAX_DIR_ENTRIES = 40;
+const MAX_RULE_SOURCE_BYTES = 2048;
+
+// Instruction sources other coding agents use (see research/harness-init-comparison.md).
+// AGENTS.md is deliberately absent — it is this command's output.
+const RULE_SOURCES = [
+  ".cursorrules",
+  ".cursor/rules",
+  ".github/copilot-instructions.md",
+  "CLAUDE.md",
+  "CLAUDE.local.md",
+  ".claude/rules",
+  ".windsurfrules",
+  ".windsurf/rules",
+  ".clinerules",
+  ".devin/rules",
+];
 
 type Crawl = {
   tree: string[];
   extCounts: Map<string, number>;
   manifests: { path: string; content: string }[];
+  workspaceMembers: string[];
 };
 
 // Marker the model appends to AGENTS.md so future runs can detect staleness exactly.
@@ -90,9 +112,10 @@ function crawl(root: string): Crawl {
     tree: [],
     extCounts: new Map(),
     manifests: [],
+    workspaceMembers: [],
   };
 
-  function walk(dir: string, depth: number, prefix: string) {
+  function walk(dir: string, depth: number, prefix: string, maxDepth: number) {
     if (result.tree.length >= MAX_TREE_LINES) return;
 
     let entries: string[];
@@ -137,19 +160,138 @@ function crawl(root: string): Crawl {
 
     dirs.sort();
     files.sort();
-    for (const dirName of dirs) {
-      if (result.tree.length >= MAX_TREE_LINES) return;
-      result.tree.push(`${prefix}${dirName}/`);
-      if (depth < MAX_DEPTH) walk(join(dir, dirName), depth + 1, `${prefix}  `);
-    }
-    for (const fileName of files) {
-      if (result.tree.length >= MAX_TREE_LINES) return;
-      result.tree.push(`${prefix}${fileName}`);
+    // ponytail: single combined per-directory cap; one omission line instead of
+    // a priority queue. Revisit if real repos starve important branches.
+    const all = [...dirs.map((d) => `${d}/`), ...files];
+    for (let i = 0; i < all.length; i++) {
+      if (result.tree.length >= MAX_TREE_LINES) break;
+      if (i >= MAX_DIR_ENTRIES) {
+        result.tree.push(`${prefix}... (${all.length - MAX_DIR_ENTRIES} more entries omitted)`);
+        break;
+      }
+      const entry = all[i];
+      result.tree.push(`${prefix}${entry}`);
+      if (entry.endsWith("/") && depth < maxDepth) {
+        walk(join(dir, entry.slice(0, -1)), depth + 1, `${prefix}  `, maxDepth);
+      }
     }
   }
 
-  walk(root, 0, "");
+  walk(root, 0, "", MAX_DEPTH);
+
+  // Manifest-first monorepo expansion: enumerate declared workspace members
+  // with a fresh depth budget so packages/foo/src is not penalized by its
+  // grouping prefix.
+  for (const member of workspaceMembers(root)) {
+    if (result.tree.length >= MAX_TREE_LINES) break;
+    const abs = join(root, member);
+    let stats;
+    try {
+      stats = statSync(abs);
+    } catch {
+      continue;
+    }
+    if (!stats.isDirectory()) continue;
+    // Always re-walk declared members with a full fresh budget: partial root-
+    // walk coverage must not truncate member internals. Shallow overlap with
+    // the root tree is accepted as the cost of completeness.
+    result.workspaceMembers.push(member);
+    result.tree.push(`${member}/`);
+    walk(abs, 0, "  ", MAX_MEMBER_DEPTH);
+  }
+
+  // Explicit truncation signal — never leave the model guessing whether the
+  // tree is complete.
+  if (result.tree.length >= MAX_TREE_LINES) {
+    result.tree.push(`(tree truncated at ${MAX_TREE_LINES} entries)`);
+  }
   return result;
+}
+
+// ponytail: naive glob matcher supporting only what workspace files use in
+// practice: `**` across segments, `*` within a segment, optional trailing "/".
+function globToRegExp(pattern: string): RegExp {
+  const cleaned = pattern.replace(/\/$/, "");
+  const source = cleaned
+    .split("/**/")
+    .map((seg) => seg.replace(/[*]/g, "[^/]*"))
+    .join("(?:/.*)?");
+  return new RegExp(`^${source}$`);
+}
+
+// ponytail: line-based subset parsing of pnpm-workspace.yaml and Cargo.toml
+// [workspace] members. Full YAML/TOML parsing not warranted for glob lists.
+function workspaceMembers(root: string): string[] {
+  const globs: string[] = [];
+
+  try {
+    const yaml = readFileSync(join(root, "pnpm-workspace.yaml"), "utf8");
+    let inPackages = false;
+    for (const line of yaml.split("\n")) {
+      if (/^packages:\s*$/.test(line)) {
+        inPackages = true;
+      } else if (/^\S/.test(line)) {
+        inPackages = false;
+      } else if (inPackages) {
+        const match = line.match(/^\s*-\s*["']?([^"'#]+)/);
+        if (match) globs.push(match[1].trim());
+      }
+    }
+  } catch {
+    // No pnpm-workspace.yaml.
+  }
+
+  try {
+    const toml = readFileSync(join(root, "Cargo.toml"), "utf8");
+    const section = toml.match(/\[workspace\]([\s\S]*?)(?:\n\[|\s*$)/);
+    const membersBlock = section?.[1].match(/members\s*=\s*\[([^\]]*)\]/s);
+    if (membersBlock) {
+      for (const m of membersBlock[1].matchAll(/["']([^"']+)["']/g)) {
+        globs.push(m[1]);
+      }
+    }
+  } catch {
+    // No Cargo.toml.
+  }
+
+  const members = new Set<string>();
+  for (const glob of globs) {
+    const re = globToRegExp(glob);
+    // Match against shallow candidate paths from the tree we already walked,
+    // plus one extra readdir of likely parent dirs. Simple approach: test every
+    // tree dir line's relative path.
+    for (const line of result_tree_paths(root)) {
+      if (re.test(line)) members.add(line);
+    }
+  }
+  return [...members].sort();
+}
+
+// Candidate relative paths for glob matching: all directory paths up to
+// MAX_DEPTH derived from a fresh cheap listing (not the truncated tree).
+function result_tree_paths(root: string): string[] {
+  const paths: string[] = [];
+  function walkList(dir: string, rel: string, depth: number) {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (IGNORE.has(entry)) continue;
+      try {
+        if (!statSync(join(dir, entry)).isDirectory()) continue;
+      } catch {
+        continue;
+      }
+      const childRel = rel ? `${rel}/${entry}` : entry;
+      paths.push(childRel);
+      if (depth < MAX_DEPTH + 1) walkList(join(dir, entry), childRel, depth + 1);
+    }
+  }
+  walkList(root, "", 0);
+  return paths;
 }
 
 function packageScripts(content: string): string | null {
@@ -164,6 +306,36 @@ function packageScripts(content: string): string | null {
   }
 }
 
+function findRuleSources(root: string): { path: string; detail: string }[] {
+  const found: { path: string; detail: string }[] = [];
+  for (const name of RULE_SOURCES) {
+    const path = join(root, name);
+    let stats;
+    try {
+      stats = statSync(path);
+    } catch {
+      continue;
+    }
+    if (stats.isDirectory()) {
+      // ponytail: filenames only for rule dirs; model can read entries itself.
+      let entries: string[] = [];
+      try {
+        entries = readdirSync(path).slice(0, 20);
+      } catch {
+        continue;
+      }
+      found.push({ path: `${name}/ (${entries.length} file${entries.length === 1 ? "" : "s"})`, detail: entries.join(", ") });
+    } else {
+      try {
+        found.push({ path: name, detail: readFileSync(path, "utf8").slice(0, MAX_RULE_SOURCE_BYTES) });
+      } catch {
+        found.push({ path: name, detail: "(unreadable)" });
+      }
+    }
+  }
+  return found;
+}
+
 function buildContext(root: string, crawlResult: Crawl): string {
   const extensions = [...crawlResult.extCounts.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -171,9 +343,13 @@ function buildContext(root: string, crawlResult: Crawl): string {
     .join(", ");
   const sections = [
     `## Repository crawl for: ${root}`,
-    `### Directory tree (depth ${MAX_DEPTH}, common generated/dependency directories ignored)\n\`\`\`\n${crawlResult.tree.join("\n")}\n\`\`\``,
+    `### Directory tree (depth ${MAX_DEPTH}; declared workspace members get their own depth-${MAX_MEMBER_DEPTH} walk; per-directory entries capped at ${MAX_DIR_ENTRIES})\n\`\`\`\n${crawlResult.tree.join("\n")}\n\`\`\``,
     `### File counts by extension\n${extensions || "(none)"}`,
   ];
+
+  if (crawlResult.workspaceMembers.length) {
+    sections.push(`### Declared workspace members (expanded above)\n${crawlResult.workspaceMembers.join(", ")}`);
+  }
 
   if (crawlResult.manifests.length) {
     // ponytail: send paths + package.json scripts only; the model can read a
@@ -185,6 +361,14 @@ function buildContext(root: string, crawlResult: Crawl): string {
         const scripts = packageScripts(manifest.content);
         if (scripts) sections.push(`Scripts:\n\`\`\`\n${scripts}\n\`\`\``);
       }
+    }
+  }
+
+  const ruleSources = findRuleSources(root);
+  if (ruleSources.length) {
+    sections.push("### Existing agent rule sources (from other coding agents)");
+    for (const source of ruleSources) {
+      sections.push(`**${source.path}**\n\`\`\`\n${source.detail}\n\`\`\``);
     }
   }
 
@@ -203,10 +387,14 @@ Produce a concise, useful Markdown guide, usually 250-700 words:
 - Capture non-obvious constraints, state, deployment, security, or test-order invariants when they materially affect contributors.
 - Avoid generic contribution, Git, or pull-request advice unless the repository supplies specific facts for it.
 - Omit unsupported sections rather than inventing details.
+- If existing agent rule sources are listed below, incorporate their relevant project-specific content into the guide. Do not copy them verbatim and do not treat them as authoritative over evidence from this repository.
 - IMPORTANT: when you write or update AGENTS.md, make the very last line exactly the fingerprint marker given below (verbatim, no changes). This lets future runs detect staleness.
 
 ---
 `;
+
+// Named export for fixture tests (tests/opl-init-crawl.test.mjs).
+export { crawl };
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("init", {
