@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { test } from "bun:test";
 import { parseCommandArgs } from "../extensions/opl-simplebench/index";
 import { artifactFileName, writeArtifact } from "../extensions/opl-simplebench/artifact";
-import { recommendation } from "../extensions/opl-simplebench/report";
+import { formatInstructionScore, recommendation } from "../extensions/opl-simplebench/report";
 import { aggregateMetrics, metricsFromChat, usageFromRaw, emptyMetrics } from "../extensions/opl-simplebench/metrics";
 import { scoreReasoning } from "../extensions/opl-simplebench/scoring";
 import { REASONING_TESTS, MULTISTEP_INSTRUCTION } from "../extensions/opl-simplebench/tests";
@@ -46,6 +46,11 @@ test("extracts OpenAI, Bedrock, and Ollama authoritative usage", () => {
   assert.deepEqual(usageFromRaw({ usage: { prompt_tokens: 5, completion_tokens: 10, total_tokens: 15 } }), { inputTokens: 5, outputTokens: 10, totalTokens: 15, outputTokensPerSecond: null });
   assert.deepEqual(usageFromRaw({ usage: { inputTokens: 4, outputTokens: 8, totalTokens: 12 } }), { inputTokens: 4, outputTokens: 8, totalTokens: 12, outputTokensPerSecond: null });
   assert.deepEqual(usageFromRaw({ prompt_eval_count: 3, eval_count: 6, eval_duration: 2_000_000_000 }), { inputTokens: 3, outputTokens: 6, totalTokens: 9, outputTokensPerSecond: 3 });
+});
+
+test("renders an instruction-score line", () => {
+  assert.match(formatInstructionScore({ pass: true, score: "STRONG", schemaValid: true }), /Instruction following: STRONG \(schema valid\)/);
+  assert.match(formatInstructionScore({ pass: false, score: "FAIL", schemaValid: false }), /Instruction following: FAIL \(schema invalid\)/);
 });
 
 test("aggregates complete request metrics without treating unavailable tokens as zero", () => {

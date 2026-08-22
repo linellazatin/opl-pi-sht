@@ -1,6 +1,12 @@
 import { fail, info, ok, section, warn, msHuman } from "./util/format";
 
 export const branding = "  ⚡ OPL Simplebench";
+
+export function formatInstructionScore(instructions: { pass: boolean; score: string; schemaValid: boolean }): string {
+  const message = `Instruction following: ${instructions.score} (schema ${instructions.schemaValid ? "valid" : "invalid"})`;
+  return instructions.pass ? ok(message) : fail(message);
+}
+
 export function formatTestSummary(tests: Array<{ name: string; pass: boolean; score: string }>, totalMs: number): string[] {
   return [section("SUMMARY"), ...tests.map(t => t.pass ? ok(`${t.name}: ${t.score}`) : fail(`${t.name}: ${t.score}`)), info(`Total time: ${msHuman(totalMs)}`), info(`Score: ${tests.filter(t => t.pass).length}/${tests.length} tests passed`)];
 }
