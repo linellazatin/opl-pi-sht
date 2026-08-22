@@ -1,8 +1,9 @@
-import { CustomEditor, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { CustomEditor, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
 import type { TUI, EditorTheme } from "@earendil-works/pi-tui";
 import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { CONFIG, COMPANION_PADDING, MIN_WIDTH_FOR_COMPANION, DEFAULT_CONFIG } from "./config.js";
+import { CONFIG, COMPANION_PADDING, MIN_WIDTH_FOR_COMPANION } from "./config.js";
+import { resolveModeStyle } from "./mode-style.js";
 import { applyColor, CompanionAnimator } from "./utils.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -31,15 +32,10 @@ function activeCustomMode(): string | null {
 
 // ─── Component ────────────────────────────────────────────────────────────
 class ChatInput extends CustomEditor {
-	private border: (s: string) => string;
-	private accent: (s: string) => string;
-	private bashBorder: (s: string) => string;
-	private bashAccent: (s: string) => string;
-	private planModeBorder: (s: string) => string;
-	private planModeAccent: (s: string) => string;
-	private chatModeBorder: (s: string) => string;
-	private chatModeAccent: (s: string) => string;
 	private companionColor: (s: string) => string;
+	// Full Theme (not EditorTheme): custom-mode colors resolve through theme.fg,
+	// which EditorTheme does not implement.
+	private uiTheme: Theme;
 	private inputTheme: EditorTheme;
 	private animator = new CompanionAnimator();
 	private companionTimer: ReturnType<typeof setInterval> | null = null;
@@ -48,26 +44,12 @@ class ChatInput extends CustomEditor {
 		tui: TUI,
 		theme: EditorTheme,
 		keybindings: KeybindingsManager,
-		colorFn: (s: string) => string,
-		accentFn: (s: string) => string,
-		bashColorFn: (s: string) => string,
-		bashAccentFn: (s: string) => string,
-		planModeColorFn: (s: string) => string,
-		planModeAccentFn: (s: string) => string,
-		chatModeColorFn: (s: string) => string,
-		chatModeAccentFn: (s: string) => string,
 		companionColor: (s: string) => string,
+		uiTheme: Theme,
 	) {
 		super(tui, theme, keybindings, { paddingX: 0 });
-		this.border = colorFn;
-		this.accent = accentFn;
-		this.bashBorder = bashColorFn;
-		this.bashAccent = bashAccentFn;
-		this.planModeBorder = planModeColorFn;
-		this.planModeAccent = planModeAccentFn;
-		this.chatModeBorder = chatModeColorFn;
-		this.chatModeAccent = chatModeAccentFn;
 		this.companionColor = companionColor;
+		this.uiTheme = uiTheme;
 		this.inputTheme = theme;
 
 		// Animate companion even when idle — tick drives state machine
@@ -96,21 +78,13 @@ class ChatInput extends CustomEditor {
 		const isPlan = isPlanModeActive();
 		const isChat = isChatModeActive();
 		const customMode = !isBash && !isPlan && !isChat ? activeCustomMode() : null;
-		const customCfg = customMode ? CONFIG.MODES[customMode] : undefined;
-		const border = isBash ? this.bashBorder
-			: isPlan ? this.planModeBorder
-			: isChat ? this.chatModeBorder
-			: customCfg?.borderColor ? (s: string) => applyColor(this.inputTheme, customCfg.borderColor!, s)
-			: this.border;
-		const accent = isBash ? this.bashAccent
-			: isPlan ? this.planModeAccent
-			: isChat ? this.chatModeAccent
-			: customCfg?.prefixColor ? (s: string) => applyColor(this.inputTheme, customCfg.prefixColor!, s)
-			: this.accent;
-		const prefix = isBash ? CONFIG.PREFIX
-			: isPlan ? CONFIG.PLAN_MODE_PREFIX
-			: isChat ? CONFIG.CHAT_MODE_PREFIX
-			: customCfg?.prefix ?? CONFIG.PREFIX;
+		const style = resolveModeStyle(
+			{ bash: isBash, plan: isPlan, chat: isChat, custom: customMode },
+			CONFIG,
+		);
+		const border = (s: string) => applyColor(this.uiTheme, style.borderColor, s);
+		const accent = (s: string) => applyColor(this.uiTheme, style.prefixColor, s);
+		const prefix = style.prefix;
 
 		if (CONFIG.BOXED_VIEW) {
 			return this.renderBoxed(stock, contentWidth, width, border, accent, prefix);
@@ -318,16 +292,8 @@ class ChatInput extends CustomEditor {
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		ctx.ui.setEditorComponent((tui: TUI, theme: EditorTheme, kb: KeybindingsManager) => {
-			const colorFn = (s: string) => applyColor(ctx.ui.theme, CONFIG.BORDER_COLOR, s);
-			const accentFn = (s: string) => applyColor(ctx.ui.theme, CONFIG.PREFIX_COLOR, s);
-			const bashColorFn = (s: string) => applyColor(ctx.ui.theme, "bashMode", s);
-			const bashAccentFn = (s: string) => applyColor(ctx.ui.theme, "bashMode", s);
-			const planModeColorFn = (s: string) => applyColor(ctx.ui.theme, CONFIG.PLAN_MODE_BORDER_COLOR, s);
-			const planModeAccentFn = (s: string) => applyColor(ctx.ui.theme, CONFIG.PLAN_MODE_PREFIX_COLOR, s);
-			const chatModeColorFn = (s: string) => applyColor(ctx.ui.theme, CONFIG.CHAT_MODE_BORDER_COLOR, s);
-			const chatModeAccentFn = (s: string) => applyColor(ctx.ui.theme, CONFIG.CHAT_MODE_PREFIX_COLOR, s);
 			const companionColorFn = (s: string) => applyColor(ctx.ui.theme, CONFIG.COMPANION_COLOR, s);
-			return new ChatInput(tui, theme, kb, colorFn, accentFn, bashColorFn, bashAccentFn, planModeColorFn, planModeAccentFn, chatModeColorFn, chatModeAccentFn, companionColorFn);
+			return new ChatInput(tui, theme, kb, companionColorFn, ctx.ui.theme);
 		});
 	});
 }

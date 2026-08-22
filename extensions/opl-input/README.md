@@ -13,6 +13,10 @@ Replaces Pi's default chat editor with a mode-aware custom editor. Native editor
 - **Responsive rendering**: Narrow terminals fall back to the native editor rendering; the companion is hidden below 40 columns.
 - **Hex and theme colors**: Color settings accept Pi theme tokens or six-digit hex colors.
 
+## Mode styling precedence
+
+Exactly one style applies at a time, in this order: Bash (`!` input) > plan/execute > chat > custom mode > default. Custom mode styling reads the shared `__agentMode` state published by `opl-modes`; plan and chat use their compatibility globals. A custom mode only needs to define the fields it wants to change — unspecified fields fall back per-field to the defaults.
+
 ## Configuration
 
 Create `~/.pi/agent/configs/opl-input.json` or copy [`configs/opl-input.json`](../../configs/opl-input.json). The file is read once when the extension module loads; run `/reload` or restart Pi after changes.
@@ -36,17 +40,20 @@ Create `~/.pi/agent/configs/opl-input.json` or copy [`configs/opl-input.json`](.
     "audit": {
       "prefix": "⚑",
       "prefixColor": "warning",
-      "borderColor": "customMessageLabel"
+      "borderColor": "#c07898"
     }
   },
   "companion": {
     "enabled": true,
     "color": "accent",
     "type": "dog",
+    "ears": " /\\_/\\ ",
     "types": [{ "typeName": "dog", "top": " /),(\\ " }]
   }
 }
 ```
+
+### Top-level options
 
 | Option | Type | Default | Description |
 |---|---|---:|---|
@@ -54,26 +61,60 @@ Create `~/.pi/agent/configs/opl-input.json` or copy [`configs/opl-input.json`](.
 | `boxPadX` | number | `1` | Horizontal padding inside the editor. |
 | `menuGap` | number | `0` | Blank lines between the input bottom border and slash menu. |
 | `extraMenuIndent` | number | `1` | Additional indentation for slash-menu lines. |
-| `borderColor` | string | `border` | Default border color. |
-| `prefix` | string | `❯` | Default first-line prefix. |
-| `prefixColor` | string | `accent` | Default prefix color. |
-| `planModePrefix` | string | `⏸` | Prefix for plan and execute modes. |
-| `planModePrefixColor` | string | `customMessageLabel` | Prefix color for plan and execute modes. |
-| `planModeBorderColor` | string | `customMessageLabel` | Border color for plan and execute modes. |
-| `chatModePrefix` | string | `»` | Prefix for chat mode. |
-| `chatModePrefixColor` | string | `chatModeBorder` | Prefix color for chat mode. |
-| `chatModeBorderColor` | string | `chatModeBorder` | Border color for chat mode. |
-| `modes.<name>.prefix` | string | unset | Prefix override for any custom `opl-modes` mode. |
-| `modes.<name>.prefixColor` | string | unset | Prefix color override for a custom mode. |
-| `modes.<name>.borderColor` | string | unset | Border color override for a custom mode. |
+| `borderColor` | color | `"border"` | Default border color. |
+| `prefixColor` | color | `"accent"` | Default prefix color. |
+| `prefix` | string | `"❯"` | Default first-line prefix. |
+
+### Plan and execute modes
+
+| Option | Type | Default | Description |
+|---|---|---:|---|
+| `planModePrefix` | string | `"⏸"` | Prefix while plan or execute mode is active. |
+| `planModePrefixColor` | color | `"customMessageLabel"` | Prefix color for plan and execute modes. |
+| `planModeBorderColor` | color | `"customMessageLabel"` | Border color for plan and execute modes. |
+
+### Chat mode
+
+| Option | Type | Default | Description |
+|---|---|---:|---|
+| `chatModePrefix` | string | `"»"` | Prefix while chat mode is active. |
+| `chatModePrefixColor` | color | `"chatModeBorder"` | Prefix color for chat mode. |
+| `chatModeBorderColor` | color | `"chatModeBorder"` | Border color for chat mode. |
+
+### Custom modes (`modes.<name>`)
+
+One entry per custom mode registered by `opl-modes`, keyed by the exact mode name (e.g. `audit`, `review`). Built-in modes (`off`, `chat`, `plan`, `execute`) are handled by the dedicated options above and should not be listed here.
+
+| Field | Type | Default | Description |
+|---|---|---:|---|
+| `modes.<name>.prefix` | string | falls back to `prefix` | Prefix while this mode is active. |
+| `modes.<name>.prefixColor` | color | falls back to `prefixColor` | Prefix color while this mode is active. |
+| `modes.<name>.borderColor` | color | falls back to `borderColor` | Border color while this mode is active. |
+
+### Companion
+
+| Field | Type | Default | Description |
+|---|---|---:|---|
 | `companion.enabled` | boolean | `false` | Show the animated companion above the input. |
-| `companion.color` | string | `accent` | Companion color. |
-| `companion.ears` | string | cat ears | Directly override the companion's top line. |
-| `companion.type` | string | unset | Select a named entry from `companion.types`; built-in `dog` also has a fallback shape. |
-| `companion.types` | array | unset | Named `{ "typeName", "top" }` top-line definitions. |
+| `companion.color` | color | `"accent"` | Companion color. |
+| `companion.type` | string | unset | Select a named entry from `companion.types`; built-in `dog` also has a fallback shape (`"cat"` uses the default ears). |
+| `companion.ears` | string | cat ears | Directly override the companion's top line; wins over `type`. |
+| `companion.types` | array | unset | Named `{ "typeName", "top" }` top-line definitions for use with `type`. |
 
-The companion requires at least 40 terminal columns and reserves three top-padding lines when enabled. Its animation timing and probabilities are source constants, not user configuration.
+The companion requires at least 40 terminal columns and reserves three top-padding lines when enabled. Its animation timing and probabilities are source constants in `config.ts`, not user configuration.
 
-Mode precedence for input styling is: Bash (`!` input), plan/execute, chat, custom mode, then default. Custom mode styling reads the shared `__agentMode` state published by `opl-modes`; plan and chat use their compatibility globals.
+### Color values
 
-Any valid Pi theme color token works. Six-digit colors such as `#c07898` are also accepted. Invalid theme tokens fall back to the theme's border color.
+Every color option accepts either:
+
+- **A Pi theme token** — one of the 45 tokens defined by Pi's `Theme`:
+  - Core: `accent`, `border`, `borderAccent`, `borderMuted`, `success`, `error`, `warning`, `muted`, `dim`, `text`
+  - Messages/content: `thinkingText`, `searchMatchText`, `userMessageText`, `customMessageText`, `customMessageLabel`
+  - Tools: `toolTitle`, `toolOutput`, `toolDiffAdded`, `toolDiffRemoved`, `toolDiffContext`
+  - Markdown: `mdHeading`, `mdLink`, `mdLinkUrl`, `mdCode`, `mdCodeBlock`, `mdCodeBlockBorder`, `mdQuote`, `mdQuoteBorder`, `mdHr`, `mdListBullet`
+  - Syntax: `syntaxComment`, `syntaxKeyword`, `syntaxFunction`, `syntaxVariable`, `syntaxString`, `syntaxNumber`, `syntaxType`, `syntaxOperator`, `syntaxPunctuation`
+  - Thinking borders: `thinkingOff`, `thinkingMinimal`, `thinkingLow`, `thinkingMedium`, `thinkingHigh`, `thinkingXhigh`, `thinkingMax`
+  - Special: `bashMode`
+- **A six-digit hex color** — e.g. `"#c07898"` (rendered as ANSI truecolor, downgraded automatically on 256-color terminals).
+
+Invalid theme tokens fall back to the theme's `border` token; invalid hex renders uncolored rather than crashing.
