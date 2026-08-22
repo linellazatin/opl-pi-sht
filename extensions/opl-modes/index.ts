@@ -43,6 +43,8 @@ import {
   USER_CONFIG,
   MODE_REGISTRY,
   getModeDefinition,
+  executeHandoffAllowed,
+  withPlanComplete,
 } from "./config.js";
 import {
   isSafeCommand,
@@ -185,15 +187,6 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     const mode = getMode();
     const modeDef = getModeDefinition(mode);
 
-    // Publish resolved widget color for the footer's mode_switcher segment,
-    // independent of hideWidget (which only gates the ctx.ui.setWidget bars below).
-    (globalThis as Record<string, unknown>).__agentMode = {
-      mode,
-      widgetColor: modeDef?.labels?.widgetColor,
-    };
-    const requestRender = (globalThis as Record<string, unknown>).__footerRequestRender;
-    if (typeof requestRender === "function") (requestRender as () => void)();
-
     if (!ctx.hasUI) return;
 
     // Chat widget
@@ -320,7 +313,8 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     const modeDef = getModeDefinition(name);
     transition(name, pi);
     if (modeDef?.tools) {
-      saveAndSetActiveTools(modeDef.tools);
+      // Honor allowPlanComplete for custom modes: append plan_complete when set.
+      saveAndSetActiveTools(withPlanComplete(name, modeDef.tools));
     } else {
       restoreAllTools();
     }
@@ -357,8 +351,11 @@ export default function modeSwitcher(pi: ExtensionAPI) {
         return { value: name, label: isActive ? `${label.replace(/ active$/, '')}   (active)` : label };
       });
     
-    // Always include execute options for plan files
-    const executeItems = planFiles.map(f => ({ value: `execute:${f.name}`, label: `Execute: ${f.title}` }));
+    // Always include execute options for plan files — unless the active mode
+    // disables the execute handoff via modes.<name>.allowExecute: false.
+    const executeItems = executeHandoffAllowed(current)
+      ? planFiles.map(f => ({ value: `execute:${f.name}`, label: `Execute: ${f.title}` }))
+      : [];
     
     const items: SelectItem[] = [...registryModes, ...executeItems];
 
@@ -377,6 +374,10 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       if (current !== "off") enterOffMode(ctx, undefined, true);
       await promptNameAndEnterPlanMode(ctx);
     } else if (choice.startsWith("execute:")) {
+      if (!executeHandoffAllowed(current)) {
+        if (ctx.hasUI) ctx.ui.notify(`Plan execution is not available from ${current} mode.`, "warning");
+        return;
+      }
       const filename = choice.slice("execute:".length);
       if (current !== "off") enterOffMode(ctx, undefined, true);
       enterPlanWithFile(filename, pi);
@@ -932,6 +933,11 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     handler: async (args: string, ctx) => {
       const input = args.trim();
       const current = getMode();
+
+      if (current !== "off" && !executeHandoffAllowed(current)) {
+        if (ctx.hasUI) ctx.ui.notify(`Plan execution is not available from ${current} mode.`, "warning");
+        return;
+      }
 
       async function startExecute(filename: string): Promise<void> {
         if (current !== "off") enterOffMode(ctx, undefined, true);

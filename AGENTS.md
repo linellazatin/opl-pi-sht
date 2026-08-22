@@ -2,29 +2,31 @@
 
 ## What this is
 
-A portable collection of customized Pi coding-agent extensions and configuration examples. Repository directories and external config filenames use the `opl-` prefix, while established Pi-facing commands and tool names remain stable: `/init`, `/chat`, `/plan`, `/mode`, `/execute`, `/todos`, `todo`, and `questionnaire`.
+A portable collection of Pi coding-agent extensions and standard-JSON configuration examples. Repository directories and configuration files use the `opl-` prefix, while established Pi-facing commands and tool names remain compatible: `/init`, `/chat`, `/plan`, `/mode`, `/execute`, `/todos`, `todo`, and `questionnaire`.
 
 ## Commands
 
-- `npm test` runs all seven extension smoke tests.
-- `npm run test:opl-<name>` runs one smoke test. Names are `footer`, `init`, `input`, `modes`, `questionnaire`, `todo`, and `webaccess`.
-- `./install.sh` copies all extensions and configs to `~/.pi/agent`.
-- `./install.sh --link` creates non-destructive symlinks instead; `--only`/`-o` selects one or more extensions. Selecting any of `opl-footer`, `opl-input`, or `opl-modes` installs the complete UI bundle.
-- Set `PI_AGENT_DIR` to install somewhere other than `$HOME/.pi/agent`.
+- `npm test` runs all seven extension suites.
+- `npm run test:opl-<name>` runs one suite: `footer`, `init`, `input`, `modes`, `questionnaire`, `todo`, or `webaccess`.
+- `./install.sh` copies all extensions and configs to `~/.pi/agent`; `./install.sh --link` creates non-destructive symlinks.
+- `./install.sh --only`/`-o` selects extensions. Selecting `opl-footer`, `opl-input`, or `opl-modes` installs the complete UI bundle.
+- Set `PI_AGENT_DIR` to install outside `$HOME/.pi/agent`.
 
-There are no build, lint, or typecheck scripts. The smoke tests require Bun's bundler through `tests/extension-smoke.mjs`.
+There are no build, lint, or typecheck scripts. Functional tests use Bun where present; `tests/extension-smoke.mjs` bundles extension entrypoints and validates JSON.
 
 ## Architecture
 
-Each `extensions/opl-*/` directory is an independently loadable Pi extension with a README. `opl-modes` owns normal, chat, plan, execute, and custom modes, including read-only tool and Bash restrictions, plan files, and persisted mode state. `opl-input` and `opl-footer` consume its shared mode state. Preserve compatibility identifiers such as `mode-switcher`, `chat-mode`, and `plan-mode`; existing sessions depend on them.
+Each `extensions/opl-*/` directory is independently loadable and documents its own interface. `opl-modes` owns built-in/custom mode definitions, plan lifecycle, tool/Bash restrictions, persisted mode state, and active-mode appearance. `opl-input` and `opl-footer` consume that published appearance state. Preserve compatibility identifiers such as `mode-switcher`, `chat-mode`, and `plan-mode`, because existing sessions depend on them.
 
-`opl-init` exposes `/init`, crawls the target repository, and generates or updates a repository-specific `AGENTS.md` using a fingerprint marker. `opl-webaccess` provides multi-provider search, readable URL/PDF extraction, and session-stored result retrieval. `opl-todo` stores branch-aware todos in session tool results. `opl-questionnaire` provides an interactive model-invoked questionnaire.
+`opl-init` generates fingerprinted repository `AGENTS.md` guides. `opl-webaccess` provides provider-backed search, readable URL/PDF extraction, and session-stored result retrieval. `opl-todo` stores branch-aware tasks in session tool results. `opl-questionnaire` provides an interactive model-invoked choice UI.
 
 ## Configuration and installation
 
-Tracked standard JSON examples and `.sample` files live in `configs/`. Install applicable files as `~/.pi/agent/configs/opl-*.json`. `opl-init` and `opl-questionnaire` have no external configuration. Do not add comments or trailing commas to JSON. Keep provider credentials out of tracked files; `opl-webaccess` reads API keys from configured environment-variable names.
+Tracked examples and `.sample` files live in `configs/`; install selected files as `~/.pi/agent/configs/opl-*.json`. Configuration is standard JSON: do not add comments or trailing commas except intentional `_comment` properties. `opl-init` and `opl-questionnaire` have no external config.
 
-Before using web access, install its local dependencies:
+`opl-modes.json` is the canonical owner of active-mode appearance. Its per-mode `appearance` values style `opl-input` and the unified footer mode label. Its top-level `bashPatterns` is the shared read-only Bash policy for chat and plan; use nested per-mode patterns only for deliberate divergence.
+
+Keep provider credentials out of tracked files. `opl-webaccess` reads keys from configured environment-variable names and requires local dependencies:
 
 ```bash
 cd extensions/opl-webaccess
@@ -33,17 +35,17 @@ npm install
 
 ## Testing and operational quirks
 
-Smoke tests bundle entrypoints and parse available JSON; they do not exercise live Pi TUI behavior, network providers, credentials, HTML/PDF extraction, or model interactions. The `opl-webaccess` package has no implemented test script.
+Smoke tests do not exercise live TUI behavior, network providers, credentials, HTML/PDF extraction, or model interactions. `extensions/opl-webaccess/package.json` has no implemented standalone test command; use the root suite.
 
-Copy installation overwrites matching destinations. Link installation skips existing files and directories. The footer, input, and modes extensions must be installed together when selecting a subset. Footer timing statistics are session-ephemeral, while mode and todo state are reconstructed from session history or branches.
+Copy installation overwrites matching destinations. Link installation skips existing files and directories. Footer timing is session-ephemeral; mode state and todo state are reconstructed from session history or branches.
 
 ## Key files
 
-- `install.sh`: copy/link installer and extension-bundle selection.
-- `tests/extension-smoke.mjs`: shared static smoke-test runner.
+- `install.sh`: copy/link installer and UI-bundle selection.
+- `tests/extension-smoke.mjs`: shared static smoke runner.
 - `configs/`: portable external configuration examples.
-- `extensions/opl-init/index.ts`: crawl, fingerprint, and `/init` generation behavior.
-- `extensions/opl-modes/`: mode registry, safety rules, plan lifecycle, and state persistence.
-- `extensions/opl-footer/`: multi-row footer, session statistics, and performance display.
+- `extensions/opl-init/index.ts`: crawl, fingerprint, and `/init` behavior.
+- `extensions/opl-modes/`: mode registry, policy, plan lifecycle, and shared state.
+- `extensions/opl-footer/`: multi-row footer and session/performance metrics.
 - `extensions/opl-webaccess/`: providers, extraction, PDF handling, and stored results.
-<!-- opl-init:fp d20bcd8c5cde5007 -->
+<!-- opl-init:fp 4e52beaa826198fd -->

@@ -66,6 +66,14 @@ export interface OffLabelUserConfig {
   notifyType?: string;
 }
 
+/** Visual identity for a custom mode, consumed by mode-aware renderers. */
+export interface ModeAppearanceConfig {
+  prefix?: string;
+  prefixColor?: string;
+  borderColor?: string;
+  modeColor?: string;
+}
+
 /** Label configuration for a single mode. */
 export interface ModeLabelConfig {
   notify?: string;
@@ -97,8 +105,12 @@ export interface ModeDefinition {
   destructivePatterns?: RegExp[];
   /** UI labels for this mode. */
   labels?: ModeLabelConfig;
+  /** Custom-mode appearance published to opl-input and opl-footer. */
+  appearance?: ModeAppearanceConfig;
   /** Whether plan_complete tool should be available. Default: false */
   allowPlanComplete?: boolean;
+  /** Whether plan execution can be started from this mode (mode-picker "Execute:" items and /execute). Default: true. The plan-mode action menu is always available regardless of this flag. */
+  allowExecute?: boolean;
   /** Whether to show this mode in the picker menu and cycling shortcut. Default: true */
   visible?: boolean;
   /** Whether this mode can be entered via the picker or cycle shortcut. Default: true. Unlike `visible`, disabling does not remove the mode — it can still be reached programmatically (e.g. execute mode via plan selection). */
@@ -114,7 +126,10 @@ export interface UserModeDefinition {
   safePatterns?: string[];
   destructivePatterns?: string[];
   labels?: ModeLabelConfig;
+  appearance?: ModeAppearanceConfig;
   allowPlanComplete?: boolean;
+  /** Set to false to block starting plan execution while this mode is active (hides picker "Execute:" items and blocks /execute). Default: true. */
+  allowExecute?: boolean;
   visible?: boolean;
   /** Set to false to disable this mode from the picker menu and cycle shortcut. Default: true. */
   enabled?: boolean;

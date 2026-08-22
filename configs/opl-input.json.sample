@@ -1,28 +1,5 @@
 {
-  "_comment": "Token values (e.g. 'border') or hex colours (e.g. '#c07898') are accepted for borderColor, prefixColor, planModeBorderColor, planModePrefixColor, chatModeBorderColor, chatModePrefixColor, and companion.color.",
   "boxedView": false,
-  "borderColor": "border",
-  "prefix": "❯",
-  "prefixColor": "accent",
-  "planModePrefix": "⏸",
-  "planModePrefixColor": "customMessageLabel",
-  "planModeBorderColor": "customMessageLabel",
-  "chatModePrefix": "󰭻",
-  "chatModePrefixColor": "chatModeBorder",
-  "chatModeBorderColor": "chatModeBorder",
-  "_comment_customModes": "use same mode names from mode-switcher",
-  "modes": {
-    "audit": {
-      "prefix": "⚑",
-      "prefixColor": "warning",
-      "borderColor": "customMessageLabel"
-    },
-    "review": {
-      "prefix": "◎",
-      "prefixColor": "accent",
-      "borderColor": "customMessageLabel"
-    }
-  },
   "companion": {
     "enabled": true,
     "color": "accent",

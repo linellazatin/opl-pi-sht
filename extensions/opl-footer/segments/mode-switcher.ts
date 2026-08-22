@@ -1,10 +1,9 @@
 import type { RenderedSegment, SegmentContext } from "../types.js";
 import { applyColor } from "../theme.js";
-import { color } from "./helpers.js";
 
 interface AgentModeState {
   mode: string;
-  widgetColor?: string;
+  appearance?: { modeColor?: string };
 }
 
 function readAgentModeState(): AgentModeState | undefined {
@@ -19,7 +18,7 @@ export const modeSwitcherSegment = {
 
     const label = applyColor(ctx.theme, "dim", "Mode:");
     const value = mode === "off" ? "Normal" : mode.charAt(0).toUpperCase() + mode.slice(1);
-    const valueStr = state?.widgetColor ? applyColor(ctx.theme, state.widgetColor, value) : color(ctx, "modeIndicator", value);
+    const valueStr = applyColor(ctx.theme, state?.appearance?.modeColor ?? "muted", value);
     return { content: `${label} ${valueStr}`, visible: true };
   },
 };

@@ -1,55 +1,43 @@
 # opl-todo
 
-A session-branch-aware `todo` tool with a non-capturing top-right overlay, configurable shortcuts, and a `/todos` command. Todo state is stored in session tool results, so switching branches with `/tree` restores the list from that point in history.
+Provides branch-aware model-managed tasks with a non-capturing overlay and full-screen `/todos` view.
 
-## Features
+## Commands, flags, and shortcuts
 
-- Model-callable `todo` tool with `list`, `add`, `toggle`, and `clear` actions.
-- Adding to a fully completed list starts a fresh batch and resets IDs to `#1`.
-- Non-capturing overlay anchored at the top right; it never steals editor focus.
-- Overlay is hidden below 80 columns, uses 33% width by default, and caps visible items at 50% of terminal height.
-- `/todos` opens a full-screen current-branch task list.
-- Completed lists show `✓ All done!` and auto-hide after the configured delay.
+- `/todos`: open the current branch's full-screen task list; `Esc` closes it.
+- Tool: `todo` with `list`, `add`, `toggle`, and `clear` actions.
+- `shortcuts.toggleWidget`: show or hide the overlay, default `ctrl+alt+t`.
+- `shortcuts.resetDone`: clear only a fully completed list, default `ctrl+alt+r`.
+
+## Extension features
+
+- Stores todos in session tool results; switching session branches with `/tree` restores that branch's list.
+- Starts a fresh batch at ID `#1` when adding after every prior task is complete.
+- Displays a top-right overlay without taking editor focus; hides below 80 columns and caps its height to the configured terminal percentage.
+- Shows `✓ All done!` and hides after the configured delay; `clear` hides immediately.
+- Reconstructs state on session start, `/reload`, and session-tree changes. A completed restored list is cleared so the next add begins a new batch.
 
 ## Configuration
 
-Create `~/.pi/agent/configs/opl-todo.json` or copy [`configs/opl-todo.json`](../../configs/opl-todo.json). Configuration is read once when the extension loads; restart Pi or run `/reload` after changes.
+Copy [`configs/opl-todo.json`](../../configs/opl-todo.json) to `~/.pi/agent/configs/opl-todo.json`, then `/reload` or restart Pi.
 
 ```json
 {
   "allDoneHideMs": 10000,
-  "shortcuts": {
-    "toggleWidget": "ctrl+alt+t",
-    "resetDone": "ctrl+alt+r"
-  },
-  "widget": {
-    "widthPercent": 33,
-    "maxHeightPercent": 50,
-    "minWidth": 32
-  }
+  "shortcuts": { "toggleWidget": "ctrl+alt+t", "resetDone": "ctrl+alt+r" },
+  "widget": { "widthPercent": 33, "maxHeightPercent": 50, "minWidth": 32 }
 }
 ```
 
-| Key | Type | Default | Description |
-|---|---|---:|---|
-| `allDoneHideMs` | number | `5000` | Delay before the all-done overlay hides; `0` hides immediately. |
-| `shortcuts.toggleWidget` | string | `ctrl+alt+t` | Show or hide the overlay. |
-| `shortcuts.resetDone` | string | `ctrl+alt+r` | Clear tasks only when every task is already complete. |
-| `widget.widthPercent` | number | `33` | Overlay width percentage, from greater than 0 through 100. |
-| `widget.maxHeightPercent` | number | `50` | Percentage of terminal rows used to calculate the item cap. |
-| `widget.minWidth` | number | `32` | Minimum overlay width; values below 20 are rejected. |
+| Key | Default | Behavior |
+|---|---:|---|
+| `allDoneHideMs` | `5000` | Delay before a completed overlay hides; `0` hides immediately. |
+| `shortcuts.toggleWidget` | `ctrl+alt+t` | Toggle overlay visibility. |
+| `shortcuts.resetDone` | `ctrl+alt+r` | Clear only a fully completed list. |
+| `widget.widthPercent` | `33` | Overlay width, greater than 0 through 100. |
+| `widget.maxHeightPercent` | `50` | Terminal-row percentage used for the item cap. |
+| `widget.minWidth` | `32` | Minimum overlay width; values below 20 are rejected. |
 
-## Session behavior
+## Architecture
 
-State is reconstructed from session history on session start and `/reload`, and synchronized when the session tree changes. A fully completed list is cleared when loaded so the next `add` begins a fresh batch. `clear` hides the overlay immediately. The overlay uses the current terminal width and is only visible when the width is at least 80 columns.
-
-## Controls
-
-- `/todos` opens a modal listing all tasks on the current branch; press Escape to close.
-- The configured toggle shortcut shows or hides the overlay.
-- The configured reset shortcut clears tasks only when all tasks are complete.
-
-## Files
-
-- `index.ts`: tool, overlay, shortcuts, `/todos`, and session integration.
-- `config.ts`: JSON config loading and validation.
+`index.ts` registers the tool, overlay, shortcuts, command, and session integration. `config.ts` loads and validates JSON. Todo state is derived from session history rather than a separate file.

@@ -6,15 +6,6 @@ export const DEFAULT_CONFIG = {
 	BOX_PAD_X: 1,
 	MENU_GAP: 0,
 	EXTRA_MENU_INDENT: 1,
-	BORDER_COLOR: "border" as const,
-	PREFIX_COLOR: "accent" as const,
-	PLAN_MODE_PREFIX: "\u23F8",
-	PLAN_MODE_BORDER_COLOR: "customMessageLabel" as const,
-	PLAN_MODE_PREFIX_COLOR: "customMessageLabel" as const,
-	CHAT_MODE_PREFIX: "\u00BB",
-	CHAT_MODE_BORDER_COLOR: "chatModeBorder" as const,
-	CHAT_MODE_PREFIX_COLOR: "chatModeBorder" as const,
-	PREFIX: "\u276F",
 	BOXED_VIEW: true,
 	COMPANION_ENABLED: false,
 	COMPANION_COLOR: "accent" as const,
@@ -26,21 +17,6 @@ interface ChatInputUserConfig {
 	boxPadX?: number;
 	menuGap?: number;
 	extraMenuIndent?: number;
-	borderColor?: string;
-	prefixColor?: string;
-	planModeBorderColor?: string;
-	planModePrefixColor?: string;
-	planModePrefix?: string;
-	chatModeBorderColor?: string;
-	chatModePrefixColor?: string;
-	chatModePrefix?: string;
-	prefix?: string;
-	/** Per-mode overrides for any opl-modes mode not already covered above (off/chat/plan/execute), keyed by mode name — e.g. custom modes like "audit" or "review". */
-	modes?: Record<string, {
-		prefix?: string;
-		prefixColor?: string;
-		borderColor?: string;
-	}>;
 	companion?: {
 		enabled?: boolean;
 		color?: string;
@@ -70,21 +46,11 @@ export const CONFIG = {
 	BOX_PAD_X: userConfig.boxPadX ?? DEFAULT_CONFIG.BOX_PAD_X,
 	MENU_GAP: userConfig.menuGap ?? DEFAULT_CONFIG.MENU_GAP,
 	EXTRA_MENU_INDENT: userConfig.extraMenuIndent ?? DEFAULT_CONFIG.EXTRA_MENU_INDENT,
-	BORDER_COLOR: (userConfig.borderColor ?? DEFAULT_CONFIG.BORDER_COLOR) as string,
-	PREFIX_COLOR: (userConfig.prefixColor ?? DEFAULT_CONFIG.PREFIX_COLOR) as string,
-	PLAN_MODE_BORDER_COLOR: (userConfig.planModeBorderColor ?? DEFAULT_CONFIG.PLAN_MODE_BORDER_COLOR) as string,
-	PLAN_MODE_PREFIX_COLOR: (userConfig.planModePrefixColor ?? DEFAULT_CONFIG.PLAN_MODE_PREFIX_COLOR) as string,
-	PLAN_MODE_PREFIX: userConfig.planModePrefix ?? DEFAULT_CONFIG.PLAN_MODE_PREFIX,
-	CHAT_MODE_BORDER_COLOR: (userConfig.chatModeBorderColor ?? DEFAULT_CONFIG.CHAT_MODE_BORDER_COLOR) as string,
-	CHAT_MODE_PREFIX_COLOR: (userConfig.chatModePrefixColor ?? DEFAULT_CONFIG.CHAT_MODE_PREFIX_COLOR) as string,
-	CHAT_MODE_PREFIX: userConfig.chatModePrefix ?? DEFAULT_CONFIG.CHAT_MODE_PREFIX,
-	PREFIX: userConfig.prefix ?? DEFAULT_CONFIG.PREFIX,
 	BOXED_VIEW: userConfig.boxedView ?? DEFAULT_CONFIG.BOXED_VIEW,
 	COMPANION_ENABLED: userConfig.companion?.enabled ?? DEFAULT_CONFIG.COMPANION_ENABLED,
 	COMPANION_COLOR: (userConfig.companion?.color ?? DEFAULT_CONFIG.COMPANION_COLOR) as string,
 	COMPANION_TOP_PADDING: DEFAULT_CONFIG.COMPANION_TOP_PADDING,
 	COMPANION_EARS: resolveEars(userConfig.companion),
-	MODES: userConfig.modes ?? {},
 };
 
 function resolveEars(companion?: ChatInputUserConfig["companion"]): string {

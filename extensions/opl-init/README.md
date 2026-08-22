@@ -1,28 +1,21 @@
 # opl-init
 
-Provides `/init`, which generates or updates a repository `AGENTS.md` agent guide.
+Generates or refreshes a repository-specific `AGENTS.md` guide through `/init`.
 
-## Generated guide
+## Commands, flags, and shortcuts
 
-`/init` asks the model for repository-specific information rather than a generic contributor template. Depending on the available evidence, it covers what the project is, commands, architecture, configuration and installation, testing or operational quirks, and key files. It calls out meaningful absent commands and avoids generic Git or pull-request advice unless the repository provides concrete facts.
+- `/init`: crawl the current repository and create or update `AGENTS.md` when its fingerprint is missing or stale.
+- No flags or shortcuts.
 
-## How to
+## Extension features
 
-`opl-init` has no external configuration file. Its crawl depth, ignored directories, tree limit, manifest list, fingerprinting, and prompt are defined in `index.ts`. Run `/init` from the repository root; it creates or updates `AGENTS.md` only when the embedded fingerprint is missing or stale.
+- Produces evidence-based guidance for project purpose, commands, architecture, configuration, testing, operational quirks, and key files.
+- Crawls deterministically to depth 3, ignores generated/dependency directories, caps directory listings at 40 entries, and caps the rendered tree at 300 lines with explicit omission markers.
+- Re-walks declared `pnpm-workspace.yaml` and Cargo workspace members with their own depth-3 budget; reports `turbo.json` and `nx.json` as contextual manifests.
+- Collects extension counts, known manifests, and npm scripts without embedding full manifest bodies.
+- Incorporates relevant Cursor, Copilot, Claude Code, Windsurf, Cline, and Devin rule sources without copying them verbatim or treating them as more authoritative than repository evidence.
+- Skips the model turn when the final `<!-- opl-init:fp <fingerprint> -->` marker is current.
 
-- Crawls the current repository deterministically to depth 3.
-- Limits the directory tree to 300 lines.
-- Ignores common generated and dependency directories such as `.git`, `node_modules`, `dist`, `build`, `target`, and virtual environments.
-- Reports file-extension counts and recognizes common project manifests.
-- Includes npm scripts when `package.json` is present.
-- Sends compact crawl context to the model instead of embedding full manifest bodies.
+## Architecture
 
-`AGENTS.md` is created when missing and updated only when its fingerprint marker is missing or stale. The final line must be:
-
-```html
-<!-- opl-init:fp <fingerprint> -->
-```
-
-Git repositories use a fingerprint derived from `HEAD` and `git status --porcelain=v1 --untracked-files=all`. This is efficient and respects Git ignore rules, but it does not directly hash every modified file's content. Non-Git repositories use sorted path, size, and modification-time tuples, so touching a file may cause a harmless false stale result.
-
-The crawl is retained in the active Pi transcript through `pi.sendUserMessage`; structured retrieval in an entirely new session is not implemented.
+`index.ts` owns crawling, fingerprinting, foreign-rule discovery, and prompt dispatch. Git repositories fingerprint `HEAD` plus `git status --porcelain=v1 --untracked-files=all`; non-Git repositories use sorted path, size, and mtime tuples. Crawl context remains in the active Pi transcript only; cross-session structured retrieval is not implemented.

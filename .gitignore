@@ -2,3 +2,7 @@
 
 ## Just opl config files
 opl-*.json
+
+## local research files
+research/
+docs/

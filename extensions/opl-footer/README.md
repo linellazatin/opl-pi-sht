@@ -2,7 +2,13 @@
 
 A customizable three-row footer for the Pi coding agent. It shows model, path, Git, context, thinking, mode, token, cost, session, and performance information in configurable left/right segments.
 
-## Layout
+## Commands, flags, and shortcuts
+
+No commands, flags, or shortcuts. Nerd Font detection can be overridden with `FOOTER_NERD_FONTS=1` or `FOOTER_NERD_FONTS=0`.
+
+## Extension features
+
+### Layout
 
 The default footer has three content rows separated by horizontal dividers:
 
@@ -50,6 +56,10 @@ The config is cached for five seconds. Changes normally appear automatically; us
 
 See the tracked [`configs/opl-footer.json`](../../configs/opl-footer.json) for a complete example. Segment IDs, color fields, context-bar options, thinking-level colors, and icon overrides are documented below. Colors accept Pi theme tokens or hex strings.
 
+## Architecture
+
+`index.ts` installs the footer and lifecycle tracking. `segments/` renders configurable values; `theme.ts`, `types.ts`, and `config.ts` provide styling and JSON configuration; session and performance statistics are collected in process memory and reconstructed from session history where possible.
+
 ## Available Segments
 
 | Segment | Description | Notes |
@@ -61,7 +71,7 @@ See the tracked [`configs/opl-footer.json`](../../configs/opl-footer.json) for a
 | `context_pct` | Gradient bar + `X.X%` + max tokens | Bar fully configurable via `segmentOptions.contextBar` (see below). % and max tokens use `contextLabel` colour. Max tokens formatted with K/M suffix (e.g. `128k`, `2M`). Set `DEBUG_PCT` in `context.ts` to a number (0–100) to pin the bar at a fixed value for visual testing. |
 | `cost` | `$<amount>` | `$` dim, amount in `cost` colour (`muted` by default) |
 | `thinking` | `Thinking: <LEVEL>` | Dim label, CAPS level with per-level colour; always visible |
-| `mode_switcher` | Unified active mode label | Reads the mode state published by `opl-modes`; hidden when unavailable |
+| `mode_switcher` | Unified active mode label | Reads state published by `opl-modes`; `appearance.modeColor` controls the mode value, with hardcoded `muted` fallback |
 | `caveman` | `Caveman mode: <MODE>` | Hidden when caveman extension not loaded |
 | `plan_mode` | `Plan mode: <MODE>` | Hidden when plan-mode extension not loaded |
 | `chat_mode` | `Chat mode: <MODE>` | Hidden when chat-mode extension not loaded |
@@ -130,6 +140,7 @@ Override any level colour via the corresponding key in `colors`. Setting `thinki
   }
 }
 ```
+
 
 ## Git Status Indicators
 
