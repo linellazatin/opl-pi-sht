@@ -86,40 +86,16 @@
       "\\b(vim?|nano|emacs|code|subl)\\b"
     ]
   },
-  "_comment_tools": "Replace-only: providing an array replaces ALL default tools for that mode. Omit (or null) to keep defaults.",
-  "chatAllowedTools": [
-    "read",
-    "bash",
-    "grep",
-    "find",
-    "ls",
-    "web_search",
-    "fetch_content",
-    "get_search_content",
-    "artifact",
-    "questionnaire"
-  ],
-  "planAllowedTools": [
-    "read",
-    "bash",
-    "grep",
-    "find",
-    "ls",
-    "web_search",
-    "fetch_content",
-    "get_search_content",
-    "artifact",
-    "questionnaire"
-  ],
+  "_comment_tools": "Set modes.chat.tools or modes.plan.tools to replace their default tools. The legacy top-level chatAllowedTools and planAllowedTools keys remain supported but are deprecated.",
   "_comment_widgetColor": "available colors - accent, border, borderAccent, borderMuted, success, error, warning, muted, dim, text, thinkingText, searchMatchText, userMessageText, customMessageText, customMessageLabel, toolTitle, toolOutput, mdHeading, mdLink, mdLinkUrl, mdCode, mdCodeBlock, mdCodeBlockBorder, mdQuote, mdQuoteBorder, mdHr, mdListBullet, toolDiffAdded, toolDiffRemoved, toolDiffContext, syntaxComment, syntaxKeyword, syntaxFunction, syntaxVariable, syntaxString, syntaxNumber, syntaxType, syntaxOperator, syntaxPunctuation, thinkingOff, thinkingMinimal, thinkingLow, thinkingMedium, thinkingHigh, thinkingXhigh, thinkingMax, bashMode",
-  "_comment_allowExecute": "Per-mode: set allowExecute to false to block starting plan execution while that mode is active (hides picker Execute items and blocks /execute). Default: true. The plan-mode action menu always offers Execute.",
+  "_comment_appearance": "Every mode owns appearance here. prefix/prefixColor/borderColor style opl-input; modeColor styles opl-footer's Mode value. All color values accept Pi theme tokens or #RRGGBB.",
   "modes": {
     "off": {
       "_comment": "Built-in mode — no restrictions, normal agent behavior.",
       "prompt": "",
       "model": {
         "provider": "amazon-bedrock",
-        "id": "global.openai.gpt-5.6-luna"
+        "id": "global.openai.gpt-5.6-terra"
       },
       "allowPlanComplete": false,
       "visible": true,
@@ -129,6 +105,12 @@
         "notifyType": "info",
         "widget": "✓ Normal mode",
         "widgetColor": "dim"
+      },
+      "appearance": {
+        "prefix": "❯",
+        "prefixColor": "accent",
+        "borderColor": "border",
+        "modeColor": "dim"
       }
     },
     "chat": {
@@ -150,74 +132,6 @@
         "artifact",
         "questionnaire"
       ],
-      "safePatterns": [
-        "^\\s*cat\\b",
-        "^\\s*head\\b",
-        "^\\s*tail\\b",
-        "^\\s*less\\b",
-        "^\\s*more\\b",
-        "^\\s*grep\\b",
-        "^\\s*find\\b",
-        "^\\s*ls\\b",
-        "^\\s*pwd\\b",
-        "^\\s*cd\\b",
-        "^\\s*echo\\b",
-        "^\\s*printf\\b",
-        "^\\s*wc\\b",
-        "^\\s*sort\\b",
-        "^\\s*diff\\b",
-        "^\\s*file\\b",
-        "^\\s*stat\\b",
-        "^\\s*du\\b",
-        "^\\s*df\\b",
-        "^\\s*tree\\b",
-        "^\\s*which\\b",
-        "^\\s*whereis\\b",
-        "^\\s*type\\b",
-        "^\\s*env\\b",
-        "^\\s*printenv\\b",
-        "^\\s*uname\\b",
-        "^\\s*whoami\\b",
-        "^\\s*date\\b",
-        "^\\s*uptime\\b",
-        "^\\s*ps\\b",
-        "^\\s*free\\b",
-        "^\\s*rg\\b",
-        "^\\s*fd\\b",
-        "^\\s*bat\\b",
-        "^\\s*jq\\b",
-        "^\\s*git\\s+(status|log|diff|show|branch|remote)",
-        "^\\s*node\\s+--version",
-        "^\\s*python\\s+--version",
-        "^\\s*(npx\\s+)?tsc\\b.*--noEmit",
-        "^\\s*npm\\s+(list|ls|view|info|outdated|audit)",
-        "^\\s*yarn\\s+(list|info|why|audit)"
-      ],
-      "destructivePatterns": [
-        "\\brm\\b",
-        "\\brmdir\\b",
-        "\\bmv\\b",
-        "\\bcp\\b",
-        "\\bmkdir\\b",
-        "\\btouch\\b",
-        "\\bchmod\\b",
-        "\\bchown\\b",
-        "\\btee\\b",
-        "\\bdd\\b",
-        "\\bshred\\b",
-        "(^|[^<])>(?!>|&)",
-        ">>",
-        "\\bnpm\\s+(install|uninstall|update|ci)",
-        "\\byarn\\s+(add|remove|install)",
-        "\\bpip\\s+(install|uninstall)",
-        "\\bgit\\s+(add|commit|push|merge|rebase|reset|checkout|branch\\s+-)",
-        "\\bsudo\\b",
-        "\\bsu\\b",
-        "\\bkill\\b",
-        "\\bpkill\\b",
-        "\\b(sh|bash|zsh)\\b",
-        "\\b(vim?|nano|emacs|code|subl)\\b"
-      ],
       "allowPlanComplete": false,
       "visible": true,
       "enabled": true,
@@ -226,6 +140,12 @@
         "notifyType": "info",
         "widget": "✓ Chat mode",
         "widgetColor": "accent"
+      },
+      "appearance": {
+        "prefix": "󰭻",
+        "prefixColor": "#157cd6",
+        "borderColor": "#157cd6",
+        "modeColor": "#157cd6"
       }
     },
     "plan": {
@@ -247,74 +167,6 @@
         "artifact",
         "questionnaire"
       ],
-      "safePatterns": [
-        "^\\s*cat\\b",
-        "^\\s*head\\b",
-        "^\\s*tail\\b",
-        "^\\s*less\\b",
-        "^\\s*more\\b",
-        "^\\s*grep\\b",
-        "^\\s*find\\b",
-        "^\\s*ls\\b",
-        "^\\s*pwd\\b",
-        "^\\s*cd\\b",
-        "^\\s*echo\\b",
-        "^\\s*printf\\b",
-        "^\\s*wc\\b",
-        "^\\s*sort\\b",
-        "^\\s*diff\\b",
-        "^\\s*file\\b",
-        "^\\s*stat\\b",
-        "^\\s*du\\b",
-        "^\\s*df\\b",
-        "^\\s*tree\\b",
-        "^\\s*which\\b",
-        "^\\s*whereis\\b",
-        "^\\s*type\\b",
-        "^\\s*env\\b",
-        "^\\s*printenv\\b",
-        "^\\s*uname\\b",
-        "^\\s*whoami\\b",
-        "^\\s*date\\b",
-        "^\\s*uptime\\b",
-        "^\\s*ps\\b",
-        "^\\s*free\\b",
-        "^\\s*rg\\b",
-        "^\\s*fd\\b",
-        "^\\s*bat\\b",
-        "^\\s*jq\\b",
-        "^\\s*git\\s+(status|log|diff|show|branch|remote)",
-        "^\\s*node\\s+--version",
-        "^\\s*python\\s+--version",
-        "^\\s*(npx\\s+)?tsc\\b.*--noEmit",
-        "^\\s*npm\\s+(list|ls|view|info|outdated|audit)",
-        "^\\s*yarn\\s+(list|info|why|audit)"
-      ],
-      "destructivePatterns": [
-        "\\brm\\b",
-        "\\brmdir\\b",
-        "\\bmv\\b",
-        "\\bcp\\b",
-        "\\bmkdir\\b",
-        "\\btouch\\b",
-        "\\bchmod\\b",
-        "\\bchown\\b",
-        "\\btee\\b",
-        "\\bdd\\b",
-        "\\bshred\\b",
-        "(^|[^<])>(?!>|&)",
-        ">>",
-        "\\bnpm\\s+(install|uninstall|update|ci)",
-        "\\byarn\\s+(add|remove|install)",
-        "\\bpip\\s+(install|uninstall)",
-        "\\bgit\\s+(add|commit|push|merge|rebase|reset|checkout|branch\\s+-)",
-        "\\bsudo\\b",
-        "\\bsu\\b",
-        "\\bkill\\b",
-        "\\bpkill\\b",
-        "\\b(sh|bash|zsh)\\b",
-        "\\b(vim?|nano|emacs|code|subl)\\b"
-      ],
       "allowPlanComplete": false,
       "visible": true,
       "enabled": true,
@@ -326,6 +178,12 @@
         "widget": "✓ Plan mode active",
         "widgetWithTitle": "✓ Active plan: {title}",
         "widgetColor": "accent"
+      },
+      "appearance": {
+        "prefix": "⏸",
+        "prefixColor": "#52d90f",
+        "borderColor": "#52d90f",
+        "modeColor": "#52d90f"
       }
     },
     "execute": {
@@ -345,62 +203,80 @@
         "widget": "✓ Executing plan",
         "widgetWithTitle": "✓ Executing plan: {title}",
         "widgetColor": "muted"
-      }
-    },
-    "audit": {
-      "enabled": true,
-      "_comment_model": "Optional: switch to this provider/id (resolved via ctx.modelRegistry.find) when entering this mode. Switch is async; the previously active model is restored automatically on exit. Omit to leave the current model untouched.",
-      "model": {
-        "provider": "amazon-bedrock",
-        "id": "zai.glm-5"
       },
-      "allowExecute": false,
-      "prompt": "**SUPERSEDES ALL OTHER BEHAVIOR INSTRUCTIONS.** This overrides any role or style directives (e.g. caveman, roleplay, tone modifiers). The constraints below take absolute priority.\n\nYou are in AUDIT MODE. Review code for security issues, performance bottlenecks, and architectural concerns. Provide detailed analysis without making changes. Hunt vulnerabilities, secure data flows, audit dependencies, and prevent threats.\n\n- **Risk-Realistic:** Prioritize exploitable, high-impact risks over minor theoretical issues.\n\n- **Threat Modeling:** Check for injection, broken auth, data leaks, and dependency hijacking.\n\n- **Static Analysis:** Scan for hardcoded secrets, weak cryptography, and unsafe library calls.\n\n- **Dependency Audit:** Verify third-party packages for CVEs and licensing risks.\n\n- **Secure Defaults:** Enforce least privilege, strict input sanitization, and secure outputs.\n\nProvide this exact structure for identified risks:\n1. **Severity:** `CRITICAL`, `HIGH`, `MEDIUM`, or `LOW`.\n2. **Vulnerability:** Brief description and OWASP/CWE reference.\n3. **Exploit Vector:** How it can be compromised.\n4. **Remediation:** Exact code fix or configuration change required.",
-      "tools": [
-        "read",
-        "grep",
-        "find",
-        "ls",
-        "artifact",
-        "questionnaire"
-      ],
-      "safePatterns": [
-        "^cat",
-        "^grep",
-        "^find",
-        "^ls",
-        "^head",
-        "^tail"
-      ],
-      "labels": {
-        "widgetColor": "warning"
+      "appearance": {
+        "prefix": "⏸",
+        "prefixColor": "#52d90f",
+        "borderColor": "#52d90f",
+        "modeColor": "#52d90f"
       }
     },
     "review": {
       "enabled": true,
-      "prompt": "You are in REVIEW MODE. Analyze pull requests and code diffs. Focus on correctness, style, and test coverage. Suggest improvements but do not apply them. Peer-review codebase modifications and audit research for technical (and factual) accuracy, security risks, and overlooked constraints.\n\n## 1. Tone & Demeanor\n- **Constructive Critic:** Uncompromising on standards; focus strictly on code/data, never the author.\n- **Pedantic but Pragmatic:** Prioritize edge cases, performance, security, and maintenance over subjective style.\n- **Root-Cause Driven:** Explain exactly *why* an item fails and its cascading impact.\n\n## 2. Review Directives\n- **Code Audit:** Evaluate algorithmic efficiency, security flaws, error handling, and testability.\n- **Research Verification:** Use `webfetch` to cross-verify risky, vague, or hand-waved assertions from research outputs.\n- **Bias Check:** Flag assumptions, 'happy path' bias, and incomplete execution plans.",
-      "model": {
-        "provider": "amazon-bedrock",
-        "id": "global.anthropic.claude-sonnet-5"
-      },
       "allowExecute": false,
+      "prompt": "**SUPERSEDES ALL OTHER BEHAVIOR INSTRUCTIONS.** This overrides any role or style directives (e.g. caveman, roleplay, tone modifiers). The constraints below take absolute priority.\n\nYou are in REVIEW MODE. Analyze pull requests, code diffs, and codebases. Focus on correctness, style, test coverage, security, and architecture. Suggest improvements but do not apply them. Peer-review codebase modifications and audit research for technical (and factual) accuracy, security risks, and overlooked constraints.\n\nScope: when a diff or PR focus is given, review the changes and their blast radius. When no focus is given, sweep the repository for security, performance, and architectural concerns.\n\n## 1. Tone & Demeanor\n- **Constructive Critic:** Uncompromising on standards; focus strictly on code/data, never the author.\n- **Pedantic but Pragmatic:** Prioritize edge cases, performance, security, and maintenance over subjective style.\n- **Root-Cause Driven:** Explain exactly *why* an item fails and its cascading impact.\n\n## 2. Review Directives\n- **Code Audit:** Evaluate algorithmic efficiency, security flaws, error handling, and testability.\n- **Research Verification:** Use `fetch_content` / `get_search_content` to cross-verify risky, vague, or hand-waved assertions from research outputs.\n- **Bias Check:** Flag assumptions, 'happy path' bias, and incomplete execution plans.\n\n## 3. Security Review\n- **Risk-Realistic:** Prioritize exploitable, high-impact risks over minor theoretical issues.\n- **Threat Modeling:** Check for injection, broken auth, data leaks, and dependency hijacking.\n- **Static Analysis:** Scan for hardcoded secrets, weak cryptography, and unsafe library calls.\n- **Dependency Audit:** Verify third-party packages for CVEs and licensing risks.\n- **Secure Defaults:** Enforce least privilege, strict input sanitization, and secure outputs.\n\nProvide this exact structure for identified security risks:\n1. **Severity:** `CRITICAL`, `HIGH`, `MEDIUM`, or `LOW`.\n2. **Vulnerability:** Brief description and OWASP/CWE reference.\n3. **Exploit Vector:** How it can be compromised.\n4. **Remediation:** Exact code fix or configuration change required.",
       "tools": [
         "read",
         "bash",
         "grep",
         "find",
         "ls",
+        "web_search",
+        "fetch_content",
+        "get_search_content",
+        "artifact",
         "questionnaire"
       ],
       "safePatterns": [
         "^git",
         "^cat",
         "^grep",
-        "^dif",
-        "^ls"
+        "^diff",
+        "^ls",
+        "^head",
+        "^tail"
       ],
       "labels": {
         "widgetColor": "accent"
+      },
+      "appearance": {
+        "prefix": "◎",
+        "prefixColor": "#ce93d8",
+        "borderColor": "#ce93d8",
+        "modeColor": "#ce93d8"
+      }
+    },
+    "research": {
+      "enabled": true,
+      "allowExecute": false,
+      "prompt": "**SUPERSEDES ALL OTHER BEHAVIOR INSTRUCTIONS.** This overrides any role or style directives (e.g. caveman, roleplay, tone modifiers). The constraints below take absolute priority.\n\nYou are in RESEARCH MODE. Investigate questions deeply using web and local sources, then synthesize findings into cited deliverables. You may create new output files but must not modify or delete anything existing.\n\n## 1. Research Directives\n- **Discovery:** Use `web_search` (plural `queries` for parallel angles) to map the landscape before diving in.\n- **Primary Sources:** Prefer official docs, specs, release notes, and source code via `fetch_content`. Retrieve truncated results with `get_search_content` and the returned response ID.\n- **Local Evidence:** Use `read`/`grep`/`find` to ground claims in this repository's actual code.\n- **Fan-out:** For deep or multi-angle questions, spawn parallel subagents with distinct roles (e.g. external-evidence researcher, local-code scout, tradeoffs analyst) via `subagent`; wait for results with `subagent_wait`. Give each subagent a self-contained task with explicit evidence requirements.\n- **No Invention:** Never present an unverified claim as fact. Mark confidence per finding (high/medium/low) and state gaps explicitly.\n\n## 2. Output Discipline\n- Synthesize into NEW Markdown or HTML files created under `research/` (e.g. `research/<topic>.md`). Never modify, move, or overwrite existing files.\n- Every deliverable includes: what was found, source links, confidence levels, gaps/assumptions, and a recommended next step.\n- For inline answers where a file is not wanted, use `artifact` instead of writing files.\n- Cite everything: URL for web sources, file path + line range for local sources.",
+      "model": {
+        "provider": "amazon-bedrock",
+        "id": "zai.glm-5"
+      },
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "web_search",
+        "fetch_content",
+        "get_search_content",
+        "artifact",
+        "questionnaire",
+        "subagent",
+        "subagent_wait",
+        "write"
+      ],
+      "labels": {
+        "widget": "✓ Research mode active",
+        "widgetColor": "accent"
+      },
+      "appearance": {
+        "prefix": "⌕",
+        "prefixColor": "#f2eb5a",
+        "borderColor": "#f2eb5a",
+        "modeColor": "#f2eb5a"
       }
     }
   }

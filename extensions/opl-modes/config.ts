@@ -207,9 +207,9 @@ const DEFAULT_CONFIG = {
 
 const CONFIG_PATH = join(homedir(), ".pi", "agent", "configs", "opl-modes.json");
 
-function loadUserConfig(): ModeSwitcherUserConfig {
+export function loadUserConfig(path = CONFIG_PATH): ModeSwitcherUserConfig {
   try {
-    const raw = readFileSync(CONFIG_PATH, "utf8");
+    const raw = readFileSync(path, "utf8");
     return JSON.parse(raw) as ModeSwitcherUserConfig;
   } catch {
     return {};
@@ -396,6 +396,7 @@ function initModeRegistry(): void {
           safePatterns: def.safePatterns ? compilePatterns(def.safePatterns) : existing.safePatterns,
           destructivePatterns: def.destructivePatterns ? compilePatterns(def.destructivePatterns) : existing.destructivePatterns,
           labels: { ...existing.labels, ...def.labels },
+          appearance: def.appearance ?? existing.appearance,
         });
       } else {
         registerMode(name, {
@@ -414,6 +415,7 @@ function initModeRegistry(): void {
             widget: def.labels?.widget ?? `${name} mode active`,
             widgetColor: def.labels?.widgetColor ?? "accent",
           },
+          appearance: def.appearance,
         });
       }
     }

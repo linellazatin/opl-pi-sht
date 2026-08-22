@@ -1,25 +1,16 @@
 // Pure mode-to-style resolution for opl-input. No external imports so it can
 // be unit-tested directly (tests/opl-input-style.test.mjs).
 
-export interface ModeState {
-	bash: boolean;
-	plan: boolean;
-	chat: boolean;
-	/** Active custom mode name, or null. */
-	custom: string | null;
+export interface ModeAppearance {
+	prefix?: string;
+	prefixColor?: string;
+	borderColor?: string;
 }
 
-export interface ModeStyleConfig {
-	PREFIX: string;
-	BORDER_COLOR: string;
-	PREFIX_COLOR: string;
-	PLAN_MODE_PREFIX: string;
-	PLAN_MODE_BORDER_COLOR: string;
-	PLAN_MODE_PREFIX_COLOR: string;
-	CHAT_MODE_PREFIX: string;
-	CHAT_MODE_BORDER_COLOR: string;
-	CHAT_MODE_PREFIX_COLOR: string;
-	MODES: Record<string, { prefix?: string; prefixColor?: string; borderColor?: string } | undefined>;
+export interface ModeState {
+	bash: boolean;
+	mode: string;
+	appearance?: ModeAppearance;
 }
 
 export interface ResolvedModeStyle {
@@ -28,32 +19,20 @@ export interface ResolvedModeStyle {
 	prefix: string;
 }
 
-/** Precedence: bash > plan/execute > chat > custom mode > default. */
-export function resolveModeStyle(state: ModeState, cfg: ModeStyleConfig): ResolvedModeStyle {
-	if (state.bash) {
-		return { borderColor: "bashMode", prefixColor: "bashMode", prefix: cfg.PREFIX };
-	}
-	if (state.plan) {
-		return {
-			borderColor: cfg.PLAN_MODE_BORDER_COLOR,
-			prefixColor: cfg.PLAN_MODE_PREFIX_COLOR,
-			prefix: cfg.PLAN_MODE_PREFIX,
-		};
-	}
-	if (state.chat) {
-		return {
-			borderColor: cfg.CHAT_MODE_BORDER_COLOR,
-			prefixColor: cfg.CHAT_MODE_PREFIX_COLOR,
-			prefix: cfg.CHAT_MODE_PREFIX,
-		};
-	}
-	const customCfg = state.custom ? cfg.MODES[state.custom] : undefined;
-	if (state.custom && customCfg) {
-		return {
-			borderColor: customCfg.borderColor ?? cfg.BORDER_COLOR,
-			prefixColor: customCfg.prefixColor ?? cfg.PREFIX_COLOR,
-			prefix: customCfg.prefix ?? cfg.PREFIX,
-		};
-	}
-	return { borderColor: cfg.BORDER_COLOR, prefixColor: cfg.PREFIX_COLOR, prefix: cfg.PREFIX };
+const MODE_DEFAULTS: Record<string, Required<ModeAppearance>> = {
+	off: { prefix: "❯", prefixColor: "accent", borderColor: "border" },
+	chat: { prefix: "»", prefixColor: "chatModeBorder", borderColor: "chatModeBorder" },
+	plan: { prefix: "⏸", prefixColor: "customMessageLabel", borderColor: "customMessageLabel" },
+	execute: { prefix: "⏸", prefixColor: "customMessageLabel", borderColor: "customMessageLabel" },
+};
+
+/** Precedence: bash > active mode appearance > hardcoded mode fallback. */
+export function resolveModeStyle(state: ModeState): ResolvedModeStyle {
+	const fallback = MODE_DEFAULTS[state.mode] ?? MODE_DEFAULTS.off;
+	if (state.bash) return { borderColor: "bashMode", prefixColor: "bashMode", prefix: fallback.prefix };
+	return {
+		borderColor: state.appearance?.borderColor ?? fallback.borderColor,
+		prefixColor: state.appearance?.prefixColor ?? fallback.prefixColor,
+		prefix: state.appearance?.prefix ?? fallback.prefix,
+	};
 }

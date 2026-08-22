@@ -3,7 +3,7 @@ import type { TUI, EditorTheme } from "@earendil-works/pi-tui";
 import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { CONFIG, COMPANION_PADDING, MIN_WIDTH_FOR_COMPANION } from "./config.js";
-import { resolveModeStyle } from "./mode-style.js";
+import { resolveModeStyle, type ModeAppearance } from "./mode-style.js";
 import { applyColor, CompanionAnimator } from "./utils.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -13,21 +13,11 @@ function plainText(line: string): string {
 	return line.replace(ANSI_RE, "");
 }
 
-function isPlanModeActive(): boolean {
-	const mode = (globalThis as any).__planMode?.mode;
-	return mode === "plan" || mode === "execute";
-}
-
-function isChatModeActive(): boolean {
-	const mode = (globalThis as any).__chatMode?.mode;
-	return mode === "chat";
-}
-
-/** Any active mode-switcher mode other than off/chat/plan/execute (which have their own dedicated handling above). */
-function activeCustomMode(): string | null {
-	const mode = (globalThis as any).__agentMode?.mode;
-	if (!mode || mode === "off" || mode === "chat" || mode === "plan" || mode === "execute") return null;
-	return mode;
+function activeMode(): { mode: string; appearance?: ModeAppearance } {
+	const state = (globalThis as Record<string, unknown>).__agentMode as
+		| { mode?: string; appearance?: ModeAppearance }
+		| undefined;
+	return { mode: state?.mode ?? "off", appearance: state?.appearance };
 }
 
 // ─── Component ────────────────────────────────────────────────────────────
@@ -75,13 +65,8 @@ class ChatInput extends CustomEditor {
 		if (stock.length < 2) return super.render(width);
 
 		const isBash = this.isBashMode();
-		const isPlan = isPlanModeActive();
-		const isChat = isChatModeActive();
-		const customMode = !isBash && !isPlan && !isChat ? activeCustomMode() : null;
-		const style = resolveModeStyle(
-			{ bash: isBash, plan: isPlan, chat: isChat, custom: customMode },
-			CONFIG,
-		);
+		const mode = activeMode();
+		const style = resolveModeStyle({ bash: isBash, mode: mode.mode, appearance: mode.appearance });
 		const border = (s: string) => applyColor(this.uiTheme, style.borderColor, s);
 		const accent = (s: string) => applyColor(this.uiTheme, style.prefixColor, s);
 		const prefix = style.prefix;

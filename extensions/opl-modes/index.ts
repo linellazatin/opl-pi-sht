@@ -187,15 +187,6 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     const mode = getMode();
     const modeDef = getModeDefinition(mode);
 
-    // Publish resolved widget color for the footer's mode_switcher segment,
-    // independent of hideWidget (which only gates the ctx.ui.setWidget bars below).
-    (globalThis as Record<string, unknown>).__agentMode = {
-      mode,
-      widgetColor: modeDef?.labels?.widgetColor,
-    };
-    const requestRender = (globalThis as Record<string, unknown>).__footerRequestRender;
-    if (typeof requestRender === "function") (requestRender as () => void)();
-
     if (!ctx.hasUI) return;
 
     // Chat widget

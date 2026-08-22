@@ -28,8 +28,7 @@ const DEFAULT: TodoConfig = {
 	},
 };
 
-function load(): TodoConfig {
-	const path = join(homedir(), ".pi", "agent", "configs", "opl-todo.json");
+function load(path = join(homedir(), ".pi", "agent", "configs", "opl-todo.json")): TodoConfig {
 	try {
 		if (!existsSync(path)) return DEFAULT;
 		const raw = JSON.parse(readFileSync(path, "utf8"));
@@ -69,3 +68,4 @@ function load(): TodoConfig {
 }
 
 export const CONFIG = load();
+export { load as loadTodoConfig, DEFAULT as TODO_DEFAULT_CONFIG };

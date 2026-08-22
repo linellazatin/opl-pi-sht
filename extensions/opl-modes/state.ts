@@ -1,7 +1,7 @@
 /** OFF/CHAT/PLAN/EXECUTE unified state machine with session persistence via appendEntry blob. */
 
-import { ENTRY_TYPE } from "./config.js";
-import type { AgentMode, AgentModeBlob } from "./types.js";
+import { ENTRY_TYPE, getModeDefinition } from "./config.js";
+import type { AgentMode, AgentModeBlob, ModeAppearanceConfig } from "./types.js";
 
 /** Mutable state — shared within the extension module. */
 const state: {
@@ -25,7 +25,10 @@ const state: {
 function syncGlobalThis(): void {
   const m = state.mode;
   // Unified global for the mode-switcher footer segment
-  (globalThis as Record<string, unknown>).__agentMode = { mode: m };
+  (globalThis as Record<string, unknown>).__agentMode = {
+    mode: m,
+    appearance: getModeDefinition(m)?.appearance,
+  } satisfies { mode: AgentMode; appearance?: ModeAppearanceConfig };
   // Legacy globals for backward compat with chat-input and footer segments
   (globalThis as Record<string, unknown>).__planMode = { mode: m === "chat" ? "off" : m };
   (globalThis as Record<string, unknown>).__chatMode = { mode: m === "chat" ? "chat" : "off" };

@@ -2,11 +2,15 @@
 
 Replaces Pi's default chat editor with a mode-aware custom editor. Native editor behavior such as cursor movement, history, autocomplete, paste, and slash-menu handling remains available.
 
-## Features
+## Commands, flags, and shortcuts
+
+No commands, flags, or shortcuts. It replaces the standard editor at session start.
+
+## Extension features
 
 - **Boxed or unboxed input**: Full `┌─┐`/`│`/`└─┘` framing by default, or horizontal rules only with `boxedView: false`.
 - **External configuration**: Settings are loaded from `~/.pi/agent/configs/opl-input.json`, not hard-coded into the extension.
-- **Mode-aware styling**: Bash input, plan/execute mode, chat mode, and registered custom modes can each use different border colors and prefixes.
+- **Mode-aware styling**: Bash input has an input-local style; every active mode receives its border and prefix appearance from `opl-modes`.
 - **Companion animation**: An optional animated three-line ASCII companion appears above the editor, with changing expressions, blinking, drifting, ear movement, and temporary hidden phases.
 - **Scroll-aware borders**: Editor scroll indicators are embedded in the top or bottom border when the input has more content than fits.
 - **Slash-menu placement**: The slash menu is rendered below the input with configurable gap and indentation.
@@ -15,7 +19,7 @@ Replaces Pi's default chat editor with a mode-aware custom editor. Native editor
 
 ## Mode styling precedence
 
-Exactly one style applies at a time, in this order: Bash (`!` input) > plan/execute > chat > custom mode > default. Custom mode styling reads the shared `__agentMode` state published by `opl-modes`; plan and chat use their compatibility globals. A custom mode only needs to define the fields it wants to change — unspecified fields fall back per-field to the defaults.
+Exactly one style applies at a time, in this order: Bash (`!` input) > active `opl-modes` appearance > hardcoded mode fallback. The compiled fallbacks are normal: `❯`/`accent`/`border`; chat: `»`/`chatModeBorder`; and plan/execute: `⏸`/`customMessageLabel`.
 
 ## Configuration
 
@@ -27,22 +31,6 @@ Create `~/.pi/agent/configs/opl-input.json` or copy [`configs/opl-input.json`](.
   "boxPadX": 1,
   "menuGap": 0,
   "extraMenuIndent": 1,
-  "borderColor": "border",
-  "prefix": "❯",
-  "prefixColor": "accent",
-  "planModePrefix": "⏸",
-  "planModePrefixColor": "customMessageLabel",
-  "planModeBorderColor": "customMessageLabel",
-  "chatModePrefix": "»",
-  "chatModePrefixColor": "chatModeBorder",
-  "chatModeBorderColor": "chatModeBorder",
-  "modes": {
-    "audit": {
-      "prefix": "⚑",
-      "prefixColor": "warning",
-      "borderColor": "#c07898"
-    }
-  },
   "companion": {
     "enabled": true,
     "color": "accent",
@@ -61,35 +49,6 @@ Create `~/.pi/agent/configs/opl-input.json` or copy [`configs/opl-input.json`](.
 | `boxPadX` | number | `1` | Horizontal padding inside the editor. |
 | `menuGap` | number | `0` | Blank lines between the input bottom border and slash menu. |
 | `extraMenuIndent` | number | `1` | Additional indentation for slash-menu lines. |
-| `borderColor` | color | `"border"` | Default border color. |
-| `prefixColor` | color | `"accent"` | Default prefix color. |
-| `prefix` | string | `"❯"` | Default first-line prefix. |
-
-### Plan and execute modes
-
-| Option | Type | Default | Description |
-|---|---|---:|---|
-| `planModePrefix` | string | `"⏸"` | Prefix while plan or execute mode is active. |
-| `planModePrefixColor` | color | `"customMessageLabel"` | Prefix color for plan and execute modes. |
-| `planModeBorderColor` | color | `"customMessageLabel"` | Border color for plan and execute modes. |
-
-### Chat mode
-
-| Option | Type | Default | Description |
-|---|---|---:|---|
-| `chatModePrefix` | string | `"»"` | Prefix while chat mode is active. |
-| `chatModePrefixColor` | color | `"chatModeBorder"` | Prefix color for chat mode. |
-| `chatModeBorderColor` | color | `"chatModeBorder"` | Border color for chat mode. |
-
-### Custom modes (`modes.<name>`)
-
-One entry per custom mode registered by `opl-modes`, keyed by the exact mode name (e.g. `audit`, `review`). Built-in modes (`off`, `chat`, `plan`, `execute`) are handled by the dedicated options above and should not be listed here.
-
-| Field | Type | Default | Description |
-|---|---|---:|---|
-| `modes.<name>.prefix` | string | falls back to `prefix` | Prefix while this mode is active. |
-| `modes.<name>.prefixColor` | color | falls back to `prefixColor` | Prefix color while this mode is active. |
-| `modes.<name>.borderColor` | color | falls back to `borderColor` | Border color while this mode is active. |
 
 ### Companion
 
@@ -118,3 +77,7 @@ Every color option accepts either:
 - **A six-digit hex color** — e.g. `"#c07898"` (rendered as ANSI truecolor, downgraded automatically on 256-color terminals).
 
 Invalid theme tokens fall back to the theme's `border` token; invalid hex renders uncolored rather than crashing.
+
+## Architecture
+
+`index.ts` installs the editor integration; `mode-style.ts` resolves Bash > published mode appearance > compiled fallback; `config.ts` loads editor and companion settings; and `utils.ts` handles color and rendering helpers. `opl-modes` is the sole publisher of active mode appearance through `globalThis.__agentMode`.

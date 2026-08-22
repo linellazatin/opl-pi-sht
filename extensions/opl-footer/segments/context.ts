@@ -15,7 +15,7 @@ const DEFAULT_MID   = { r: 0xd6, g: 0x78, b: 0x58 };
 const DEFAULT_END   = { r: 0xae, g: 0x4f, b: 0x2f };
 const DEFAULT_MID_FRAC = 0.55; // 0–1: where MID sits along the gradient
 
-function lerp(a: number, b: number, t: number): number {
+export function lerp(a: number, b: number, t: number): number {
   return Math.round(a + (b - a) * t);
 }
 
