@@ -25,8 +25,6 @@ import type { ToolSupportLevel } from "../../../shared/types";
  * @property CONNECT_TIMEOUT_S - Connection timeout for fetch (seconds)
  * @property MAX_RETRIES - Number of retry attempts for transient failures
  * @property RETRY_DELAY_MS - Delay between retry attempts (milliseconds)
- * @property NUM_PREDICT - Default max tokens for model responses
- * @property TEMPERATURE - Default sampling temperature
  * @property MIN_THINKING_LENGTH - Minimum characters to consider thinking tokens valid
  * @property TOOL_TEST_TIMEOUT_MS - Timeout for tool usage tests
  * @property TOOL_SUPPORT_TIMEOUT_MS - Timeout for tool support detection
@@ -38,10 +36,6 @@ export const CONFIG = {
   CONNECT_TIMEOUT_S: 60,             // 60 seconds to establish connection
   MAX_RETRIES: 2,                    // Two retries for transient failures (standardized)
   RETRY_DELAY_MS: 15000,              // 15 seconds between retries (standardized)
-
-  // Model generation settings
-  NUM_PREDICT: 1024,                 // Max tokens in response
-  TEMPERATURE: 0.1,                  // Low temperature for more deterministic output
 
   // Test-specific settings - standardized across all providers
   MIN_THINKING_LENGTH: 10,           // Minimum chars to consider thinking tokens valid
@@ -85,8 +79,6 @@ export interface ModelTestUserConfig {
   toolTestTimeoutMs?: number;
   providerTimeoutMs?: number;
   providerToolTimeoutMs?: number;
-  numPredict?: number;
-  temperature?: number;
   contextBatchSize?: number;
 }
 
@@ -121,8 +113,6 @@ export function getEffectiveConfig(): typeof CONFIG {
     PROVIDER_TIMEOUT_MS: (userConfig.providerTimeoutMs ?? CONFIG.PROVIDER_TIMEOUT_MS) as typeof CONFIG.PROVIDER_TIMEOUT_MS,
     PROVIDER_TOOL_TIMEOUT_MS: (userConfig.providerToolTimeoutMs ?? CONFIG.PROVIDER_TOOL_TIMEOUT_MS) as typeof CONFIG.PROVIDER_TOOL_TIMEOUT_MS,
     CONTEXT_BATCH_SIZE: (userConfig.contextBatchSize ?? CONFIG.CONTEXT_BATCH_SIZE) as typeof CONFIG.CONTEXT_BATCH_SIZE,
-    NUM_PREDICT: (userConfig.numPredict ?? CONFIG.NUM_PREDICT) as typeof CONFIG.NUM_PREDICT,
-    TEMPERATURE: (userConfig.temperature ?? CONFIG.TEMPERATURE) as typeof CONFIG.TEMPERATURE,
   };
 }
 

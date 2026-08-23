@@ -11,6 +11,31 @@ import { REASONING_TESTS, MULTISTEP_INSTRUCTION, CALC_TOOL_DEFINITION } from "./
 import { scoreReasoning, averageScore } from "./scoring";
 import type { SimplebenchOptions, TestRecord } from "./types";
 
+type BenchmarkModel = { id: string; provider?: string; api?: string; reasoning?: boolean; thinkingLevelMap?: Record<string, string | null> };
+type BenchmarkContext = { model?: BenchmarkModel; getScopedModels?: () => ReadonlyArray<{ model: BenchmarkModel }> };
+
+type ThinkingMode = { requested: "default" | "max"; effective: "provider-default" | "openai-reasoning-effort" | "pi-bedrock-reasoning"; level: "max" | null };
+
+export function resolveBenchmarkModel(ctx: BenchmarkContext | undefined, modelId: string): { model: BenchmarkModel | undefined; source: "active-context" | "scoped-model" | null } {
+  if (ctx?.model && (ctx.model.id === modelId || `${ctx.model.provider}/${ctx.model.id}` === modelId)) return { model: ctx.model, source: "active-context" };
+  const model = ctx?.getScopedModels?.().find(({ model }) => model.id === modelId || `${model.provider}/${model.id}` === modelId)?.model;
+  return { model, source: model ? "scoped-model" : null };
+}
+
+export function resolveThinkingMode(providerInfo: { kind: string; apiMode?: string }, model: BenchmarkModel | undefined, thinkingMax: boolean): ThinkingMode {
+  if (!thinkingMax) return { requested: "default", effective: "provider-default", level: null };
+  if (providerInfo.apiMode === "openai-completions") return { requested: "max", effective: "openai-reasoning-effort", level: "max" };
+  if (providerInfo.kind === "bedrock") {
+    if (!model?.reasoning || !model.thinkingLevelMap?.max) throw new Error("The selected Bedrock model does not advertise max thinking");
+    return { requested: "max", effective: "pi-bedrock-reasoning", level: "max" };
+  }
+  throw new Error("--thinking-max is supported only for OpenAI-compatible and direct Bedrock models");
+}
+
+export function openAiThinkingOptions(thinkingMax: boolean): Record<string, string> {
+  return thinkingMax ? { reasoning_effort: "max" } : {};
+}
+
 export function createBenchmark() {
 // Use effective config (user overrides merged with defaults)
 const effectiveConfig = getEffectiveConfig();
@@ -60,15 +85,15 @@ function makeOllamaChatFn(useStreaming = true): ChatFn {
 /**
  * Create a chat function for OpenAI-compatible API (OpenRouter, OpenAI, etc.).
  */
-function makeOpenAiChatFn(baseUrl: string, apiKey?: string): ChatFn {
+function makeOpenAiChatFn(baseUrl: string, apiKey?: string, thinkingMax = false): ChatFn {
   return async (model, messages, options) => {
     const tools = (options?.tools as any[] | undefined) || undefined;
     const body: any = {
       model,
       messages,
       stream: false,
-      temperature: CONFIG.TEMPERATURE,
-      max_tokens: CONFIG.NUM_PREDICT,
+      cache: { "no-cache": true }, // bypass LiteLLM proxy response cache — benchmarks must measure real inference
+      ...openAiThinkingOptions(thinkingMax),
     };
     if (tools && tools.length > 0) {
       body.tools = tools.map((t: any) => ({
@@ -197,7 +222,6 @@ function makeBedrockChatFn(providerInfo: { region?: string }): ChatFn {
     const converse: any = {
       ...(system.length ? { system } : {}),
       messages: messages.filter(m => m.role !== "system").map(m => ({ role: m.role, content: [{ text: m.content }] })),
-      inferenceConfig: { maxTokens: CONFIG.NUM_PREDICT },
     };
     const tools = (options?.tools as any[] | undefined) || undefined;
     if (tools?.length) {
@@ -244,19 +268,41 @@ function makeBedrockChatFn(providerInfo: { region?: string }): ChatFn {
   };
 }
 
+function makePiBedrockThinkingChatFn(modelConfig: BenchmarkModel): ChatFn {
+  return async (_model, messages, options) => {
+    const { streamSimple } = await import("@earendil-works/pi-ai/api/bedrock-converse-stream");
+    const systemPrompt = messages.filter(m => m.role === "system").map(m => m.content).join("\n") || undefined;
+    const tools = (options?.tools as any[] | undefined)?.map(tool => ({
+      name: tool.function?.name || tool.name,
+      description: tool.function?.description || tool.description || "",
+      parameters: tool.function?.parameters || tool.parameters || { type: "object", properties: {} },
+    }));
+    const startedAt = new Date().toISOString();
+    const start = Date.now();
+    const stream = streamSimple(modelConfig as any, {
+      ...(systemPrompt ? { systemPrompt } : {}),
+      messages: messages.filter(m => m.role !== "system") as any,
+      ...(tools?.length ? { tools } : {}),
+    }, { reasoning: "max" });
+    const message: any = await stream.result();
+    const content = (message.content || []).filter((block: any) => block.type === "text").map((block: any) => block.text).join("");
+    const toolCalls = (message.content || []).filter((block: any) => block.type === "toolCall").map((block: any) => ({
+      function: { name: block.name, arguments: block.arguments },
+    }));
+    return { content, toolCalls: toolCalls.length ? toolCalls : undefined, elapsedMs: Date.now() - start, raw: message, startedAt, finishedAt: new Date().toISOString() };
+  };
+}
+
 /**
  * Create the appropriate chat function based on provider type.
  */
-function makeChatFn(providerInfo: { kind: string; name: string; baseUrl?: string; region?: string; apiKey?: string }): ChatFn {
-  if (providerInfo.kind === "ollama") {
-    return makeOllamaChatFn();
-  }
-  if (providerInfo.kind === "bedrock") {
-    return makeBedrockChatFn(providerInfo);
-  }
-  // For built-in providers (OpenAI-compatible API)
+function makeChatFn(providerInfo: { kind: string; name: string; baseUrl?: string; region?: string; apiKey?: string; apiMode?: string }, thinking: ThinkingMode, modelConfig: BenchmarkModel | undefined): ChatFn {
+  if (providerInfo.kind === "ollama") return makeOllamaChatFn();
+  if (providerInfo.kind === "bedrock") return thinking.effective === "pi-bedrock-reasoning" && modelConfig
+    ? makePiBedrockThinkingChatFn(modelConfig)
+    : makeBedrockChatFn(providerInfo);
   const baseUrl = providerInfo.baseUrl || ollamaBase();
-  return makeOpenAiChatFn(baseUrl, providerInfo.apiKey);
+  return makeOpenAiChatFn(baseUrl, providerInfo.apiKey, thinking.effective === "openai-reasoning-effort");
 }
 
 function makeOllamaToolChatFn(): ChatFn {
@@ -266,7 +312,6 @@ function makeOllamaToolChatFn(): ChatFn {
       model,
       messages,
       stream: false,
-      options: { num_predict: CONFIG.NUM_PREDICT, temperature: CONFIG.TEMPERATURE },
     };
     if (tools && tools.length > 0) {
       body.tools = tools;
@@ -317,7 +362,7 @@ async function ollamaChat(
   timeoutMs = CONFIG.DEFAULT_TIMEOUT_MS,
   retries = CONFIG.MAX_RETRIES
 ): Promise<{ response: any; elapsedMs: number }> {
-  const body: any = { model, messages, stream: false, options: { num_predict: CONFIG.NUM_PREDICT, temperature: CONFIG.TEMPERATURE, ...options } };
+  const body: any = { model, messages, stream: false, ...(Object.keys(options).length ? { options } : {}) };
   const url = `${ollamaBase()}/api/chat`;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -378,7 +423,7 @@ async function ollamaChatStream(
   options: Record<string, unknown> = {},
   timeoutMs = CONFIG.DEFAULT_TIMEOUT_MS,
 ): Promise<{ response: any; elapsedMs: number }> {
-  const body: any = { model, messages, stream: true, options: { num_predict: CONFIG.NUM_PREDICT, temperature: CONFIG.TEMPERATURE, ...options } };
+  const body: any = { model, messages, stream: true, ...(Object.keys(options).length ? { options } : {}) };
   const url = `${ollamaBase()}/api/chat`;
 
   const controller = new AbortController();
@@ -462,7 +507,7 @@ interface ReasoningTestResult {
   metrics: ReturnType<typeof emptyMetrics>;
   score: string;
   answer: string;
-  expectedAnswer: string;
+  expectedAnswer: string | string[];
   pass: boolean;
   details?: string;
 }
@@ -544,17 +589,20 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   const lines: string[] = [];
   const totalStart = Date.now();
   const providerInfo = ctx ? detectProvider(ctx) : { kind: "ollama" as const, name: "ollama" };
+  const resolvedModel = resolveBenchmarkModel(ctx, model);
+  const thinking = resolveThinkingMode(providerInfo, resolvedModel.model, options.thinkingMax === true);
 
   lines.push(sharedBranding);
   lines.push(section(`MODEL: ${model}`));
   lines.push(info(`Provider: ${providerInfo.name} (${providerInfo.kind})`));
+  lines.push(info(`Thinking: ${thinking.effective}`));
 
   // Create chat functions for different test types
   // Use provider-appropriate chat functions
-  const chatFn = makeChatFn(providerInfo);
+  const chatFn = makeChatFn(providerInfo, thinking, resolvedModel.model);
   const toolChatFn = providerInfo.kind === "ollama" ? makeOllamaToolChatFn()
-    : providerInfo.kind === "bedrock" ? makeBedrockChatFn(providerInfo as any)
-    : makeOpenAiChatFn(providerInfo.baseUrl || ollamaBase(), providerInfo.apiKey);
+    : providerInfo.kind === "bedrock" ? makeChatFn(providerInfo, thinking, resolvedModel.model)
+    : makeOpenAiChatFn(providerInfo.baseUrl || ollamaBase(), providerInfo.apiKey, thinking.effective === "openai-reasoning-effort");
 
   // Progress notification helper — safe to call even without a TUI context
   const progress = (msg: string) => ctx?.ui?.notify?.(msg, "info");
@@ -600,7 +648,7 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   let artifactPath: string | null = null;
   if (options.writeArtifact) {
     try {
-      artifactPath = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", model, provider: providerInfo.name, providerKind: providerInfo.kind, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: artifactTests, summary: { reasoning: { score: reasoning.score, passed: reasoning.results.filter(r => r.pass).length, total: reasoning.results.length }, instructions: instructions.score, tools: tools.score, metrics: aggregate } });
+      artifactPath = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: artifactTests, summary: { reasoning: { score: reasoning.score, passed: reasoning.results.filter(r => r.pass).length, total: reasoning.results.length }, instructions: instructions.score, tools: tools.score, metrics: aggregate } });
     } catch (e: any) { lines.push(warn(`Artifact could not be written: ${e?.message || e}`)); }
   }
   

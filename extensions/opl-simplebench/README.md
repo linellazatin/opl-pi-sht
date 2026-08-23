@@ -7,7 +7,7 @@ Auditable Pi model benchmark for reasoning, JSON instruction following, and tool
 ```text
 /simplebench
 /simplebench <model>
-/simplebench <model> --no-artifact
+/simplebench <model> [--no-artifact] [--thinking-max]
 /simplebench --all [--no-artifact]
 /simplebench --help
 /simplebench --clear-cache
@@ -18,13 +18,17 @@ The LLM-callable tool is `simplebench`:
 ```ts
 simplebench({ model: "global.openai.gpt-5.6-terra" })
 simplebench({ model: "global.openai.gpt-5.6-terra", no_artifact: true })
+simplebench({ model: "global.openai.gpt-5.6-terra", thinking_max: true })
 ```
 
-`--no-artifact` and `no_artifact: true` suppress the JSON file. Default runs write one JSON report per model to Pi's current working directory.
+`--no-artifact` and `no_artifact: true` suppress the JSON file. Default runs use the provider's sampling and reasoning defaults and write one JSON report per model to Pi's current working directory. `--thinking-max` and `thinking_max: true` request `reasoning_effort: "max"` for OpenAI-compatible providers, or Pi's model-aware Bedrock max-thinking path for direct Bedrock models that advertise `reasoning: true` and `thinkingLevelMap.max`. Other providers reject that mode rather than silently using defaults.
 
 ## Extension features
 
+- Cache-bypassing by default: OpenAI-compatible requests (LiteLLM, OpenRouter, etc.) send `cache: {"no-cache": true}` so a proxy-level response cache never serves results. A benchmark must measure real inference; without this, identical prompts across runs return cached responses instantly and the proxy logs show 200s while the backend server stays idle.
+
 - Twenty fixed reasoning prompts, one strict JSON instruction test, and one chained tool-call test.
+- Provider-default sampling and reasoning by default, with explicit `--thinking-max` for OpenAI-compatible proxies and metadata-gated direct Bedrock models.
 - Full JSON artifacts containing exact prompts, responses, scores, errors, per-test timing, provider usage, and returned tool calls.
 - Aggregate request count, retry count, tool-call count, token totals where returned by the provider, output tok/s where calculable, and average/median/P95 latency.
 - Provider API keys from `models.json` (`$VAR`/`${VAR}` expansion), environment variables, or Pi `auth.json`.
@@ -63,7 +67,7 @@ Use this in sensitive environments. The terminal summary still reports category 
 
 ### Inspect a result
 
-A normal run prints an absolute artifact path. The JSON contains the original prompt, complete model response, extraction/evaluation information, timings, usage values, errors, and aggregate metrics. Fields unavailable from a provider are `null`, never estimates.
+A normal run prints an absolute artifact path. The JSON contains the original prompt, complete model response, extraction/evaluation information, timings, usage values, errors, and aggregate metrics. Fields unavailable from a provider are `null`, never estimates. Artifacts record requested and effective thinking mode, logical level, and whether model metadata came from the active Pi context or scoped model registry.
 
 ## Artifacts and privacy
 
@@ -117,7 +121,7 @@ Simplebench uses, in order, a configured provider key, `OPENROUTER_API_KEY`, the
 
 ### Amazon Bedrock
 
-Simplebench derives the region from the selected model's Bedrock base URL, signs Converse requests with SigV4, and does not send unsupported sampling fields. It resolves credentials from `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` first, otherwise it runs:
+Simplebench derives the region from the selected model's Bedrock base URL, signs default Converse requests with SigV4, and does not send sampling overrides. For `--thinking-max`, it uses Pi's Bedrock adapter and resolved model metadata rather than duplicating model-family thinking rules. The selected model must advertise `reasoning: true` and non-null `thinkingLevelMap.max`; otherwise Simplebench fails before sending a benchmark request. It resolves credentials from `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` first, otherwise it runs:
 
 ```text
 aws configure export-credentials --profile "$AWS_PROFILE"
@@ -132,7 +136,7 @@ AWS CLI v2 is therefore required when the selected profile uses SSO or an assume
 | LiteLLM returns `No connected db.` | Usually invalid/missing proxy authentication, not a database requirement. Check the resolved provider key. |
 | OpenRouter returns 401 | Set `OPENROUTER_API_KEY`, configure the provider key, or authenticate Pi so `auth.json` has an API key. |
 | Bedrock says credentials are unavailable | Run `aws configure export-credentials --profile "$AWS_PROFILE"` and resolve profile login/role issues first. |
-| Bedrock rejects a sampling field | The model may not support it; Simplebench sends only max tokens to Converse. |
+| Bedrock rejects `--thinking-max` | The selected model does not advertise max thinking in Pi metadata, or the provider rejected its model-specific reasoning request. |
 | Artifact is absent | Check the report for `--no-artifact` or an artifact-write warning; the file is written to Pi's cwd. |
 | Token or TTFT values are null | The provider response did not expose authoritative usage/timing values. |
 
