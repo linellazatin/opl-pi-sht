@@ -4,10 +4,11 @@ import { section, ok, fail, warn, info, msHuman, truncate, sanitizeForReport } f
 import { getOllamaBaseUrl, detectProvider } from "./util/providers";
 import { debugLog } from "./util/debug";
 import { CONFIG, WEATHER_TOOL_DEFINITION, getEffectiveConfig, type ChatFn } from "./util/config";
-import { branding as sharedBranding, formatInstructionScore, formatTestSummary, recommendation } from "./report";
+import { branding as sharedBranding, codingRecommendation, formatInstructionScore, formatTestSummary, recommendation } from "./report";
 import { writeArtifact } from "./artifact";
 import { aggregateMetrics, emptyMetrics, metricsFromChat } from "./metrics";
 import { REASONING_TESTS, MULTISTEP_INSTRUCTION, CALC_TOOL_DEFINITION } from "./tests";
+import { CODING_LITE_TASKS, runCodingTask } from "./coding";
 import { scoreReasoning, averageScore } from "./scoring";
 import type { SimplebenchOptions, TestRecord } from "./types";
 
@@ -65,12 +66,13 @@ async function rateLimitDelay(): Promise<void> {
  * Create a chat function for Ollama API.
  */
 function makeOllamaChatFn(useStreaming = true): ChatFn {
-  return async (model, messages, _options) => {
+  return async (model, messages, options) => {
     const chatFn = useStreaming ? ollamaChatStream : ollamaChat;
     const startedAt = new Date().toISOString();
-    const result = await chatFn(model, messages);
+    const result = await chatFn(model, messages, options ?? {});
     return {
       content: result.response?.message?.content || "",
+      toolCalls: result.response?.message?.tool_calls,
       elapsedMs: result.elapsedMs,
       raw: result.response,
       requestCount: result.requestCount,
@@ -362,7 +364,8 @@ async function ollamaChat(
   timeoutMs = CONFIG.DEFAULT_TIMEOUT_MS,
   retries = CONFIG.MAX_RETRIES
 ): Promise<{ response: any; elapsedMs: number }> {
-  const body: any = { model, messages, stream: false, ...(Object.keys(options).length ? { options } : {}) };
+  const { tools, ...generationOptions } = options as any;
+  const body: any = { model, messages, stream: false, ...(tools ? { tools } : {}), ...(Object.keys(generationOptions).length ? { options: generationOptions } : {}) };
   const url = `${ollamaBase()}/api/chat`;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -423,7 +426,8 @@ async function ollamaChatStream(
   options: Record<string, unknown> = {},
   timeoutMs = CONFIG.DEFAULT_TIMEOUT_MS,
 ): Promise<{ response: any; elapsedMs: number }> {
-  const body: any = { model, messages, stream: true, ...(Object.keys(options).length ? { options } : {}) };
+  const { tools, ...generationOptions } = options as any;
+  const body: any = { model, messages, stream: true, ...(tools ? { tools } : {}), ...(Object.keys(generationOptions).length ? { options: generationOptions } : {}) };
   const url = `${ollamaBase()}/api/chat`;
 
   const controller = new AbortController();
@@ -448,6 +452,7 @@ async function ollamaChatStream(
 
     let messageContent = "";
     let thinkingContent = "";
+    const toolCalls: any[] = [];
     let done = false;
 
     const reader = res.body.getReader();
@@ -464,6 +469,7 @@ async function ollamaChatStream(
           const parsed = JSON.parse(line);
           if (parsed.message?.content) messageContent += parsed.message.content;
           if (parsed.message?.thinking) thinkingContent += parsed.message.thinking;
+          if (parsed.message?.tool_calls) toolCalls.push(...parsed.message.tool_calls);
           if (parsed.done) done = true;
         } catch (err) { debugLog("simplebench", "skipped malformed JSON chunk in streaming response", err); }
       }
@@ -479,6 +485,7 @@ async function ollamaChatStream(
       message: {
         content: messageContent,
         thinking: thinkingContent,
+        tool_calls: toolCalls.length ? toolCalls : undefined,
         role: "assistant",
       },
       done: true,
@@ -554,18 +561,63 @@ async function testInstructionFollowingExtended(chatFn: ChatFn, model: string): 
 
 async function testToolUsageExtended(chatFn: ChatFn, model: string): Promise<{ pass: boolean; score: string; toolCalls: string[]; response: string; elapsedMs: number; metrics: ReturnType<typeof emptyMetrics> }> {
   try {
-    const result = await chatFn(model, [{ role: "system", content: "Use tools when needed." }, { role: "user", content: "What's weather in Tokyo and calculate 15*24?" }], { tools: [WEATHER_TOOL_DEFINITION, CALC_TOOL_DEFINITION] });
-    const toolCalls = result.toolCalls || [];
-    const hasWeather = toolCalls.some((t: any) => t.function?.name === "get_weather");
-    const hasCalc = toolCalls.some((t: any) => t.function?.name === "calculate");
-    let score = "FAIL";
-    if (hasWeather && hasCalc && toolCalls.length >= 2) score = "STRONG";
-    else if (hasWeather || hasCalc) score = "MODERATE";
-    else if (toolCalls.length > 0) score = "WEAK";
-    return { pass: toolCalls.length > 0, score, toolCalls: toolCalls.map((t: any) => t.function?.name || "?"), response: result.content, elapsedMs: result.elapsedMs, metrics: metricsFromChat(result) };
+    const tools = [WEATHER_TOOL_DEFINITION, CALC_TOOL_DEFINITION];
+    const started = Date.now();
+    const first = await chatFn(model, [{ role: "system", content: "Use the available tools, then answer using their results." }, { role: "user", content: "What's weather in Tokyo and calculate 15*24?" }], { tools });
+    const calls = first.toolCalls || [];
+    const toolNames = calls.map((t: any) => t.function?.name || "?");
+    const results = calls.map((call: any) => {
+      const fn = call.function || call;
+      let args: any = {};
+      try { args = typeof fn.arguments === "string" ? JSON.parse(fn.arguments) : (fn.arguments || {}); } catch { return { name: fn.name, result: "INVALID_ARGUMENTS" }; }
+      if (fn.name === "get_weather" && String(args.location).toLowerCase() === "tokyo") return { name: fn.name, result: "Tokyo: clear, 22C" };
+      if (fn.name === "calculate" && String(args.expression).replace(/\s/g, "") === "15*24") return { name: fn.name, result: "360" };
+      return { name: fn.name, result: "INVALID_ARGUMENTS" };
+    });
+    const validWeather = results.some(r => r.name === "get_weather" && r.result !== "INVALID_ARGUMENTS");
+    const validCalc = results.some(r => r.name === "calculate" && r.result === "360");
+    if (!calls.length) return { pass: false, score: "FAIL", toolCalls: toolNames, response: first.content, elapsedMs: Date.now() - started, metrics: metricsFromChat(first) };
+    const followup = await chatFn(model, [{ role: "system", content: "Use the available tools, then answer using their results." }, { role: "user", content: "What's weather in Tokyo and calculate 15*24?" }, { role: "assistant", content: first.content || "", toolCalls: calls }, { role: "user", content: results.map(r => `${r.name}: ${r.result}`).join("\n") }]);
+    const finalText = `${followup.content || ""}`.toLowerCase();
+    const synthesized = finalText.includes("360") && (finalText.includes("tokyo") || finalText.includes("22"));
+    const score = validWeather && validCalc && synthesized ? "STRONG" : validWeather || validCalc ? "MODERATE" : "WEAK";
+    return { pass: validWeather && validCalc && synthesized, score, toolCalls: toolNames, response: followup.content, elapsedMs: Date.now() - started, metrics: metricsFromChat({ ...followup, toolCalls: calls }) };
   } catch (e: any) {
     return { pass: false, score: "ERROR", toolCalls: [], response: e.message, elapsedMs: 0, metrics: emptyMetrics() };
   }
+}
+
+async function testCodingLite(chatFn: ChatFn, model: string, onProgress?: (message: string) => void): Promise<{ results: Awaited<ReturnType<typeof runCodingTask>>[]; passed: number; total: number }> {
+  const results = [] as Awaited<ReturnType<typeof runCodingTask>>[];
+  for (let index = 0; index < CODING_LITE_TASKS.length; index += 1) {
+    const task = CODING_LITE_TASKS[index];
+    const prefix = `[${index + 1}/${CODING_LITE_TASKS.length}] coding-lite: [${task.id}]`;
+    onProgress?.(`${prefix} starting...`);
+    const result = await runCodingTask(chatFn, model, task, {
+      onProgress: message => onProgress?.(`${prefix} ${message.slice(task.id.length + 2)}`),
+    });
+    results.push(result);
+    onProgress?.(`${prefix} agent turn → ${result.passed ? "passed" : "failed"}`);
+  }
+  return { results, passed: results.filter(result => result.passed).length, total: results.length };
+}
+
+function codingTestRecords(coding: Awaited<ReturnType<typeof testCodingLite>>): TestRecord[] {
+  return coding.results.map(result => {
+    const task = CODING_LITE_TASKS.find(candidate => candidate.id === result.id)!;
+    return {
+      id: result.id,
+      kind: "coding" as const,
+      category: "coding-lite",
+      prompt: task.prompt,
+      response: null,
+      score: result.passed ? "STRONG" : "FAIL",
+      passed: result.passed,
+      error: result.error,
+      metrics: { requestCount: result.turns, retryCount: 0, wallTimeMs: result.wallTimeMs, timeToAnswerMs: result.wallTimeMs, timeToFirstTokenMs: null, startedAt: null, finishedAt: null, inputTokens: null, outputTokens: result.outputTokens, totalTokens: null, outputTokensPerSecond: null, toolCalls: [] },
+      coding: { publicPassed: result.publicPassed, hiddenPassed: result.hiddenPassed, verifiedAfterEdit: result.verifiedAfterEdit, unrelatedFiles: result.unrelatedFiles, toolCalls: result.toolCalls, turns: result.turns },
+    };
+  });
 }
 
 // ── get models to test ─────────────────────────────────────────────────
@@ -591,11 +643,13 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   const providerInfo = ctx ? detectProvider(ctx) : { kind: "ollama" as const, name: "ollama" };
   const resolvedModel = resolveBenchmarkModel(ctx, model);
   const thinking = resolveThinkingMode(providerInfo, resolvedModel.model, options.thinkingMax === true);
+  const suite = options.testAll ? "test-all" : options.codingLite ? "coding-lite" : "baseline";
 
   lines.push(sharedBranding);
   lines.push(section(`MODEL: ${model}`));
   lines.push(info(`Provider: ${providerInfo.name} (${providerInfo.kind})`));
   lines.push(info(`Thinking: ${thinking.effective}`));
+  lines.push(info(`Suite: ${suite}`));
 
   // Create chat functions for different test types
   // Use provider-appropriate chat functions
@@ -606,6 +660,28 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
 
   // Progress notification helper — safe to call even without a TUI context
   const progress = (msg: string) => ctx?.ui?.notify?.(msg, "info");
+  let codingSummary: Awaited<ReturnType<typeof testCodingLite>> | null = null;
+
+  if (options.codingLite || options.testAll) {
+    lines.push(section("CODING-LITE TEST"));
+    lines.push(info(`Testing ${CODING_LITE_TASKS.length} execution-backed coding tasks...`));
+    codingSummary = await testCodingLite(chatFn, model, progress);
+    for (const result of codingSummary.results) lines.push(result.passed ? ok(`✓ ${result.id}: passed (${result.toolCalls} tools, ${result.turns} turns)`) : fail(`✗ ${result.id}: failed (${result.error || "hidden verification failed"})`));
+    lines.push(info(`Coding Lite: ${codingSummary.passed}/${codingSummary.total} tasks passed`));
+    if (options.codingLite && !options.testAll) {
+      const totalMs = Date.now() - totalStart;
+      let artifactPath: string | null = null;
+      if (options.writeArtifact) {
+        try { artifactPath = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", suite, model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: codingTestRecords(codingSummary), summary: {} }); }
+        catch (e: any) { lines.push(warn(`Artifact could not be written: ${e?.message || e}`)); }
+      }
+      const codingOverall = codingRecommendation(codingSummary.passed, codingSummary.total);
+      lines.push(section("CODING-LITE RECOMMENDATION"));
+      lines.push(codingOverall.label === "WEAK" ? fail(`${model} is ${codingOverall.label} (${codingOverall.passed}/${codingOverall.total} coding tasks passed)`) : ok(`${model} is ${codingOverall.label} (${codingOverall.passed}/${codingOverall.total} coding tasks passed)`));
+      lines.push(info(artifactPath ? `Artifact: ${artifactPath}` : "Artifact: disabled (--no-artifact)"));
+      return lines.join("\n");
+    }
+  }
 
   // 1. Extended Reasoning test
   lines.push(section("REASONING TEST (EXTENDED)"));
@@ -644,11 +720,12 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   const artifactTests: TestRecord[] = reasoning.results.map(r => ({ id: r.name, kind: "reasoning", category: r.category, prompt: r.prompt, response: r.response, expectedAnswer: r.expectedAnswer, extractedAnswer: r.answer, score: r.score, passed: r.pass, error: r.error || null, metrics: r.metrics }));
   artifactTests.push({ id: "instruction_following", kind: "instructions", prompt: MULTISTEP_INSTRUCTION, response: instructions.output, score: instructions.score, passed: instructions.pass, error: instructions.score === "FAIL" ? instructions.output : null, metrics: instructions.metrics });
   artifactTests.push({ id: "tool_usage", kind: "tools", prompt: "What's weather in Tokyo and calculate 15*24?", response: tools.response, score: tools.score, passed: tools.pass, error: tools.score === "ERROR" ? tools.response : null, metrics: tools.metrics });
-  const aggregate = aggregateMetrics(artifactTests);
+  artifactTests.push(...(codingSummary ? codingTestRecords(codingSummary) : []));
+  const aggregate = aggregateMetrics(artifactTests.filter(test => test.kind !== "coding"));
   let artifactPath: string | null = null;
   if (options.writeArtifact) {
     try {
-      artifactPath = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: artifactTests, summary: { reasoning: { score: reasoning.score, passed: reasoning.results.filter(r => r.pass).length, total: reasoning.results.length }, instructions: instructions.score, tools: tools.score, metrics: aggregate } });
+      artifactPath = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", suite, model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: artifactTests, summary: { reasoning: { score: reasoning.score, passed: reasoning.results.filter(r => r.pass).length, total: reasoning.results.length }, instructions: instructions.score, tools: tools.score, metrics: aggregate } });
     } catch (e: any) { lines.push(warn(`Artifact could not be written: ${e?.message || e}`)); }
   }
   
@@ -659,17 +736,20 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   const totalPassed = reasoningPassed + instructionPassed + toolPassed;
   const totalTests = reasoningTotal + 1 + 1;
   
-  lines.push(...formatTestSummary([
+  const summaryTests = [
     { name: "Reasoning", pass: reasoning.score === "STRONG" || reasoning.score === "MODERATE", score: reasoning.score },
     { name: "Instructions", pass: instructions.pass, score: instructions.score },
     { name: "Tool Usage", pass: tools.pass, score: tools.score },
-  ], totalMs));
+    ...(codingSummary ? [{ name: "Coding Lite", pass: codingSummary.passed >= Math.ceil(codingSummary.total / 2), score: `${codingSummary.passed}/${codingSummary.total}` }] : []),
+  ];
+  lines.push(...formatTestSummary(summaryTests, totalMs));
   
   lines.push("");
-  lines.push(info(`Detailed: Reasoning ${reasoningPassed}/${reasoningTotal} tests passed, Instructions ${instructionPassed}/1, Tool Usage ${toolPassed}/1`));
-  const categoryRecommendation = recommendation(reasoning.score, instructions.pass, tools.pass);
+  lines.push(info(`Detailed: Reasoning ${reasoningPassed}/${reasoningTotal} tests passed, Instructions ${instructionPassed}/1, Tool Usage ${toolPassed}/1${codingSummary ? `, Coding Lite ${codingSummary.passed}/${codingSummary.total}` : ""}`));
+  const categoryRecommendation = recommendation(reasoning.score, instructions.pass, tools.pass, codingSummary);
   lines.push(section("RECOMMENDATION"));
   lines.push(categoryRecommendation.label === "WEAK" ? fail(`${model} is ${categoryRecommendation.label}`) : ok(`${model} is ${categoryRecommendation.label}`));
+  if (codingSummary) lines.push(info(`Coding Lite contribution: ${codingSummary.passed}/${codingSummary.total} tasks`));
   lines.push(info(artifactPath ? `Artifact: ${artifactPath}` : "Artifact: disabled (--no-artifact)"));
   return lines.join("\n");
 }
