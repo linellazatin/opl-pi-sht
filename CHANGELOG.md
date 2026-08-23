@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.4] - 2026-08-23
+
+### Added
+- `opl-simplebench`: added six execution-backed coding-lite tasks in disposable directories, with restricted file/search/edit/test tools, hidden verification, coding metrics, and separate coding results in artifacts.
+- `opl-simplebench`: added `--coding-lite`, `--test-all`, and matching LLM-callable options; `--test-all` runs the baseline suite plus coding-lite and composes with `--all`.
+
+### Changed
+- `opl-simplebench`: Ollama chat handling now forwards native tool definitions and captures streamed tool calls for coding-lite runs.
+- `opl-simplebench`: coding-lite file inspection now returns recoverable tool errors for missing paths instead of aborting the task.
+- `opl-simplebench`: coding-lite task records now live in artifact `tests[]`; recommendations include coding-lite as a fourth capability category.
+
+### Tests
+- Added fixture isolation, path traversal, public/hidden verification, and coding-mode argument coverage.
+
 ## [0.1.3] - 2026-08-23
 
 ### Changed
