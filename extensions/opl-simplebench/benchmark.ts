@@ -3,10 +3,10 @@ import * as fs from "node:fs";
 import { section, ok, fail, warn, info, msHuman, truncate, sanitizeForReport } from "./util/format";
 import { getOllamaBaseUrl, detectProvider } from "./util/providers";
 import { debugLog } from "./util/debug";
-import { CONFIG, WEATHER_TOOL_DEFINITION, getEffectiveConfig, type ChatFn } from "./util/config";
+import { CONFIG, WEATHER_TOOL_DEFINITION, buildToolResultMessages, getEffectiveConfig, type ChatFn, type ChatMessage } from "./util/config";
 import { branding as sharedBranding, codingRecommendation, formatInstructionScore, formatTestSummary, recommendation } from "./report";
 import { writeArtifact } from "./artifact";
-import { aggregateMetrics, emptyMetrics, metricsFromChat } from "./metrics";
+import { aggregateMetrics, emptyMetrics, mergeRequestMetrics, metricsFromChat } from "./metrics";
 import { REASONING_TESTS, MULTISTEP_INSTRUCTION, CALC_TOOL_DEFINITION } from "./tests";
 import { CODING_LITE_TASKS, runCodingTask } from "./coding";
 import { scoreReasoning, averageScore } from "./scoring";
@@ -16,6 +16,14 @@ type BenchmarkModel = { id: string; provider?: string; api?: string; reasoning?:
 type BenchmarkContext = { model?: BenchmarkModel; getScopedModels?: () => ReadonlyArray<{ model: BenchmarkModel }> };
 
 type ThinkingMode = { requested: "default" | "max"; effective: "provider-default" | "openai-reasoning-effort" | "pi-bedrock-reasoning"; level: "max" | null };
+
+export function buildToolContinuationMessages(initial: ChatMessage[], assistantContent: string, calls: any[], results: string[]): ChatMessage[] {
+  return [...initial, ...buildToolResultMessages(assistantContent, calls, results)];
+}
+
+export function hasOllamaAssistantOutput(content: string, thinking: string, toolCalls: any[]): boolean {
+  return !!(content.trim() || thinking.trim() || toolCalls.length);
+}
 
 export function resolveBenchmarkModel(ctx: BenchmarkContext | undefined, modelId: string): { model: BenchmarkModel | undefined; source: "active-context" | "scoped-model" | null } {
   if (ctx?.model && (ctx.model.id === modelId || `${ctx.model.provider}/${ctx.model.id}` === modelId)) return { model: ctx.model, source: "active-context" };
@@ -477,7 +485,7 @@ async function ollamaChatStream(
 
     const elapsedMs = Date.now() - start;
 
-    if (!messageContent.trim() && !thinkingContent.trim()) {
+    if (!hasOllamaAssistantOutput(messageContent, thinkingContent, toolCalls)) {
       throw new Error("Empty streaming response from Ollama");
     }
 
@@ -559,11 +567,12 @@ async function testInstructionFollowingExtended(chatFn: ChatFn, model: string): 
   }
 }
 
-async function testToolUsageExtended(chatFn: ChatFn, model: string): Promise<{ pass: boolean; score: string; toolCalls: string[]; response: string; elapsedMs: number; metrics: ReturnType<typeof emptyMetrics> }> {
+async function testToolUsageExtended(chatFn: ChatFn, model: string, useToolResultMessages = true): Promise<{ pass: boolean; score: string; toolCalls: string[]; response: string; elapsedMs: number; metrics: ReturnType<typeof emptyMetrics> }> {
   try {
     const tools = [WEATHER_TOOL_DEFINITION, CALC_TOOL_DEFINITION];
     const started = Date.now();
-    const first = await chatFn(model, [{ role: "system", content: "Use the available tools, then answer using their results." }, { role: "user", content: "What's weather in Tokyo and calculate 15*24?" }], { tools });
+    const initialMessages = [{ role: "system", content: "Use the available tools, then answer using their results." }, { role: "user", content: "What's weather in Tokyo and calculate 15*24?" }];
+    const first = await chatFn(model, initialMessages, { tools });
     const calls = first.toolCalls || [];
     const toolNames = calls.map((t: any) => t.function?.name || "?");
     const results = calls.map((call: any) => {
@@ -577,11 +586,15 @@ async function testToolUsageExtended(chatFn: ChatFn, model: string): Promise<{ p
     const validWeather = results.some(r => r.name === "get_weather" && r.result !== "INVALID_ARGUMENTS");
     const validCalc = results.some(r => r.name === "calculate" && r.result === "360");
     if (!calls.length) return { pass: false, score: "FAIL", toolCalls: toolNames, response: first.content, elapsedMs: Date.now() - started, metrics: metricsFromChat(first) };
-    const followup = await chatFn(model, [{ role: "system", content: "Use the available tools, then answer using their results." }, { role: "user", content: "What's weather in Tokyo and calculate 15*24?" }, { role: "assistant", content: first.content || "", toolCalls: calls }, { role: "user", content: results.map(r => `${r.name}: ${r.result}`).join("\n") }]);
+    if (!useToolResultMessages) {
+      const score = validWeather && validCalc ? "STRONG" : validWeather || validCalc ? "MODERATE" : "WEAK";
+      return { pass: true, score, toolCalls: toolNames, response: first.content, elapsedMs: Date.now() - started, metrics: metricsFromChat(first) };
+    }
+    const followup = await chatFn(model, buildToolContinuationMessages(initialMessages, first.content, calls, results.map(result => result.result)), { tools });
     const finalText = `${followup.content || ""}`.toLowerCase();
     const synthesized = finalText.includes("360") && (finalText.includes("tokyo") || finalText.includes("22"));
     const score = validWeather && validCalc && synthesized ? "STRONG" : validWeather || validCalc ? "MODERATE" : "WEAK";
-    return { pass: validWeather && validCalc && synthesized, score, toolCalls: toolNames, response: followup.content, elapsedMs: Date.now() - started, metrics: metricsFromChat({ ...followup, toolCalls: calls }) };
+    return { pass: validWeather && validCalc && synthesized, score, toolCalls: toolNames, response: followup.content, elapsedMs: Date.now() - started, metrics: mergeRequestMetrics([metricsFromChat({ ...first, toolCalls: calls }), metricsFromChat({ ...followup, toolCalls: [] })]) };
   } catch (e: any) {
     return { pass: false, score: "ERROR", toolCalls: [], response: e.message, elapsedMs: 0, metrics: emptyMetrics() };
   }
@@ -614,7 +627,7 @@ function codingTestRecords(coding: Awaited<ReturnType<typeof testCodingLite>>): 
       score: result.passed ? "STRONG" : "FAIL",
       passed: result.passed,
       error: result.error,
-      metrics: { requestCount: result.turns, retryCount: 0, wallTimeMs: result.wallTimeMs, timeToAnswerMs: result.wallTimeMs, timeToFirstTokenMs: null, startedAt: null, finishedAt: null, inputTokens: null, outputTokens: result.outputTokens, totalTokens: null, outputTokensPerSecond: null, toolCalls: [] },
+      metrics: result.metrics,
       coding: { publicPassed: result.publicPassed, hiddenPassed: result.hiddenPassed, verifiedAfterEdit: result.verifiedAfterEdit, unrelatedFiles: result.unrelatedFiles, toolCalls: result.toolCalls, turns: result.turns },
     };
   });
@@ -710,7 +723,7 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   lines.push(section("TOOL USAGE TEST (EXTENDED)"));
   lines.push(info("Testing chained tool calls..."));
   await rateLimitDelay();
-  const tools = await testToolUsageExtended(toolChatFn, model);
+  const tools = await testToolUsageExtended(toolChatFn, model, providerInfo.kind !== "bedrock");
   lines.push(info(`Time: ${msHuman(tools.elapsedMs)}`));
   if (tools.score === "STRONG" || tools.score === "MODERATE") lines.push(ok(`Tool calls: ${tools.toolCalls.join(", ")} (${tools.score})`));
   else lines.push(fail(`Tool calls: ${tools.toolCalls.length > 0 ? tools.toolCalls.join(", ") : "none"} (${tools.score})`));
@@ -761,5 +774,5 @@ async function testModel(model: string, ctx?: any, options?: SimplebenchOptions)
   return testModelExtended(model, ctx, options);
 }
 
-return { getOllamaModels, testModel };
+return { getOllamaModels, testModel, testToolUsageExtended };
 }

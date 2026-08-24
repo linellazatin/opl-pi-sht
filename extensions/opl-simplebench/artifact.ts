@@ -10,7 +10,17 @@ export function artifactFileName(model: string, suite: "baseline" | "coding-lite
 }
 
 export function writeArtifact(artifact: RunArtifact): string {
-  const output = path.resolve(process.cwd(), artifactFileName(artifact.benchmark.model, artifact.benchmark.suite || "baseline", artifact.benchmark.thinking.requested));
-  fs.writeFileSync(output, JSON.stringify(artifact, null, 2) + "\n", "utf8");
-  return output;
+  const name = artifactFileName(artifact.benchmark.model, artifact.benchmark.suite || "baseline", artifact.benchmark.thinking.requested);
+  const extension = path.extname(name);
+  const base = name.slice(0, -extension.length);
+  const contents = JSON.stringify(artifact, null, 2) + "\n";
+  for (let suffix = 0; ; suffix += 1) {
+    const output = path.resolve(process.cwd(), suffix ? `${base}-${suffix}${extension}` : name);
+    try {
+      fs.writeFileSync(output, contents, { encoding: "utf8", flag: "wx" });
+      return output;
+    } catch (error: any) {
+      if (error?.code !== "EEXIST") throw error;
+    }
+  }
 }

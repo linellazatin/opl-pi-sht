@@ -516,9 +516,19 @@ export function detectRegression(
  * Abstraction over Ollama and Provider chat APIs.
  * Callers wrap their specific chat implementation into this shape.
  */
+export type ChatMessage = { role: string; content: string; tool_calls?: any[]; tool_call_id?: string };
+
+export function buildToolResultMessages(assistantContent: string, calls: any[], results: string[]): ChatMessage[] {
+  const toolCalls = calls.map((call, index) => ({ ...call, id: call.id || `toolcall${index + 1}` }));
+  return [
+    { role: "assistant", content: assistantContent || "", tool_calls: toolCalls },
+    ...toolCalls.map((call, index) => ({ role: "tool", tool_call_id: call.id, content: results[index] || "INVALID_ARGUMENTS" })),
+  ];
+}
+
 export type ChatFn = (
   model: string,
-  messages: Array<{ role: string; content: string }>,
+  messages: ChatMessage[],
   options?: Record<string, unknown>,
 ) => Promise<{ content: string; toolCalls?: any[]; elapsedMs: number; raw?: any; requestCount?: number; retryCount?: number; startedAt?: string; finishedAt?: string; timeToFirstTokenMs?: number | null }>;
 

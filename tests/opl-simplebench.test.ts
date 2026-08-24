@@ -4,10 +4,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "bun:test";
 import { parseCommandArgs } from "../extensions/opl-simplebench/index";
-import { openAiThinkingOptions, resolveBenchmarkModel, resolveThinkingMode } from "../extensions/opl-simplebench/benchmark";
+import { buildToolContinuationMessages, createBenchmark, hasOllamaAssistantOutput, openAiThinkingOptions, resolveBenchmarkModel, resolveThinkingMode } from "../extensions/opl-simplebench/benchmark";
 import { artifactFileName, writeArtifact } from "../extensions/opl-simplebench/artifact";
 import { codingRecommendation, formatInstructionScore, recommendation } from "../extensions/opl-simplebench/report";
-import { aggregateMetrics, metricsFromChat, usageFromRaw, emptyMetrics } from "../extensions/opl-simplebench/metrics";
+import { aggregateMetrics, mergeRequestMetrics, metricsFromChat, usageFromRaw, emptyMetrics } from "../extensions/opl-simplebench/metrics";
 import { scoreReasoning } from "../extensions/opl-simplebench/scoring";
 import { REASONING_TESTS, MULTISTEP_INSTRUCTION } from "../extensions/opl-simplebench/tests";
 import { CODING_LITE_TASKS, createCodingTaskDir, resolveCodingPath, runCodingTask, runCodingVerifier } from "../extensions/opl-simplebench/coding";
@@ -63,6 +63,19 @@ test("writes artifacts in the current working directory", () => {
   }
 });
 
+test("does not overwrite an artifact created within the same second", () => {
+  const cwd = process.cwd();
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "simplebench-artifact-"));
+  const artifact = { schemaVersion: 1 as const, benchmark: { name: "opl-simplebench" as const, model: "test/model", provider: "test", providerKind: "test", thinking: { requested: "default" as const, effective: "provider-default" as const, level: null, modelMetadataSource: null }, startedAt: "", finishedAt: "", wallTimeMs: 0, artifactEnabled: true }, tests: [], summary: {} };
+  try {
+    process.chdir(temp);
+    assert.notEqual(writeArtifact(artifact), writeArtifact(artifact));
+  } finally {
+    process.chdir(cwd);
+    fs.rmSync(temp, { recursive: true });
+  }
+});
+
 test("keeps benchmark fixtures and extracted scorer available to the runner", () => {
   assert.equal(REASONING_TESTS.length, 20);
   assert.match(MULTISTEP_INSTRUCTION, /valid JSON object/);
@@ -88,10 +101,26 @@ test("uses unambiguous and alternate-valid reasoning fixtures", () => {
   assert.equal(scoreReasoning("That premise is not possible.", "no").pass, false);
 });
 
+test("canonicalizes compass directions for direct result inspection", () => {
+  assert.equal(scoreReasoning("ANSWER: W", "west").answer, "west");
+  assert.equal(scoreReasoning("I am facing east.", "east").pass, true);
+  assert.equal(scoreReasoning("ANSWER: south", "west").pass, false);
+});
+
 test("extracts OpenAI, Bedrock, and Ollama authoritative usage", () => {
   assert.deepEqual(usageFromRaw({ usage: { prompt_tokens: 5, completion_tokens: 10, total_tokens: 15 } }), { inputTokens: 5, outputTokens: 10, totalTokens: 15, outputTokensPerSecond: null });
   assert.deepEqual(usageFromRaw({ usage: { inputTokens: 4, outputTokens: 8, totalTokens: 12 } }), { inputTokens: 4, outputTokens: 8, totalTokens: 12, outputTokensPerSecond: null });
   assert.deepEqual(usageFromRaw({ prompt_eval_count: 3, eval_count: 6, eval_duration: 2_000_000_000 }), { inputTokens: 3, outputTokens: 6, totalTokens: 9, outputTokensPerSecond: 3 });
+});
+
+test("keeps tool-only Ollama responses and accumulates multi-turn metrics", () => {
+  assert.equal(hasOllamaAssistantOutput("", "", [{ function: { name: "list_files" } }]), true);
+  assert.equal(hasOllamaAssistantOutput("", "", []), false);
+  const merged = mergeRequestMetrics([
+    metricsFromChat({ elapsedMs: 10, raw: { usage: { prompt_tokens: 5, completion_tokens: 7, total_tokens: 12 } }, toolCalls: [{ function: { name: "list_files" } }] }),
+    metricsFromChat({ elapsedMs: 20, raw: { usage: { prompt_tokens: 8, completion_tokens: 11, total_tokens: 19 } } }),
+  ]);
+  assert.deepEqual(merged, { ...merged, requestCount: 2, wallTimeMs: 30, inputTokens: 13, outputTokens: 18, totalTokens: 31, toolCalls: [{ name: "list_files", arguments: undefined }] });
 });
 
 test("renders an instruction-score line", () => {
@@ -121,6 +150,54 @@ test("aggregates complete request metrics without treating unavailable tokens as
   assert.deepEqual(aggregate.toolCalls, { total: 1, byName: { calculate: 1 } });
   assert.equal(aggregate.totalTokens, null);
   assert.equal(aggregate.latency.averageMs, 20);
+});
+
+test("builds strict llama-server tool-result history with matching IDs", () => {
+  const messages = buildToolContinuationMessages(
+    [{ role: "system", content: "Use tools." }, { role: "user", content: "Get Tokyo weather and calculate 15*24." }],
+    "",
+    [
+      { id: "weather01", function: { name: "get_weather", arguments: { location: "Tokyo" } } },
+      { function: { name: "calculate", arguments: { expression: "15*24" } } },
+    ],
+    ["Tokyo: clear, 22C", "360"],
+  );
+
+  assert.equal(messages.length, 5);
+  assert.deepEqual(messages[2], {
+    role: "assistant", content: "", tool_calls: [
+      { id: "weather01", function: { name: "get_weather", arguments: { location: "Tokyo" } } },
+      { id: "toolcall2", function: { name: "calculate", arguments: { expression: "15*24" } } },
+    ],
+  });
+  assert.deepEqual(messages.slice(3), [
+    { role: "tool", tool_call_id: "weather01", content: "Tokyo: clear, 22C" },
+    { role: "tool", tool_call_id: "toolcall2", content: "360" },
+  ]);
+  assert.equal(messages.some(message => message.role === "user" && message.content.includes("Tokyo: clear")), false);
+});
+
+test("completes the baseline tool loop with strict llama-server message roles", async () => {
+  let turns = 0;
+  const result = await createBenchmark().testToolUsageExtended(async (_model, messages, options) => {
+    turns += 1;
+    if (turns === 1) {
+      assert.equal((options?.tools as unknown[])?.length, 2);
+      return { content: "", elapsedMs: 1, toolCalls: [
+        { id: "weather01", function: { name: "get_weather", arguments: { location: "Tokyo" } } },
+        { id: "calc00001", function: { name: "calculate", arguments: { expression: "15*24" } } },
+      ] };
+    }
+    assert.equal((options?.tools as unknown[])?.length, 2);
+    assert.equal(messages[2].role, "assistant");
+    assert.equal(messages[2].tool_calls?.length, 2);
+    assert.deepEqual(messages.slice(3).map(message => message.role), ["tool", "tool"]);
+    assert.deepEqual(messages.slice(3).map(message => message.tool_call_id), ["weather01", "calc00001"]);
+    return { content: "Tokyo is clear and 22C. 15 multiplied by 24 is 360.", elapsedMs: 1 };
+  }, "strict-local-model");
+  assert.equal(turns, 2);
+  assert.equal(result.score, "STRONG");
+  assert.equal(result.pass, true);
 });
 
 test("defines six isolated coding-lite fixtures", () => {
@@ -155,6 +232,36 @@ test("emits coding progress while the model turn is running", async () => {
   const progress: string[] = [];
   await runCodingTask(async () => ({ content: "finished", elapsedMs: 1 }), "test-model", CODING_LITE_TASKS[0], { onProgress: message => progress.push(message) });
   assert.ok(progress.some(message => message.includes("agent turn 1")));
+});
+
+test("continues coding-lite with assistant tool calls followed by tool results", async () => {
+  let turn = 0;
+  const result = await runCodingTask(async (_model, messages) => {
+    turn += 1;
+    if (turn === 1) return { content: "", elapsedMs: 1, toolCalls: [{ function: { name: "list_files", arguments: "{}" } }] };
+    assert.equal(messages[2].role, "assistant");
+    assert.equal(messages[2].tool_calls?.length, 1);
+    assert.deepEqual(messages.slice(3).map(message => message.role), ["tool"]);
+    assert.match(messages[3].content, /TOOL_RESULT list_files:/);
+    assert.match(messages[3].tool_call_id || "", /^[A-Za-z0-9]{9}$/);
+    return { content: "done", elapsedMs: 1 };
+  }, "strict-local-model", CODING_LITE_TASKS[0]);
+  assert.equal(turn, 2);
+  assert.equal(result.turns, 2);
+});
+
+test("recovers from malformed coding-tool arguments and tracks every turn", async () => {
+  let turn = 0;
+  const result = await runCodingTask(async (_model, messages) => {
+    turn += 1;
+    if (turn === 1) return { content: "", elapsedMs: 1, raw: { usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }, toolCalls: [{ function: { name: "read_file", arguments: "{" } }] };
+    assert.match(messages.at(-1)?.content || "", /invalid JSON arguments/);
+    return { content: "done", elapsedMs: 1, raw: { usage: { prompt_tokens: 4, completion_tokens: 5, total_tokens: 9 } } };
+  }, "test-model", CODING_LITE_TASKS[0]);
+  assert.equal(turn, 2);
+  assert.equal(result.metrics.requestCount, 2);
+  assert.equal(result.metrics.outputTokens, 8);
+  assert.equal(result.metrics.toolCalls[0]?.name, "read_file");
 });
 
 test("returns recoverable errors when a coding agent searches a missing path", async () => {

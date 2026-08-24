@@ -2,7 +2,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import type { ChatFn } from "./util/config";
+import { buildToolResultMessages, type ChatFn, type ChatMessage } from "./util/config";
+import { mergeRequestMetrics, metricsFromChat } from "./metrics";
+import type { RequestMetrics } from "./types";
 
 export interface CodingTaskFixture {
   id: string;
@@ -24,6 +26,7 @@ export interface CodingTaskResult {
   wallTimeMs: number;
   outputTokens: number | null;
   error: string | null;
+  metrics: RequestMetrics;
 }
 
 const assertCode = (root: string, moduleName: string, expression: string) => `import * as m from ${JSON.stringify(path.join(root, moduleName))};\nif (!(await (${expression}))) throw new Error('verification failed');`;
@@ -96,9 +99,9 @@ export function runCodingVerifier(task: CodingTaskFixture, root: string, mode: "
   return { passed: result.status === 0, output: `${result.stdout ?? ""}${result.stderr ?? ""}`.trim() };
 }
 
-function safeJson(value: unknown): any {
-  if (typeof value === "string") return JSON.parse(value);
-  return value ?? {};
+function safeJson(value: unknown): { value: any; error?: string } {
+  try { return { value: typeof value === "string" ? JSON.parse(value) : value ?? {} }; }
+  catch { return { value: {}, error: "invalid JSON arguments" }; }
 }
 
 const CODING_TOOLS = [
@@ -149,36 +152,45 @@ export async function runCodingTask(chatFn: ChatFn, model: string, task: CodingT
   let turns = 0;
   let toolCalls = 0;
   let verifiedAfterEdit = false;
-  let outputTokens: number | null = null;
   let error: string | null = null;
-  const messages = [{ role: "system", content: "You are completing a coding task in a disposable repository. Use the available tools. Do not assume a change worked until you run_tests after editing." }, { role: "user", content: task.prompt }];
+  const requestMetrics: RequestMetrics[] = [];
+  const messages: ChatMessage[] = [{ role: "system", content: "You are completing a coding task in a disposable repository. Use the available tools. Do not assume a change worked until you run_tests after editing." }, { role: "user", content: task.prompt }];
   try {
-    while (turns < (options.maxTurns ?? 12)) {
+    try {
+      while (turns < (options.maxTurns ?? 12)) {
       turns += 1;
       options.onProgress?.(`${task.id}: agent turn ${turns}/${options.maxTurns ?? 12}...`);
       const response = await chatFn(model, messages, { tools: CODING_TOOLS });
-      outputTokens = response.raw?.usage?.completion_tokens ?? response.raw?.usage?.outputTokens ?? outputTokens;
+      requestMetrics.push(metricsFromChat(response));
       const calls = response.toolCalls ?? [];
       if (!calls.length) break;
+      const results: string[] = [];
       for (const call of calls) {
         const fn = call.function ?? call;
         const name = fn.name;
-        const args = safeJson(fn.arguments);
+        const parsed = safeJson(fn.arguments);
+        const args = parsed.value;
         toolCalls += 1;
         if (name === "write_file") verifiedAfterEdit = false;
         if (name === "run_tests") verifiedAfterEdit = true;
-        const result = executeCodingTool(root, task, name, args);
+        let result: string;
+        try { result = parsed.error ? codingToolError(parsed.error) : executeCodingTool(root, task, name, args); }
+        catch (e: any) { result = codingToolError(e?.message || String(e)); }
+        results.push(`TOOL_RESULT ${name}: ${result}`);
         options.onProgress?.(`${task.id}: ${name} (${toolCalls})`);
-        messages.push({ role: "user", content: `TOOL_RESULT ${name}: ${result}` });
       }
-    }
-  } catch (e: any) { error = e?.message || String(e); }
-  const publicResult = runCodingVerifier(task, root, "public");
-  const hiddenResult = runCodingVerifier(task, root, "hidden");
-  const changed = listChangedFiles(root, task.files);
-  const unrelatedFiles = changed.filter(file => !task.allowedFiles.includes(file));
-  fs.rmSync(root, { recursive: true, force: true });
-  return { id: task.id, passed: hiddenResult.passed && unrelatedFiles.length === 0, publicPassed: publicResult.passed, hiddenPassed: hiddenResult.passed, verifiedAfterEdit, unrelatedFiles, toolCalls, turns, wallTimeMs: Date.now() - started, outputTokens, error: error ?? (!hiddenResult.passed ? hiddenResult.output || "hidden verification failed" : null) };
+        messages.push(...buildToolResultMessages(response.content, calls, results));
+      }
+    } catch (e: any) { error = e?.message || String(e); }
+    const publicResult = runCodingVerifier(task, root, "public");
+    const hiddenResult = runCodingVerifier(task, root, "hidden");
+    const changed = listChangedFiles(root, task.files);
+    const unrelatedFiles = changed.filter(file => !task.allowedFiles.includes(file));
+    const metrics = mergeRequestMetrics(requestMetrics);
+    return { id: task.id, passed: hiddenResult.passed && unrelatedFiles.length === 0, publicPassed: publicResult.passed, hiddenPassed: hiddenResult.passed, verifiedAfterEdit, unrelatedFiles, toolCalls, turns, wallTimeMs: Date.now() - started, outputTokens: metrics.outputTokens, error: error ?? (!hiddenResult.passed ? hiddenResult.output || "hidden verification failed" : null), metrics };
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 function listChangedFiles(root: string, initialFiles: Record<string, string>): string[] {

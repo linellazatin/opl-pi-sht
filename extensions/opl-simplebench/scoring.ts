@@ -1,5 +1,11 @@
 export const reasoningWords = ["because", "therefore", "since", "step", "subtract", "minus", "sequence", "pattern", "clockwise", "counter", "facing", "mammal", "grow", "apple", "wet", "grass", "plant", "water", "glove", "boot", "metal", "bowling", "tennis"];
 
+const directionAliases: Record<string, string> = { n: "north", north: "north", s: "south", south: "south", e: "east", east: "east", w: "west", west: "west" };
+
+function canonicalDirection(value: string): string | null {
+  return directionAliases[value.toLowerCase().replace(/[.,!?;:]+$/, "")] ?? null;
+}
+
 function containsAnswer(response: string, answer: string): boolean {
   const escaped = answer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`\\b${escaped}\\b`, "i").test(response);
@@ -7,6 +13,12 @@ function containsAnswer(response: string, answer: string): boolean {
 
 export function extractAnswer(response: string, expected: string | string[]): { answer: string; method: string } {
   const allowed = Array.isArray(expected) ? expected : [expected];
+  const expectedDirection = allowed.length === 1 ? canonicalDirection(allowed[0]) : null;
+  if (expectedDirection) {
+    const direction = response.match(/(?:answer\s*:\s*)?\b(north|south|east|west|n|s|e|w)\b/i);
+    const canonical = direction && canonicalDirection(direction[1]);
+    if (canonical) return { answer: canonical, method: "direction" };
+  }
   const normalized = response.toLowerCase();
   const match = allowed.find(answer => containsAnswer(normalized, answer));
   if (match) return { answer: match, method: "expected-substring" };

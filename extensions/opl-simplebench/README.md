@@ -106,7 +106,7 @@ The model must emit valid JSON with the required schema and values. The artifact
 
 ### Tool usage
 
-The model receives weather and calculation tools. Simplebench validates expected tool names and minimally inspects arguments. It does **not** execute model-requested tools or judge a final answer based on tool output.
+The model receives weather and calculation tools. For OpenAI-compatible and Ollama providers, Simplebench validates expected tool names and arguments, executes deterministic local results, and requires the final answer to use both results. For local llama-server evaluation, start with `--jinja` and a tool-aware chat template; models or templates that cannot call tools receive a benchmark failure rather than a compatibility workaround. Direct Bedrock keeps its existing single-request tool-call check.
 
 ### Coding lite
 
