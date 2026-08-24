@@ -46,7 +46,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-ALL_EXTENSIONS=(opl-footer opl-init opl-input opl-modes opl-questionnaire opl-simplebench opl-todo opl-webaccess)
+ALL_EXTENSIONS=(opl-ctxtrim opl-footer opl-init opl-input opl-modes opl-questionnaire opl-simplebench opl-todo opl-webaccess)
 BUNDLE=(opl-footer opl-input opl-modes)
 
 contains() {

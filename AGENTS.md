@@ -6,8 +6,8 @@ A portable collection of Pi coding-agent extensions and standard-JSON configurat
 
 ## Commands
 
-- `npm test` runs all eight extension suites.
-- `npm run test:opl-<name>` runs one suite: `footer`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, or `simplebench`.
+- `npm test` runs all nine extension suites.
+- `npm run test:opl-<name>` runs one suite: `ctxtrim`, `footer`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, or `simplebench`.
 - Tests use Bun's test runner. Each suite runs its focused functional test where available, then bundles the selected entrypoint through `tests/extension-smoke.test.mjs` using `OPL_EXTENSION`.
 - `./install.sh` copies all extensions and configs to `~/.pi/agent`; `./install.sh --link` creates non-destructive symlinks.
 - `./install.sh --only`/`-o` selects extensions. Selecting `opl-footer`, `opl-input`, or `opl-modes` installs the complete UI bundle.
@@ -19,7 +19,7 @@ There are no build, lint, or typecheck scripts.
 
 Each `extensions/opl-*/` directory is independently loadable and documents its own interface. `opl-modes` owns built-in/custom mode definitions, plan lifecycle, tool/Bash restrictions, persisted mode state, and active-mode appearance. `opl-input` and `opl-footer` consume that published appearance state. Preserve compatibility identifiers such as `mode-switcher`, `chat-mode`, and `plan-mode`, because existing sessions depend on them.
 
-`opl-init` generates fingerprinted repository `AGENTS.md` guides. `opl-simplebench` provides standalone model benchmarking, metrics, scoring, reports, and artifacts. `opl-webaccess` provides provider-backed search, readable URL/PDF extraction, and session-stored result retrieval. `opl-todo` stores branch-aware tasks in session tool results. `opl-questionnaire` provides an interactive model-invoked choice UI.
+`opl-init` generates fingerprinted repository `AGENTS.md` guides. `opl-simplebench` provides standalone model benchmarking, metrics, scoring, reports, and artifacts. `opl-webaccess` provides provider-backed search, readable URL/PDF extraction, and session-stored result retrieval. `opl-todo` stores branch-aware tasks in session tool results. `opl-questionnaire` provides an interactive model-invoked choice UI. `opl-ctxtrim` trims only known context-mode `ctx_*` schema descriptions in outbound provider payloads; it must preserve every schema field and fail open for unknown payloads or tools.
 
 ## Configuration and installation
 
@@ -50,4 +50,5 @@ Copy installation overwrites matching destinations. Link installation skips exis
 - `extensions/opl-simplebench/`: benchmark orchestration, providers, metrics, scoring, reporting, and artifacts.
 - `extensions/opl-footer/`: multi-row footer and session/performance metrics.
 - `extensions/opl-webaccess/`: providers, extraction, PDF handling, and stored results.
-<!-- opl-init:fp 2d02983423dea477 -->
+- `extensions/opl-ctxtrim/index.ts`: outbound context-mode tool-schema description trimming.
+<!-- opl-init:fp e18339f1042a1720 -->

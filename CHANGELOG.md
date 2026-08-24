@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.5] - 2026-08-24
+
+### Added
+- `opl-ctxtrim`: new extension that trims verbose context-mode `ctx_*` tool-schema descriptions on outbound provider requests via the `before_provider_request` hook, without modifying the third-party context-mode package. Supports OpenAI Responses, OpenAI Chat Completions, and Bedrock Converse payload shapes; preserves tool names, schema structure, required fields, enums, defaults, bounds, and strict flags; fails open for unknown formats and uncovered `ctx_*` tools.
+- `opl-ctxtrim`: documented measured savings against context-mode v1.0.169 (11 tools, 28,019 -> 9,152 serialized bytes, 67.3% reduction, ~4,700-6,300 estimated tokens saved per provider request).
+
+### Changed
+- Root `README.md`, `install.sh`, and `package.json` now include `opl-ctxtrim` (nine extensions total).
+
+### Tests
+- Added `tests/opl-ctxtrim.test.ts` covering all supported provider shapes, non-`ctx_*` preservation, unknown-format and unknown-tool fail-open behavior, input immutability, retained purge warnings, unchanged validation keywords, single-handler registration, and an integration measurement against the installed context-mode server.
+
 ## [0.1.4] - 2026-08-23
 
 ### Added
