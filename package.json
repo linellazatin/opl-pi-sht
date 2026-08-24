@@ -1,13 +1,13 @@
 {
   "name": "opl-pi-sht",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "peerDependencies": {
     "@earendil-works/pi-ai": "*"
   },
   "type": "module",
   "scripts": {
-    "test": "npm run test:opl-footer && npm run test:opl-init && npm run test:opl-input && npm run test:opl-modes && npm run test:opl-questionnaire && npm run test:opl-todo && npm run test:opl-webaccess && npm run test:opl-simplebench",
+    "test": "npm run test:opl-footer && npm run test:opl-init && npm run test:opl-input && npm run test:opl-modes && npm run test:opl-questionnaire && npm run test:opl-todo && npm run test:opl-webaccess && npm run test:opl-simplebench && npm run test:opl-ctxtrim",
     "test:opl-footer": "bun test tests/opl-footer-helpers.test.mjs && OPL_EXTENSION=opl-footer bun test tests/extension-smoke.test.mjs",
     "test:opl-init": "bun test tests/opl-init-crawl.test.mjs && OPL_EXTENSION=opl-init bun test tests/extension-smoke.test.mjs",
     "test:opl-input": "bun test tests/opl-input-style.test.mjs && OPL_EXTENSION=opl-input bun test tests/extension-smoke.test.mjs",
@@ -15,6 +15,7 @@
     "test:opl-questionnaire": "OPL_EXTENSION=opl-questionnaire bun test tests/extension-smoke.test.mjs",
     "test:opl-todo": "bun test tests/opl-todo-config.test.mjs && OPL_EXTENSION=opl-todo bun test tests/extension-smoke.test.mjs",
     "test:opl-webaccess": "bun test tests/opl-webaccess-helpers.test.mjs && OPL_EXTENSION=opl-webaccess bun test tests/extension-smoke.test.mjs",
-    "test:opl-simplebench": "bun test tests/opl-simplebench.test.ts && OPL_EXTENSION=opl-simplebench bun test tests/extension-smoke.test.mjs"
+    "test:opl-simplebench": "bun test tests/opl-simplebench.test.ts && OPL_EXTENSION=opl-simplebench bun test tests/extension-smoke.test.mjs",
+    "test:opl-ctxtrim": "bun test tests/opl-ctxtrim.test.ts && OPL_EXTENSION=opl-ctxtrim bun test tests/extension-smoke.test.mjs"
   }
 }

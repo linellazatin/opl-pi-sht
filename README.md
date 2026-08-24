@@ -1,6 +1,6 @@
 # opl-pi-sht
 
-A portable collection of eight Pi coding-agent extensions and five standard-JSON configuration examples. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
+A portable collection of nine Pi coding-agent extensions and five standard-JSON configuration examples. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
 
 ## Installation
 
@@ -22,6 +22,7 @@ Copy mode overwrites matching destinations. Link mode skips existing destination
 | [`opl-init`](extensions/opl-init/README.md) | Fingerprinted repository-guide generator. | `/init`; no config. |
 | [`opl-simplebench`](extensions/opl-simplebench/README.md) | Auditable provider-aware model benchmark with JSON artifacts and metrics. | `/simplebench`, `simplebench`; supports Ollama, OpenAI-compatible providers, and Bedrock; no dedicated config. |
 | [`opl-webaccess`](extensions/opl-webaccess/README.md) | Search plus readable URL/PDF retrieval with session recovery. | `web_search`, `fetch_content`, `get_search_content`; `opl-webaccess.json`. |
+| [`opl-ctxtrim`](extensions/opl-ctxtrim/README.md) | Trims verbose context-mode `ctx_*` tool-schema descriptions on outbound provider requests (~67% smaller schema, ~4,700-6,300 tokens/request). | No commands/tools; no config. |
 | [`opl-todo`](extensions/opl-todo/README.md) | Branch-aware task tool, overlay, and task list. | `todo`, `/todos`; `opl-todo.json`. |
 | [`opl-questionnaire`](extensions/opl-questionnaire/README.md) | Interactive structured-choice tool. | `questionnaire`; no config. |
 | [`opl-input`](extensions/opl-input/README.md) | Configurable replacement editor. | No commands/tools; `opl-input.json`. |
@@ -57,4 +58,4 @@ npm install
 npm test
 ```
 
-Run one extension suite with `npm run test:opl-<name>` for `footer`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, or `simplebench`. Every helper, functional, and selected-entrypoint smoke check uses Bun's named-test reporter; output includes per-test status, timings, and pass/fail totals. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.
+Run one extension suite with `npm run test:opl-<name>` for `footer`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, `simplebench`, or `ctxtrim`. Every helper, functional, and selected-entrypoint smoke check uses Bun's named-test reporter; output includes per-test status, timings, and pass/fail totals. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.
