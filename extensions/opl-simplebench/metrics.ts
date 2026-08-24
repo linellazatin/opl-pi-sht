@@ -33,6 +33,25 @@ export function emptyMetrics(): RequestMetrics {
   return { requestCount: 1, retryCount: 0, wallTimeMs: 0, timeToAnswerMs: 0, timeToFirstTokenMs: null, startedAt: null, finishedAt: null, inputTokens: null, outputTokens: null, totalTokens: null, outputTokensPerSecond: null, toolCalls: [] };
 }
 
+export function mergeRequestMetrics(metrics: RequestMetrics[]): RequestMetrics {
+  const knownTotal = (key: "inputTokens" | "outputTokens" | "totalTokens") => metrics.length && metrics.every(metric => metric[key] !== null)
+    ? metrics.reduce((sum, metric) => sum + (metric[key] as number), 0) : null;
+  const outputSeconds = metrics.reduce((sum, metric) => sum + (metric.outputTokens && metric.outputTokensPerSecond ? metric.outputTokens / metric.outputTokensPerSecond : 0), 0);
+  const outputTokens = knownTotal("outputTokens");
+  return {
+    requestCount: metrics.reduce((sum, metric) => sum + metric.requestCount, 0),
+    retryCount: metrics.reduce((sum, metric) => sum + metric.retryCount, 0),
+    wallTimeMs: metrics.reduce((sum, metric) => sum + metric.wallTimeMs, 0),
+    timeToAnswerMs: metrics.reduce((sum, metric) => sum + metric.timeToAnswerMs, 0),
+    timeToFirstTokenMs: metrics.find(metric => metric.timeToFirstTokenMs !== null)?.timeToFirstTokenMs ?? null,
+    startedAt: metrics.find(metric => metric.startedAt !== null)?.startedAt ?? null,
+    finishedAt: [...metrics].reverse().find(metric => metric.finishedAt !== null)?.finishedAt ?? null,
+    inputTokens: knownTotal("inputTokens"), outputTokens, totalTokens: knownTotal("totalTokens"),
+    outputTokensPerSecond: outputTokens !== null && outputSeconds > 0 ? outputTokens / outputSeconds : null,
+    toolCalls: metrics.flatMap(metric => metric.toolCalls),
+  };
+}
+
 export function aggregateMetrics(tests: TestRecord[]) {
   const values = tests.map(t => t.metrics.wallTimeMs).sort((a, b) => a - b);
   const knownTotal = (key: "inputTokens" | "outputTokens" | "totalTokens") => {

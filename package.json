@@ -1,6 +1,6 @@
 {
   "name": "opl-pi-sht",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "peerDependencies": {
     "@earendil-works/pi-ai": "*"

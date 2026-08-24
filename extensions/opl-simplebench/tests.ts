@@ -9,7 +9,7 @@ export const REASONING_TESTS: ReasoningFixture[] = [
     // Original tests
     { name: "snail_wall", prompt: "A snail climbs 3 feet up a wall each day, but slides back 2 feet each night. The wall is 10 feet tall. How many days does it take the snail to reach the top? Think step by step. ANSWER: <number>", expectedAnswer: "8", category: "logic" },
     { name: "math_sequence", prompt: "What is the next number in this sequence: 2, 6, 18, 54, ? Think step by step. ANSWER: <number>", expectedAnswer: "162", category: "math" },
-    { name: "spatial_directions", prompt: "If you face north and turn 90 degrees clockwise, then face west and turn 180 degrees counter-clockwise, which direction are you facing? ANSWER: <direction>", expectedAnswer: "south", category: "spatial" },
+    { name: "spatial_directions", prompt: "If you face north, turn 90 degrees clockwise, then turn 180 degrees counter-clockwise without changing your position, which direction are you facing? ANSWER: <direction>", expectedAnswer: "west", category: "spatial" },
     { name: "commonsense", prompt: "Can a rooster lay an egg? Answer yes or no. ANSWER: <yes-or-no>", expectedAnswer: "no", category: "commonsense" },
     { name: "code_simplify", prompt: "What value will x have after this code runs: let x = 0; for(let i=1; i<=5; i++) x += i; ANSWER: <number>", expectedAnswer: "15", category: "code" },
     // Phase 2: Counter-intuitive reasoning
@@ -56,4 +56,3 @@ export const CALC_TOOL_DEFINITION = {
     type: "function" as const,
     function: { name: "calculate", description: "Perform a mathematical calculation", parameters: { type: "object", properties: { expression: { type: "string" } }, required: ["expression"] } },
   };
-

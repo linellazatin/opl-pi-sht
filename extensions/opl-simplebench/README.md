@@ -8,7 +8,10 @@ Auditable Pi model benchmark for reasoning, JSON instruction following, and tool
 /simplebench
 /simplebench <model>
 /simplebench <model> [--no-artifact] [--thinking-max]
+/simplebench <model> --coding-lite
+/simplebench <model> --test-all
 /simplebench --all [--no-artifact]
+/simplebench --all --test-all
 /simplebench --help
 /simplebench --clear-cache
 ```
@@ -19,6 +22,8 @@ The LLM-callable tool is `simplebench`:
 simplebench({ model: "global.openai.gpt-5.6-terra" })
 simplebench({ model: "global.openai.gpt-5.6-terra", no_artifact: true })
 simplebench({ model: "global.openai.gpt-5.6-terra", thinking_max: true })
+simplebench({ model: "global.openai.gpt-5.6-terra", coding_lite: true })
+simplebench({ model: "global.openai.gpt-5.6-terra", test_all: true })
 ```
 
 `--no-artifact` and `no_artifact: true` suppress the JSON file. Default runs use the provider's sampling and reasoning defaults and write one JSON report per model to Pi's current working directory. `--thinking-max` and `thinking_max: true` request `reasoning_effort: "max"` for OpenAI-compatible providers, or Pi's model-aware Bedrock max-thinking path for direct Bedrock models that advertise `reasoning: true` and `thinkingLevelMap.max`. Other providers reject that mode rather than silently using defaults.
@@ -28,6 +33,8 @@ simplebench({ model: "global.openai.gpt-5.6-terra", thinking_max: true })
 - Cache-bypassing by default: OpenAI-compatible requests (LiteLLM, OpenRouter, etc.) send `cache: {"no-cache": true}` so a proxy-level response cache never serves results. A benchmark must measure real inference; without this, identical prompts across runs return cached responses instantly and the proxy logs show 200s while the backend server stays idle.
 
 - Twenty fixed reasoning prompts, one strict JSON instruction test, and one chained tool-call test.
+- Six opt-in execution-backed coding tasks in disposable directories (`--coding-lite`).
+- `--test-all` runs the baseline suite and coding-lite together; `--all` still selects every Ollama model.
 - Provider-default sampling and reasoning by default, with explicit `--thinking-max` for OpenAI-compatible proxies and metadata-gated direct Bedrock models.
 - Full JSON artifacts containing exact prompts, responses, scores, errors, per-test timing, provider usage, and returned tool calls.
 - Aggregate request count, retry count, tool-call count, token totals where returned by the provider, output tok/s where calculable, and average/median/P95 latency.
@@ -67,14 +74,18 @@ Use this in sensitive environments. The terminal summary still reports category 
 
 ### Inspect a result
 
-A normal run prints an absolute artifact path. The JSON contains the original prompt, complete model response, extraction/evaluation information, timings, usage values, errors, and aggregate metrics. Fields unavailable from a provider are `null`, never estimates. Artifacts record requested and effective thinking mode, logical level, and whether model metadata came from the active Pi context or scoped model registry.
+A normal run prints an absolute artifact path. The JSON contains the original prompt, complete model response, extraction/evaluation information, timings, usage values, errors, and aggregate metrics. Fields unavailable from a provider are `null`, never estimates. Artifacts record requested and effective thinking mode, logical level, metadata source, and `benchmark.suite` (`baseline`, `coding-lite`, or `test-all`). Standalone coding-lite artifacts contain only coding records in `tests[]` and use a coding-specific recommendation in Pi output.
+
+When coding-lite is enabled, each coding task is recorded as a `kind: "coding"` entry in `tests[]` with public/hidden verification and edit-loop details. Coding task records are not duplicated in `summary`; baseline aggregate metrics remain in `summary.metrics`.
 
 ## Artifacts and privacy
 
 Artifacts are written to `process.cwd()` and named:
 
 ```text
-simplebench-<sanitized-model>-<UTC-timestamp>.json
+simplebench--<suite>-<sanitized-model>-<thinking>-<UTC-timestamp>.json
+
+The default suite is named `3ptest`, so examples are `simplebench--test-all-<model>-max-<UTC-timestamp>.json` and `simplebench--3ptest-<model>-default-<UTC-timestamp>.json`.
 ```
 
 They deliberately preserve benchmark prompts and model responses for auditability. They never include credentials, Authorization headers, AWS credentials, cookies, or provider authentication payloads. Use `--no-artifact` if storing responses is not appropriate.
@@ -95,7 +106,15 @@ The model must emit valid JSON with the required schema and values. The artifact
 
 ### Tool usage
 
-The model receives weather and calculation tools. Simplebench validates expected tool names and minimally inspects arguments. It does **not** execute model-requested tools or judge a final answer based on tool output.
+The model receives weather and calculation tools. For OpenAI-compatible and Ollama providers, Simplebench validates expected tool names and arguments, executes deterministic local results, and requires the final answer to use both results. For local llama-server evaluation, start with `--jinja` and a tool-aware chat template; models or templates that cannot call tools receive a benchmark failure rather than a compatibility workaround. Direct Bedrock keeps its existing single-request tool-call check.
+
+### Coding lite
+
+Coding-lite is the execution-backed coding-agent suite. It runs model-directed edits in temporary directories. The model can list, search, read, write, and run the fixture's public tests, but cannot execute arbitrary commands, access the real repository, read hidden verification code, or use the network. The host runs hidden verification after the model stops.
+
+The six tasks cover a boundary bug, input validation, cross-file debugging, behavior-preserving cleanup, a CLI flag, and a complete edit-and-verify loop. A task passes only when hidden verification succeeds and no unrelated files were changed.
+
+Use `--coding-lite` for coding tasks only. Use `--test-all` to run the existing reasoning, instruction, and tool-format tests plus coding-lite. Use `--all --test-all` to run the complete suite for every discovered Ollama model.
 
 ### Recommendation policy
 
