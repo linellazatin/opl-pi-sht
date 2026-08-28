@@ -14,6 +14,8 @@
   },
   "defaultNotifyTemplate": "✓ {Name} mode ON",
   "_comment_defaultNotifyTemplate": "Default notify text for any custom mode that doesn't set its own labels.notify. {Name} is replaced with the mode name, capitalized.",
+  "_comment_lazyTools": "Tool names withheld from the active set at rest and enabled on demand via the load_tools tool. Only affects modes that would otherwise include them (off/execute and custom modes that list them). Core built-ins, plan_complete, and load_tools are protected and ignored. Omit or leave empty to keep all tools always active.",
+  "lazyTools": [],
   "bashPatterns": {
     "_comment_safe": "Replace-only: providing safePatterns replaces ALL defaults for both built-in chat/plan modes (shared base). Omit to keep built-in safe patterns. Shown here with the built-in list.",
     "_comment_destructive": "Replace-only: providing destructivePatterns replaces ALL defaults for both built-in chat/plan modes (shared base). Omit to keep built-in destructive patterns. Shown here with the built-in list.",

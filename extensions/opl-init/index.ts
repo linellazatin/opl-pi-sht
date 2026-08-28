@@ -375,10 +375,10 @@ function buildContext(root: string, crawlResult: Crawl): string {
   return sections.join("\n\n");
 }
 
-const PROMPT = `Generate or update AGENTS.md as an agent guide for this repository.
+const PROMPT = `Generate or update AGENTS.md as an agent guide for this repository. This is a single-file task: your only deliverable is AGENTS.md. Do not modify, refactor, or create any other file.
 If AGENTS.md already exists and the repository crawl below says it is current, do not overwrite or modify it. If it is marked stale, update it. If it does not exist, create it.
 
-Use the deterministic crawl as the primary source of truth. Read only a few specific files when necessary to confirm repository-specific facts; do not re-crawl the tree.
+The repository crawl below (directory tree, file counts, manifests, and any existing rule sources) is the primary source of truth. It was produced for you, so do not re-crawl, re-list, or re-scan the tree, and do not spawn subagents or task lists for this. Read a small number of specific files directly only when you must confirm a repository-specific fact the crawl does not already answer.
 
 Produce a concise, useful Markdown guide, usually 250-700 words:
 - Start with a project-specific title such as "# Repository Guide" or "# <project>".

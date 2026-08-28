@@ -1,0 +1,8 @@
+{
+  "_comment": "Optional. Copy to ~/.pi/agent/configs/opl-browser.json. All fields optional; defaults shown.",
+  "headless": true,
+  "width": 1280,
+  "height": 800,
+  "navigationTimeoutMs": 30000,
+  "previewChars": 4000
+}

@@ -81,6 +81,7 @@ Create `~/.pi/agent/configs/opl-modes.json` or copy [`configs/opl-modes.json`](.
 | `modes.chat.tools` / `modes.plan.tools` | Replace the respective built-in read-only tool lists. |
 | `chatAllowedTools` / `planAllowedTools` | **Deprecated compatibility aliases** for the built-in tool lists. They are used only when the corresponding `modes.<name>.tools` is omitted; migrate to `modes.chat.tools` or `modes.plan.tools`. |
 | `bashPatterns.safePatterns` / `bashPatterns.destructivePatterns` | Replace the shared Bash policy for built-in chat and plan. Per-mode pattern fields intentionally override this shared policy when those modes need to differ. |
+| `lazyTools` | Tool names withheld from the active set at rest and enabled on demand (see Lazy tool loading below). |
 | `modes.<name>` | Add or override a mode, including `model`, `tools`, patterns, `allowPlanComplete`, `allowExecute`, `visible`, `enabled`, `prompt`, `labels`, and `appearance`. |
 
 ### Mode appearance
@@ -105,6 +106,26 @@ Use `modes.<name>.appearance` to keep any mode's visual identity with its defini
 `prefix`, `prefixColor`, and `borderColor` style `opl-input`; omitted fields use its compiled mode defaults. `modeColor` styles the value in `opl-footer`'s `mode_switcher` segment; if omitted, the footer uses hardcoded `muted`. Colors accept Pi theme tokens or six-digit hex strings.
 
 Model overrides are resolved through Pi's model registry when entering a mode and the previously active model is restored on exit when applicable. Use Pi theme color tokens for widget label colors.
+
+### Lazy tool loading
+
+`lazyTools` withholds heavy tool schemas from the active set until the model actually needs them, keeping the system-prompt prefix (and its prompt-cache write) smaller every session:
+
+```json
+{
+  "lazyTools": ["subagent", "subagent_wait", "subagent_supervisor", "browser", "simplebench"]
+}
+```
+
+Behavior:
+
+- Listed tools are removed from the active set wherever opl-modes computes it. In practice this only affects modes that would otherwise include them: `off`/`execute` (which inherit all tools) and custom modes that list them. Read-only `chat`/`plan` already exclude these tools, so nothing changes there.
+- When at least one lazy tool is withheld from a mode, opl-modes registers and activates a `load_tools` tool. The model calls `load_tools({ tools: [...] })` (or with no argument to enable all currently-allowed lazy tools) to activate them before use.
+- `load_tools` is bounded by the current mode's tool policy: it can only enable a lazy tool the active mode already permits, so a read-only mode cannot enable a write-capable tool.
+- Core built-ins (`read`, `edit`, `write`, `bash`, `powershell`, `grep`, `find`, `ls`), `plan_complete`, and `load_tools` itself are protected and silently ignored if listed in `lazyTools`.
+- Switching modes re-applies the policy, so a lazy tool enabled earlier returns to inactive on the next mode change and must be re-enabled.
+
+Caching note: activating a lazy tool mid-session preserves the cached prefix on models with native deferred tool loading (Anthropic 4.5+, OpenAI gpt-5.4+) and otherwise triggers one prompt-cache rewrite from that point. It is most effective for tools you use occasionally (delegation, browser automation, benchmarking).
 
 ## Architecture
 

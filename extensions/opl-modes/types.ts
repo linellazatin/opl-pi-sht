@@ -157,6 +157,8 @@ export interface ModeSwitcherUserConfig {
   planAllowedTools?: string[];
   /** User-defined modes that extend or override built-in modes. */
   modes?: Record<string, PartialModeDefinition>;
+  /** Tool names withheld from the active set at rest and enabled on demand via the load_tools loader. Protected/core tools are ignored. */
+  lazyTools?: string[];
   /** Default notify text template for custom modes that don't set their own `labels.notify`. Use {Name} as a placeholder for the mode name (capitalized). Default: "✓ {Name} mode ON". */
   defaultNotifyTemplate?: string;
 }
