@@ -1,0 +1,10 @@
+{
+  "name": "opl-browser",
+  "version": "1.0.0",
+  "description": "Chromium browser automation for pi via Playwright. A single dispatcher tool for navigation, snapshots, interaction, console/network capture, and evaluation — replaces the chrome-devtools MCP server.",
+  "main": "index.js",
+  "license": "ISC",
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

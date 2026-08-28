@@ -258,6 +258,54 @@ export const CHAT_MODE_TOOLS: string[] =
     ? userConfig.chatAllowedTools
     : DEFAULT_CHAT_MODE_TOOLS;
 
+// ─── Lazy Tool Loading ────────────────────────────────────────────────────────
+
+/** Loader tool name. Registered by opl-modes when any lazy tools are configured. */
+export const LOADER_TOOL_NAME = "load_tools";
+
+/** Tools that must never be lazy: core built-ins, the execute-only signal, and the loader itself. */
+export const PROTECTED_TOOLS: Set<string> = new Set([
+  "read", "edit", "write", "bash", "powershell", "grep", "find", "ls",
+  "plan_complete", LOADER_TOOL_NAME,
+]);
+
+/** Filter a user lazy-tool list: drop protected/core tools and empties, dedupe. */
+export function resolveLazyTools(list: string[] | undefined): string[] {
+  return [...new Set((list ?? []).filter((n) => n && !PROTECTED_TOOLS.has(n)))];
+}
+
+/** Configured lazy tools, protected-filtered. */
+export const LAZY_TOOLS: Set<string> = new Set(resolveLazyTools(userConfig.lazyTools));
+
+/**
+ * Apply lazy policy to an active-set candidate: remove lazy tools, and inject the
+ * loader ONLY when at least one lazy tool was actually withheld from this set.
+ * A set with no lazy tools (e.g. read-only chat/plan lists) is returned unchanged.
+ */
+export function applyLazyPolicy(names: string[], lazy: Set<string> = LAZY_TOOLS, loader = LOADER_TOOL_NAME): string[] {
+  if (lazy.size === 0) return names;
+  const heldBack = names.some((n) => lazy.has(n));
+  const filtered = names.filter((n) => !lazy.has(n));
+  return heldBack && !filtered.includes(loader) ? [...filtered, loader] : filtered;
+}
+
+/**
+ * Select which lazy tools to activate: requested (or all lazy when omitted),
+ * intersected with the lazy set and the current mode's allowed tools
+ * (modeAllowed=null means the mode inherits all tools), minus already-active.
+ */
+export function lazyToolsToEnable(
+  requested: string[] | undefined,
+  current: string[],
+  modeAllowed: string[] | null,
+  lazy: Set<string> = LAZY_TOOLS,
+): string[] {
+  const allowed = modeAllowed ? new Set(modeAllowed) : null;
+  const want = requested && requested.length ? requested : [...lazy];
+  const active = new Set(current);
+  return want.filter((n) => lazy.has(n) && (!allowed || allowed.has(n)) && !active.has(n));
+}
+
 export const USER_CONFIG = {
   cleanup: {
     cleanupOnComplete: userConfig.cleanup?.cleanupOnComplete ?? DEFAULT_CONFIG.CLEANUP.CLEANUP_ON_COMPLETE,

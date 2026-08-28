@@ -45,6 +45,10 @@ import {
   getModeDefinition,
   executeHandoffAllowed,
   withPlanComplete,
+  LAZY_TOOLS,
+  LOADER_TOOL_NAME,
+  applyLazyPolicy,
+  lazyToolsToEnable,
 } from "./config.js";
 import {
   isSafeCommand,
@@ -73,6 +77,42 @@ import {
 import { showSelectMenu } from "./menus.js";
 
 export default function modeSwitcher(pi: ExtensionAPI) {
+  // ─── Lazy tool loader ──────────────────────────────────────────────────────
+  // Registered only when lazy tools are configured. Tools in LAZY_TOOLS are
+  // withheld from the active set at rest (see applyLazyPolicy) and enabled on
+  // demand here, bounded by the current mode's tool policy.
+  if (LAZY_TOOLS.size > 0) {
+    pi.registerTool({
+      name: LOADER_TOOL_NAME,
+      label: "Load Tools",
+      description:
+        `Enable on-demand tools that are withheld from the prompt until needed. ` +
+        `Available lazy tools: ${[...LAZY_TOOLS].join(", ")}. ` +
+        `Call this before using one of them. Activation is bounded by the current mode's tool policy, ` +
+        `so read-only modes cannot enable tools they do not permit.`,
+      parameters: Type.Object({
+        tools: Type.Optional(
+          Type.Array(Type.String(), {
+            description: "Tool names to enable. Omit to enable all lazy tools the current mode allows.",
+          }),
+        ),
+      }),
+      async execute(_toolCallId, params) {
+        const mode = getMode();
+        const modeDef = getModeDefinition(mode);
+        const modeAllowed = modeDef?.tools ?? null; // null = mode inherits all tools
+        const current = pi.getActiveTools();
+        const enable = lazyToolsToEnable(params.tools as string[] | undefined, current, modeAllowed);
+        if (enable.length > 0) pi.setActiveTools([...current, ...enable]);
+        const text =
+          enable.length > 0
+            ? `Enabled: ${enable.join(", ")}`
+            : "No tools enabled (already active, unknown, or not allowed in the current mode).";
+        return { content: [{ type: "text", text }], details: { enabled: enable } };
+      },
+    });
+  }
+
   // ─── Saved tool list for restoring ────────────────────────────────────────
   let savedToolNames: string[] | null = null;
   // ─── Saved model for restoring ─────────────────────────────────────────────
@@ -83,7 +123,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     if (savedToolNames === null) {
       savedToolNames = pi.getAllTools().map((t) => t.name);
     }
-    pi.setActiveTools(toolNames);
+    pi.setActiveTools(applyLazyPolicy(toolNames));
   }
 
   /**
@@ -155,10 +195,10 @@ export default function modeSwitcher(pi: ExtensionAPI) {
 
   function restoreAllTools(): void {
     if (savedToolNames !== null) {
-      pi.setActiveTools(toolsWithoutPlanComplete(savedToolNames));
+      pi.setActiveTools(applyLazyPolicy(toolsWithoutPlanComplete(savedToolNames)));
       savedToolNames = null;
     } else {
-      pi.setActiveTools(toolsWithoutPlanComplete(pi.getAllTools().map((t) => t.name)));
+      pi.setActiveTools(applyLazyPolicy(toolsWithoutPlanComplete(pi.getAllTools().map((t) => t.name))));
     }
   }
 
@@ -274,7 +314,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   async function enterExecuteMode(ctx: ExtensionContext): Promise<void> {
     transition("execute", pi);
     const baseNames = savedToolNames ?? pi.getAllTools().map((t) => t.name);
-    pi.setActiveTools([...toolsWithoutPlanComplete(baseNames), "plan_complete"]);
+    pi.setActiveTools(applyLazyPolicy([...toolsWithoutPlanComplete(baseNames), "plan_complete"]));
     savedToolNames = null;
     const modeDef = getModeDefinition("execute");
     await applyModeModel(ctx, modeDef);
@@ -421,11 +461,11 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       saveAndSetActiveTools(modeDef.tools);
     } else if (mode === "execute") {
       const allNames = pi.getAllTools().map((t) => t.name);
-      pi.setActiveTools([...toolsWithoutPlanComplete(allNames), "plan_complete"]);
+      pi.setActiveTools(applyLazyPolicy([...toolsWithoutPlanComplete(allNames), "plan_complete"]));
     } else {
       // Default: all tools except plan_complete
       const allNames = pi.getAllTools().map((t) => t.name);
-      pi.setActiveTools(toolsWithoutPlanComplete(allNames));
+      pi.setActiveTools(applyLazyPolicy(toolsWithoutPlanComplete(allNames)));
     }
 
     // Apply the mode's model BEFORE sending any resume follow-up message, so
