@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.7] - 2026-08-28
+
+### Added
+- Pi package manifest loading only `extensions/*/index.ts`; Git installs now install root runtime dependencies for browser and web access.
+- Tag-triggered GitHub Release workflow: tests with Bun, extracts the matching changelog section, and creates the release. It does not publish to npm.
+
+### Changed
+- Root README documents `pi install git:github.com/linellazatin/opl-pi-sht@v0.1.7`, optional config copying, and the one-time Playwright Chromium setup.
+
 ## [0.1.6] - 2026-08-28
 
 ### Added

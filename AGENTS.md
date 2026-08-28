@@ -23,7 +23,7 @@ Each `extensions/opl-*/` directory is independently loadable and documents its o
 
 ## Configuration and installation
 
-Tracked examples and `.sample` files live in `configs/`; install selected files as `~/.pi/agent/configs/opl-*.json`. Configuration is standard JSON: do not add comments or trailing commas except intentional `_comment` properties. `opl-init` and `opl-questionnaire` have no external config.
+`configs/` holds tracked working configs (`opl-footer`, `opl-input`, `opl-modes`, `opl-todo`, `opl-webaccess`) plus six `.sample` files (`opl-browser`, `opl-footer`, `opl-input`, `opl-modes`, `opl-todo`, `opl-webaccess`); install selected files as `~/.pi/agent/configs/opl-*.json`. Configuration is standard JSON: do not add comments or trailing commas except intentional `_comment` properties. `opl-init`, `opl-questionnaire`, and `opl-ctxtrim` have no config file at all. `opl-simplebench` is not configured through `configs/`: it maintains its own `simplebench-config.json`, `tool_support.json`, and `simplebench-history.json` under dedicated state directories (see `extensions/opl-simplebench/util/config.ts`).
 
 `opl-modes.json` is the canonical owner of active-mode appearance. Its per-mode `appearance` values style `opl-input` and the unified footer mode label. Its top-level `bashPatterns` is the shared read-only Bash policy for chat and plan; use nested per-mode patterns only for deliberate divergence.
 
@@ -59,4 +59,7 @@ Copy installation overwrites matching destinations. Link installation skips exis
 - `extensions/opl-footer/`: multi-row footer and session/performance metrics.
 - `extensions/opl-webaccess/`: providers, extraction, PDF handling, and stored results.
 - `extensions/opl-ctxtrim/index.ts`: outbound context-mode tool-schema description trimming.
-<!-- opl-init:fp bdbb6c27e6385d43 -->
+- `extensions/opl-footer/segments/`: one module per footer cell (`cost`, `context`, `tokens`, `git`, `caveman`, ...) plus `theme.ts`, `icons.ts`, and `git-status.ts`.
+- `research/`: measured token/caching economics and design assessments (`token-and-caching-economics.md`, `context-mode-assessment.md`, crawl-depth and harness-init studies) that justify the bounded-output and lazy-tool defaults.
+- `images/`: README screenshots (`ss-*.png`); regenerate rather than hand-editing.
+<!-- opl-init:fp 095120af08b6cc8d -->
