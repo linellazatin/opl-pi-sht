@@ -6,3 +6,6 @@ opl-*.json
 ## local research files
 research/
 docs/
+
+## annoying
+.DS_Store
