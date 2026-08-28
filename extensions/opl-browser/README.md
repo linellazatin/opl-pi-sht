@@ -32,8 +32,7 @@ Full action set: `navigate` (url, or `back`/`forward`/`reload`), `snapshot`,
 ## Extension features
 
 - **Single dispatcher tool.** One compact schema in the system prompt instead of
-  ~29 per-tool schemas. Keeps the cached prefix small (see
-  `research/token-and-caching-economics.md`).
+  ~29 per-tool schemas. Keeps the cached prefix small.
 - **Handle + preview output.** Large results (snapshots, console/network logs,
   evaluate output) are kept out of context: the tool returns a truncated preview
   plus a `responseId`; call `action: "get"` with that id for the full text.
@@ -48,7 +47,7 @@ Full action set: `navigate` (url, or `back`/`forward`/`reload`), `snapshot`,
 
 ## Configuration
 
-Optional `~/.pi/agent/configs/opl-browser.json` (see `opl-browser.example.json`):
+Optional `~/.pi/agent/configs/opl-browser.json` (see `opl-browser.json.sample`):
 
 | Field | Default | Meaning |
 |---|---|---|

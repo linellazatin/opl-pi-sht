@@ -39,7 +39,7 @@ The third row is populated after the first completed turn. Its session and perfo
 
 ## Configuration
 
-Create `~/.pi/agent/configs/opl-footer.json` or copy the tracked example from [`configs/opl-footer.json`](../../configs/opl-footer.json). Configure all six row-side arrays (`row1LeftSegments` through `row3RightSegments`) to change the layout. Colors, icons, path/Git display, and the context bar are also configurable. Unknown or invalid JSON uses the extension defaults.
+Create `~/.pi/agent/configs/opl-footer.json` or copy the tracked example from [`configs/opl-footer.json.sample`](../../configs/opl-footer.json.sample). Configure all six row-side arrays (`row1LeftSegments` through `row3RightSegments`) to change the layout. Colors, icons, path/Git display, and the context bar are also configurable. Unknown or invalid JSON uses the extension defaults.
 
 The config is cached for five seconds. Changes normally appear automatically; use `/reload` or restart Pi if needed.
 
@@ -54,7 +54,7 @@ The config is cached for five seconds. Changes normally appear automatically; us
 }
 ```
 
-See the tracked [`configs/opl-footer.json`](../../configs/opl-footer.json) for a complete example. Segment IDs, color fields, context-bar options, thinking-level colors, and icon overrides are documented below. Colors accept Pi theme tokens or hex strings.
+See the tracked [`configs/opl-footer.json.sample`](../../configs/opl-footer.json.sample) for a complete example. Segment IDs, color fields, context-bar options, thinking-level colors, and icon overrides are documented below. Colors accept Pi theme tokens or hex strings.
 
 ## Architecture
 

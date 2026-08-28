@@ -19,7 +19,7 @@ Provides configurable web search and readable URL/PDF retrieval with session-bac
 
 ## Configuration
 
-Copy [`configs/opl-webaccess.json`](../../configs/opl-webaccess.json) to `~/.pi/agent/configs/opl-webaccess.json`. The top-level `provider` must name an entry in `providers`; configuration is loaded when search runs.
+Copy [`configs/opl-webaccess.json.sample`](../../configs/opl-webaccess.json.sample) to `~/.pi/agent/configs/opl-webaccess.json`. The top-level `provider` must name an entry in `providers`; configuration is loaded when search runs.
 
 ```json
 {

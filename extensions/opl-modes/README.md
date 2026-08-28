@@ -35,7 +35,7 @@ Mode state is persisted in session entries and restored on session resume or bra
 
 ## Configuration
 
-Create `~/.pi/agent/configs/opl-modes.json` or copy [`configs/opl-modes.json`](../../configs/opl-modes.json). All fields are optional. The module reads the file when loaded; restart Pi or run `/reload` after changes.
+Create `~/.pi/agent/configs/opl-modes.json` or copy [`configs/opl-modes.json.sample`](../../configs/opl-modes.json.sample). All fields are optional. The module reads the file when loaded; restart Pi or run `/reload` after changes.
 
 ```json
 {
@@ -59,7 +59,7 @@ Create `~/.pi/agent/configs/opl-modes.json` or copy [`configs/opl-modes.json`](.
     "research": {
       "enabled": true,
       "allowExecute": false,
-      "prompt": "Deep web/local research with subagent fan-out. Create new md/html outputs under research/; never modify existing files.",
+      "prompt": "Deep web/local research with subagent fan-out. Create new outputs in any location; never modify existing files.",
       "tools": ["read", "grep", "find", "ls", "web_search", "fetch_content", "get_search_content", "artifact", "questionnaire", "subagent", "subagent_wait", "write"]
     },
     "verify": {

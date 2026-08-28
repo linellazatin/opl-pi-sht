@@ -23,7 +23,7 @@ Exactly one style applies at a time, in this order: Bash (`!` input) > active `o
 
 ## Configuration
 
-Create `~/.pi/agent/configs/opl-input.json` or copy [`configs/opl-input.json`](../../configs/opl-input.json). The file is read once when the extension module loads; run `/reload` or restart Pi after changes.
+Create `~/.pi/agent/configs/opl-input.json` or copy [`configs/opl-input.json.sample`](../../configs/opl-input.json.sample). The file is read once when the extension module loads; run `/reload` or restart Pi after changes.
 
 ```json
 {

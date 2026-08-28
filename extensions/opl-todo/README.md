@@ -19,7 +19,7 @@ Provides branch-aware model-managed tasks with a non-capturing overlay and full-
 
 ## Configuration
 
-Copy [`configs/opl-todo.json`](../../configs/opl-todo.json) to `~/.pi/agent/configs/opl-todo.json`, then `/reload` or restart Pi.
+Copy [`configs/opl-todo.json.sample`](../../configs/opl-todo.json.sample) to `~/.pi/agent/configs/opl-todo.json`, then `/reload` or restart Pi.
 
 ```json
 {
