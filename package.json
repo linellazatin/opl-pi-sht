@@ -1,13 +1,14 @@
 {
   "name": "opl-pi-sht",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "peerDependencies": {
     "@earendil-works/pi-ai": "*"
   },
   "type": "module",
   "scripts": {
-    "test": "npm run test:opl-footer && npm run test:opl-init && npm run test:opl-input && npm run test:opl-modes && npm run test:opl-questionnaire && npm run test:opl-todo && npm run test:opl-webaccess && npm run test:opl-simplebench && npm run test:opl-ctxtrim",
+    "test": "npm run test:opl-browser && npm run test:opl-footer && npm run test:opl-init && npm run test:opl-input && npm run test:opl-modes && npm run test:opl-questionnaire && npm run test:opl-todo && npm run test:opl-webaccess && npm run test:opl-simplebench && npm run test:opl-ctxtrim",
+    "test:opl-browser": "OPL_EXTENSION=opl-browser bun test tests/extension-smoke.test.mjs",
     "test:opl-footer": "bun test tests/opl-footer-helpers.test.mjs && OPL_EXTENSION=opl-footer bun test tests/extension-smoke.test.mjs",
     "test:opl-init": "bun test tests/opl-init-crawl.test.mjs && OPL_EXTENSION=opl-init bun test tests/extension-smoke.test.mjs",
     "test:opl-input": "bun test tests/opl-input-style.test.mjs && OPL_EXTENSION=opl-input bun test tests/extension-smoke.test.mjs",

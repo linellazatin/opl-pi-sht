@@ -6,8 +6,8 @@ A portable collection of Pi coding-agent extensions and standard-JSON configurat
 
 ## Commands
 
-- `npm test` runs all nine extension suites.
-- `npm run test:opl-<name>` runs one suite: `ctxtrim`, `footer`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, or `simplebench`.
+- `npm test` runs all ten extension suites.
+- `npm run test:opl-<name>` runs one suite: `browser`, `ctxtrim`, `footer`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, or `simplebench`.
 - Tests use Bun's test runner. Each suite runs its focused functional test where available, then bundles the selected entrypoint through `tests/extension-smoke.test.mjs` using `OPL_EXTENSION`.
 - `./install.sh` copies all extensions and configs to `~/.pi/agent`; `./install.sh --link` creates non-destructive symlinks.
 - `./install.sh --only`/`-o` selects extensions. Selecting `opl-footer`, `opl-input`, or `opl-modes` installs the complete UI bundle.
@@ -17,9 +17,9 @@ There are no build, lint, or typecheck scripts.
 
 ## Architecture
 
-Each `extensions/opl-*/` directory is independently loadable and documents its own interface. `opl-modes` owns built-in/custom mode definitions, plan lifecycle, tool/Bash restrictions, persisted mode state, and active-mode appearance. `opl-input` and `opl-footer` consume that published appearance state. Preserve compatibility identifiers such as `mode-switcher`, `chat-mode`, and `plan-mode`, because existing sessions depend on them.
+Each `extensions/opl-*/` directory is independently loadable and documents its own interface. `opl-modes` owns built-in/custom mode definitions, plan lifecycle, tool/Bash restrictions, lazy tool loading (`lazyTools` + the `load_tools` tool), persisted mode state, and active-mode appearance. `opl-input` and `opl-footer` consume that published appearance state. Preserve compatibility identifiers such as `mode-switcher`, `chat-mode`, and `plan-mode`, because existing sessions depend on them.
 
-`opl-init` generates fingerprinted repository `AGENTS.md` guides. `opl-simplebench` provides standalone model benchmarking, metrics, scoring, reports, and artifacts. `opl-webaccess` provides provider-backed search, readable URL/PDF extraction, and session-stored result retrieval. `opl-todo` stores branch-aware tasks in session tool results. `opl-questionnaire` provides an interactive model-invoked choice UI. `opl-ctxtrim` trims only known context-mode `ctx_*` schema descriptions in outbound provider payloads; it must preserve every schema field and fail open for unknown payloads or tools.
+`opl-init` generates fingerprinted repository `AGENTS.md` guides. `opl-simplebench` provides standalone model benchmarking, metrics, scoring, reports, and artifacts. `opl-webaccess` provides provider-backed search, readable URL/PDF extraction, and session-stored result retrieval. `opl-browser` drives Chromium via Playwright through a single action-based `browser` tool (navigate, snapshot, interact, console/network capture, evaluate, screenshot), returning handle+preview for large output; it replaces the chrome-devtools MCP server. `opl-todo` stores branch-aware tasks in session tool results. `opl-questionnaire` provides an interactive model-invoked choice UI. `opl-ctxtrim` trims only known context-mode `ctx_*` schema descriptions in outbound provider payloads; it must preserve every schema field and fail open for unknown payloads or tools.
 
 ## Configuration and installation
 
@@ -32,6 +32,14 @@ Keep provider credentials out of tracked files. `opl-webaccess` reads keys from 
 ```bash
 cd extensions/opl-webaccess
 npm install
+```
+
+`opl-browser` requires Playwright and a Chromium binary:
+
+```bash
+cd extensions/opl-browser
+npm install
+npx playwright install chromium
 ```
 
 ## Testing and operational quirks
@@ -51,4 +59,4 @@ Copy installation overwrites matching destinations. Link installation skips exis
 - `extensions/opl-footer/`: multi-row footer and session/performance metrics.
 - `extensions/opl-webaccess/`: providers, extraction, PDF handling, and stored results.
 - `extensions/opl-ctxtrim/index.ts`: outbound context-mode tool-schema description trimming.
-<!-- opl-init:fp e18339f1042a1720 -->
+<!-- opl-init:fp bdbb6c27e6385d43 -->
