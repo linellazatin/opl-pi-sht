@@ -9,7 +9,45 @@ import {
   getModeDefinition,
   executeHandoffAllowed,
   withPlanComplete,
+  resolveLazyTools,
+  applyLazyPolicy,
+  lazyToolsToEnable,
+  PROTECTED_TOOLS,
+  LOADER_TOOL_NAME,
 } from "../extensions/opl-modes/config.ts";
+
+test("lazy-tool policy: resolution, subtraction, loader injection, and mode-bounded activation", () => {
+  const lazy = new Set(["subagent", "browser"]);
+
+  // resolveLazyTools drops protected/core tools and dedupes
+  assert.deepEqual(resolveLazyTools(["subagent", "browser", "read", "edit", "bash", "plan_complete", LOADER_TOOL_NAME, "subagent"]), ["subagent", "browser"]);
+  for (const p of ["read", "edit", "write", "bash", "grep", "find", "ls", "plan_complete", LOADER_TOOL_NAME]) {
+    assert.ok(PROTECTED_TOOLS.has(p), `protected: ${p}`);
+  }
+
+  // applyLazyPolicy strips lazy tools and injects the loader ONLY when something was withheld
+  const off = applyLazyPolicy(["read", "bash", "subagent", "browser", "write"], lazy);
+  assert.ok(!off.includes("subagent") && !off.includes("browser"), "lazy stripped");
+  assert.ok(off.includes(LOADER_TOOL_NAME), "loader injected when lazy withheld");
+  assert.ok(off.includes("read") && off.includes("write"), "non-lazy preserved");
+
+  // A read-only mode list with no lazy tools is unchanged and gets no loader
+  const chat = applyLazyPolicy(["read", "grep", "find"], lazy);
+  assert.deepEqual(chat, ["read", "grep", "find"]);
+
+  // Empty lazy set is a no-op
+  assert.deepEqual(applyLazyPolicy(["read", "subagent"], new Set()), ["read", "subagent"]);
+
+  // lazyToolsToEnable: only lazy ∩ mode-allowed ∩ not-already-active
+  // inherit-all mode (modeAllowed=null): all requested lazy tools enable
+  assert.deepEqual(lazyToolsToEnable(["subagent"], ["read"], null, lazy), ["subagent"]);
+  // omitting request enables all currently-allowed lazy tools
+  assert.deepEqual(lazyToolsToEnable(undefined, ["read"], null, lazy).sort(), ["browser", "subagent"]);
+  // mode restricts allowed set: browser not allowed here
+  assert.deepEqual(lazyToolsToEnable(["subagent", "browser"], ["read"], ["read", "subagent"], lazy), ["subagent"]);
+  // already active is skipped; non-lazy request ignored
+  assert.deepEqual(lazyToolsToEnable(["subagent", "read"], ["subagent"], null, lazy), []);
+});
 
 test("validates mode registry, config policy, and published appearance", () => {
 
