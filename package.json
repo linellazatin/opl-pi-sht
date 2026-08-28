@@ -1,9 +1,27 @@
 {
   "name": "opl-pi-sht",
-  "version": "0.1.6",
+  "version": "0.1.7",
+  "keywords": [
+    "pi-package"
+  ],
   "private": true,
+  "pi": {
+    "extensions": [
+      "./extensions/*/index.ts"
+    ]
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "linkedom": "^0.18.13",
+    "playwright": "^1.49.0",
+    "turndown": "^7.2.4",
+    "unpdf": "^1.8.0"
+  },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "*"
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
   },
   "type": "module",
   "scripts": {
