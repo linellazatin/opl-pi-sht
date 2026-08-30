@@ -5,29 +5,125 @@ import * as path from "node:path";
 import { test } from "bun:test";
 import { parseCommandArgs } from "../extensions/opl-simplebench/index";
 import { buildToolContinuationMessages, createBenchmark, hasOllamaAssistantOutput, openAiThinkingOptions, resolveBenchmarkModel, resolveThinkingMode } from "../extensions/opl-simplebench/benchmark";
-import { artifactFileName, writeArtifact } from "../extensions/opl-simplebench/artifact";
+import { artifactFileName, writeArtifact, writeArtifactBundle } from "../extensions/opl-simplebench/artifact";
 import { codingRecommendation, formatInstructionScore, recommendation } from "../extensions/opl-simplebench/report";
 import { aggregateMetrics, mergeRequestMetrics, metricsFromChat, usageFromRaw, emptyMetrics } from "../extensions/opl-simplebench/metrics";
 import { scoreReasoning } from "../extensions/opl-simplebench/scoring";
 import { REASONING_TESTS, MULTISTEP_INSTRUCTION } from "../extensions/opl-simplebench/tests";
 import { CODING_LITE_TASKS, createCodingTaskDir, resolveCodingPath, runCodingTask, runCodingVerifier } from "../extensions/opl-simplebench/coding";
+import { runResearchArtifactTask } from "../extensions/opl-simplebench/research";
+import { applyLlamagputop, applyLlamagputopModelStats, buildServerStats, diffPrometheusMetrics, healthUrl, managementBaseUrl, normalizeLlamagputopStats, normalizeLlamaServerProps, parsePrometheusMetrics, statsUrl } from "../extensions/opl-simplebench/llama-server";
 
 test("parses artifact and thinking-max benchmark modes", () => {
   assert.deepEqual(parseCommandArgs("global.openai.gpt-5.6-terra --no-artifact"), {
-    model: "global.openai.gpt-5.6-terra", allModels: false, writeArtifact: false, thinkingMax: false, codingLite: false, testAll: false,
+    model: "global.openai.gpt-5.6-terra", allModels: false, writeArtifact: false, thinkingMax: false, codingLite: false, testAll: false, llamaServer: false, llamagputop: false,
   });
   assert.deepEqual(parseCommandArgs("--all --no-artifact"), {
-    model: undefined, allModels: true, writeArtifact: false, thinkingMax: false, codingLite: false, testAll: false,
+    model: undefined, allModels: true, writeArtifact: false, thinkingMax: false, codingLite: false, testAll: false, llamaServer: false, llamagputop: false,
   });
   assert.deepEqual(parseCommandArgs("global.openai.gpt-5.6-terra --thinking-max"), {
-    model: "global.openai.gpt-5.6-terra", allModels: false, writeArtifact: true, thinkingMax: true, codingLite: false, testAll: false,
+    model: "global.openai.gpt-5.6-terra", allModels: false, writeArtifact: true, thinkingMax: true, codingLite: false, testAll: false, llamaServer: false, llamagputop: false,
   });
   assert.deepEqual(parseCommandArgs("global.openai.gpt-5.6-terra --coding-lite"), {
-    model: "global.openai.gpt-5.6-terra", allModels: false, writeArtifact: true, thinkingMax: false, codingLite: true, testAll: false,
+    model: "global.openai.gpt-5.6-terra", allModels: false, writeArtifact: true, thinkingMax: false, codingLite: true, testAll: false, llamaServer: false, llamagputop: false,
   });
   assert.deepEqual(parseCommandArgs("--all --test-all"), {
-    model: undefined, allModels: true, writeArtifact: true, thinkingMax: false, codingLite: false, testAll: true,
+    model: undefined, allModels: true, writeArtifact: true, thinkingMax: false, codingLite: false, testAll: true, llamaServer: false, llamagputop: false,
   });
+});
+
+test("parses boolean configured metadata modes", () => {
+  assert.equal(parseCommandArgs("qwen --llama-server").llamaServer, true);
+  assert.equal(parseCommandArgs("qwen --llamagputop").llamagputop, true);
+  assert.equal(parseCommandArgs("qwen").llamaServer, false);
+});
+
+test("normalizes configured metadata URLs", () => {
+  assert.equal(statsUrl("http://host:4321"), "http://host:4321/stats");
+  assert.equal(statsUrl("http://host:4321/stats"), "http://host:4321/stats");
+  assert.equal(healthUrl("http://host:4321/stats"), "http://host:4321/health");
+});
+
+test("matches LiteLLM model IDs and normalizes llamagputop stats", () => {
+  const result = normalizeLlamagputopStats({
+    llama: { model: "gemma-4-E4B-it-Q8_0", reasoning_format: "deepseek" },
+    modelConfig: { ctx: 131072, ngl: 99, "flash-attn": "on", threads: 8, batch: "4096/1024", slots: 1, "kv-k/v": "q5_1/q5_1", temp: 0.6, "top-k": 20, "top-p": 0.95, "min-p": 0, repeat: 1, "spec-type": "draft-mtp", "n-max": 3, "draft-kv": "q8_0/q8_0" },
+    modelStats: { prefill: 148.31, gen: 121.21, "session-avg": 119.63, reasoning: "deepseek", "draft-accepted-p": 97.3, "draft-accepted-tok": 3.75 },
+  });
+  assert.equal(result.error, null);
+  assert.equal(result.info?.modelIds[0], "gemma-4-E4B-it-Q8_0");
+  assert.equal(result.info?.modelConfig.model, "gemma-4-E4B-it-Q8_0");
+  assert.equal(result.info?.modelConfig.batch, 4096);
+  assert.equal(result.info?.modelConfig["flash-attn"], true);
+  assert.equal(result.info?.modelStats.gen, 121.21);
+  assert.equal(result.info?.modelStats["draft-accepted-p"], 97.3);
+  const differentServer = normalizeLlamagputopStats({ llama: { model: "gemma-4-E4B-it-Q8_0" }, modelConfig: { ctx: 32768 } });
+  assert.equal(differentServer.error, null);
+  assert.equal(differentServer.info?.modelConfig.model, "gemma-4-E4B-it-Q8_0");
+
+  const config = { model: "litellm-alias", ctx: null, ngl: null, "flash-attn": null, threads: null, batch: null, slots: null, "kv-k/v": null, temp: 0.6, "top-k": 20, "top-p": 0.95, "min-p": 0, repeat: 1, "spec-type": "none", "n-max": null, "draft-kv": null };
+  const merged = applyLlamagputop(config, result.info!.modelConfig);
+  assert.equal(merged.model, "gemma-4-E4B-it-Q8_0");
+  assert.equal(merged.ctx, 131072);
+  assert.equal(merged.temp, 0.6);
+  assert.equal(merged["spec-type"], "draft-mtp");
+  const modelStats = applyLlamagputopModelStats({ prefill: null, gen: null, "session-avg": null, reasoning: "none", "draft-accepted-p": null, "draft-accepted-tok": null }, result.info!.modelStats);
+  assert.equal(modelStats.gen, 121.21);
+  assert.equal(modelStats.reasoning, "deepseek");
+});
+
+test("normalizes llama-server /props, parses metrics, and derives server stats", () => {
+  assert.deepEqual(normalizeLlamaServerProps({
+    default_generation_settings: { params: { temperature: 0.6, top_k: 20, top_p: 0.95, min_p: 0, repeat_penalty: 1, reasoning_format: "none", "speculative.types": "none" }, n_ctx: 131072 },
+    total_slots: 1,
+    endpoint_metrics: true,
+  }), {
+    modelConfig: {
+      model: null, ctx: 131072, ngl: null, "flash-attn": null, threads: null, batch: null,
+      slots: 1, "kv-k/v": null, temp: 0.6, "top-k": 20, "top-p": 0.95,
+      "min-p": 0, repeat: 1, "spec-type": "none", "n-max": null, "draft-kv": null,
+    },
+    reasoning: "none",
+  });
+
+  assert.deepEqual(parsePrometheusMetrics("# HELP x\nfoo_total 12\nbar 1.5\nlabelled{position=\"0\"} 9\n"), { foo_total: 12, bar: 1.5 });
+  // llama.cpp namespaces metrics as `llamacpp:<name>`; the prefix is stripped.
+  assert.deepEqual(parsePrometheusMetrics("llamacpp:prompt_tokens_total 693\nllamacpp:tokens_predicted_total 2960\n"), { prompt_tokens_total: 693, tokens_predicted_total: 2960 });
+  assert.deepEqual(diffPrometheusMetrics({ foo_total: 10 }, { foo_total: 15, bar: 2 }), { foo_total: 5, bar: 2 });
+  assert.equal(managementBaseUrl("http://192.168.1.106:7679/v1"), "http://192.168.1.106:7679");
+
+  const props = normalizeLlamaServerProps({
+    model_alias: "qwen3.5-9b-gen",
+    default_generation_settings: { params: { temperature: 0.6, top_k: 20, top_p: 0.95, min_p: 0, repeat_penalty: 1, reasoning_format: "none", "speculative.types": "none" }, n_ctx: 131072 },
+    total_slots: 1,
+  });
+  const stats = buildServerStats(props, {
+    prompt_tokens_total: 0, prompt_seconds_total: 0,
+    tokens_predicted_total: 0, tokens_predicted_seconds_total: 0,
+    spec_decode_num_draft_tokens_total: 0, spec_decode_num_accepted_tokens_total: 0,
+    spec_decode_num_drafts_total: 0,
+  }, {
+    prompt_tokens_total: 100, prompt_seconds_total: 2,
+    tokens_predicted_total: 200, tokens_predicted_seconds_total: 4,
+    spec_decode_num_draft_tokens_total: 100, spec_decode_num_accepted_tokens_total: 75,
+    spec_decode_num_drafts_total: 25,
+  }, []);
+  assert.deepEqual(stats.modelStats, {
+    prefill: 50, gen: 50, "session-avg": 50, reasoning: "none",
+    "draft-accepted-p": 75, "draft-accepted-tok": 3,
+  });
+  assert.equal(stats.modelConfig.model, "qwen3.5-9b-gen");
+  assert.equal(stats.modelConfig.ctx, 131072);
+  assert.deepEqual(stats.errors, []);
+
+  // Missing counters and failed props yield nulls, never throws or estimates.
+  const empty = buildServerStats(null, {}, {}, ["props: boom"]);
+  assert.deepEqual(empty.modelStats, {
+    prefill: null, gen: null, "session-avg": null, reasoning: null,
+    "draft-accepted-p": null, "draft-accepted-tok": null,
+  });
+  assert.equal(empty.modelConfig.ctx, null);
+  assert.deepEqual(empty.errors, ["props: boom"]);
 });
 
 test("leaves OpenAI-compatible sampling at provider defaults unless thinking max is requested", () => {
@@ -57,6 +153,22 @@ test("writes artifacts in the current working directory", () => {
     assert.equal(fs.realpathSync(path.dirname(output)), fs.realpathSync(temp));
     assert.equal(artifact.benchmark.model, "test/model");
     assert.deepEqual(artifact.benchmark.thinking, { requested: "default", effective: "provider-default", level: null, modelMetadataSource: null });
+  } finally {
+    process.chdir(cwd);
+    fs.rmSync(temp, { recursive: true });
+  }
+});
+
+test("writes test-all research artifacts into a result bundle", () => {
+  const cwd = process.cwd();
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "simplebench-bundle-"));
+  const artifact = { schemaVersion: 1 as const, benchmark: { name: "opl-simplebench" as const, suite: "test-all" as const, model: "test/model", provider: "test", providerKind: "test", thinking: { requested: "default" as const, effective: "provider-default" as const, level: null, modelMetadataSource: null }, startedAt: "", finishedAt: "", wallTimeMs: 0, artifactEnabled: true }, tests: [], summary: {} };
+  try {
+    process.chdir(temp);
+    const bundle = writeArtifactBundle(artifact, { "research.md": "# Sources", "page.html": "<main>Page</main>" });
+    assert.equal(fs.existsSync(path.join(bundle, "result.json")), true);
+    assert.equal(fs.readFileSync(path.join(bundle, "research.md"), "utf8"), "# Sources");
+    assert.equal(fs.readFileSync(path.join(bundle, "page.html"), "utf8"), "<main>Page</main>");
   } finally {
     process.chdir(cwd);
     fs.rmSync(temp, { recursive: true });
@@ -198,6 +310,20 @@ test("completes the baseline tool loop with strict llama-server message roles", 
   assert.equal(turns, 2);
   assert.equal(result.score, "STRONG");
   assert.equal(result.pass, true);
+});
+
+test("runs fixture-backed research artifact workflow", async () => {
+  let turn = 0;
+  const result = await runResearchArtifactTask(async (_model, messages) => {
+    turn += 1;
+    if (turn === 1) return { content: "", elapsedMs: 1, toolCalls: [{ function: { name: "web_search", arguments: JSON.stringify({ query: "urban trees benefits" }) } }] };
+    if (turn === 2) return { content: "", elapsedMs: 1, toolCalls: [{ function: { name: "read_skill", arguments: "{}" } }, { function: { name: "write_file", arguments: JSON.stringify({ path: "research.md", content: "# Urban Trees\n\n[Source](https://example.com/trees)" }) } }, { function: { name: "write_file", arguments: JSON.stringify({ path: "page.html", content: "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width\"></head><body><main><h1>Urban Trees</h1><p>Research summary.</p></main></body></html>" }) } }] };
+    return { content: "done", elapsedMs: 1 };
+  }, "fixture-model", { search: async () => [{ title: "Trees", url: "https://example.com/trees", snippet: "Benefits" }] });
+  assert.equal(result.score, "STRONG");
+  assert.equal(result.passed, true);
+  assert.equal(result.files["research.md"].includes("https://example.com/trees"), true);
+  assert.equal(result.files["page.html"].includes("<main>"), true);
 });
 
 test("defines six isolated coding-lite fixtures", () => {

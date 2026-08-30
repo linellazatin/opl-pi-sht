@@ -3,13 +3,15 @@ import * as fs from "node:fs";
 import { section, ok, fail, warn, info, msHuman, truncate, sanitizeForReport } from "./util/format";
 import { getOllamaBaseUrl, detectProvider } from "./util/providers";
 import { debugLog } from "./util/debug";
-import { CONFIG, WEATHER_TOOL_DEFINITION, buildToolResultMessages, getEffectiveConfig, type ChatFn, type ChatMessage } from "./util/config";
+import { CONFIG, WEATHER_TOOL_DEFINITION, buildToolResultMessages, getEffectiveConfig, readTestConfig, type ChatFn, type ChatMessage } from "./util/config";
 import { branding as sharedBranding, codingRecommendation, formatInstructionScore, formatTestSummary, recommendation } from "./report";
-import { writeArtifact } from "./artifact";
+import { writeArtifact, writeArtifactBundle } from "./artifact";
 import { aggregateMetrics, emptyMetrics, mergeRequestMetrics, metricsFromChat } from "./metrics";
 import { REASONING_TESTS, MULTISTEP_INSTRUCTION, CALC_TOOL_DEFINITION } from "./tests";
 import { CODING_LITE_TASKS, runCodingTask } from "./coding";
+import { runResearchArtifactTask, searchConfiguredResearch } from "./research";
 import { scoreReasoning, averageScore } from "./scoring";
+import { applyLlamagputop, applyLlamagputopModelStats, buildServerStats, fetchLlamaServerMetrics, fetchLlamaServerProps, fetchLlamagputopHealth, fetchLlamagputopStats, type ServerStats } from "./llama-server";
 import type { SimplebenchOptions, TestRecord } from "./types";
 
 type BenchmarkModel = { id: string; provider?: string; api?: string; reasoning?: boolean; thinkingLevelMap?: Record<string, string | null> };
@@ -658,6 +660,55 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   const thinking = resolveThinkingMode(providerInfo, resolvedModel.model, options.thinkingMax === true);
   const suite = options.testAll ? "test-all" : options.codingLite ? "coding-lite" : "baseline";
 
+  // Direct llama-server probes are separate from the provider route. This is
+  // intentional: --llamagputop also works when inference goes through LiteLLM.
+  const benchConfig = readTestConfig();
+  const captureEnabled = options.llamaServer === true || options.llamagputop === true;
+  const llamaBaseUrl = benchConfig.llamaServerUrl || "";
+  const llamaErrors: string[] = [];
+  let llamaProps: Awaited<ReturnType<typeof fetchLlamaServerProps>> | null = null;
+  let llamaMetricsBefore: Record<string, number> = {};
+  if (options.llamaServer) {
+    if (!llamaBaseUrl) llamaErrors.push("llamaServerUrl is not configured in opl-simplebench.json");
+    else llamaProps = await fetchLlamaServerProps(llamaBaseUrl);
+    if (llamaProps?.error) llamaErrors.push(llamaProps.error);
+    if (llamaBaseUrl) {
+      const before = await fetchLlamaServerMetrics(llamaBaseUrl);
+      if (before.error) llamaErrors.push(before.error);
+      llamaMetricsBefore = before.metrics;
+    }
+  }
+  async function captureServerStats(): Promise<ServerStats | undefined> {
+    if (!captureEnabled) return undefined;
+    const errors = [...llamaErrors];
+    let stats = buildServerStats(llamaProps?.info ?? null, llamaMetricsBefore, {}, errors);
+    if (options.llamaServer && llamaBaseUrl) {
+      const after = await fetchLlamaServerMetrics(llamaBaseUrl);
+      if (after.error) errors.push(after.error);
+      stats = buildServerStats(llamaProps?.info ?? null, llamaMetricsBefore, after.metrics, errors);
+    }
+    if (options.llamagputop) {
+      const topUrl = benchConfig.llamagputopUrl;
+      if (!topUrl) errors.push("llamagputopUrl is not configured in opl-simplebench.json");
+      const external = topUrl ? await fetchLlamagputopStats(topUrl) : null;
+      if (external?.error) {
+        errors.push(external.error);
+        if (external.unavailable) {
+          const healthError = await fetchLlamagputopHealth(topUrl!);
+          if (healthError) errors.push(healthError);
+        }
+      }
+      if (external?.info) {
+        stats.modelConfig = applyLlamagputop(stats.modelConfig, external.info.modelConfig);
+        stats.modelStats = applyLlamagputopModelStats(stats.modelStats, external.info.modelStats);
+      }
+    }
+    lines.push(errors.length
+      ? warn(`serverStats captured with warnings (${errors.join("; ")})`)
+      : info("serverStats captured"));
+    return stats;
+  }
+
   lines.push(sharedBranding);
   lines.push(section(`MODEL: ${model}`));
   lines.push(info(`Provider: ${providerInfo.name} (${providerInfo.kind})`));
@@ -674,6 +725,7 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   // Progress notification helper — safe to call even without a TUI context
   const progress = (msg: string) => ctx?.ui?.notify?.(msg, "info");
   let codingSummary: Awaited<ReturnType<typeof testCodingLite>> | null = null;
+  let researchArtifact: Awaited<ReturnType<typeof runResearchArtifactTask>> | null = null;
 
   if (options.codingLite || options.testAll) {
     lines.push(section("CODING-LITE TEST"));
@@ -684,8 +736,9 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
     if (options.codingLite && !options.testAll) {
       const totalMs = Date.now() - totalStart;
       let artifactPath: string | null = null;
+      const serverStats = await captureServerStats();
       if (options.writeArtifact) {
-        try { artifactPath = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", suite, model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: codingTestRecords(codingSummary), summary: {} }); }
+        try { artifactPath = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", suite, model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: codingTestRecords(codingSummary), summary: serverStats ? { serverStats } : {} }); }
         catch (e: any) { lines.push(warn(`Artifact could not be written: ${e?.message || e}`)); }
       }
       const codingOverall = codingRecommendation(codingSummary.passed, codingSummary.total);
@@ -694,6 +747,13 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
       lines.push(info(artifactPath ? `Artifact: ${artifactPath}` : "Artifact: disabled (--no-artifact)"));
       return lines.join("\n");
     }
+  }
+
+  if (options.testAll) {
+    lines.push(section("RESEARCH ARTIFACT TEST"));
+    lines.push(info("Testing benchmark-local web research, minimalist UI guidance, and file artifacts..."));
+    researchArtifact = await runResearchArtifactTask(toolChatFn, model, { search: query => searchConfiguredResearch(query, benchConfig) });
+    lines.push(researchArtifact.passed ? ok(`Research artifact: ${researchArtifact.score}`) : fail(`Research artifact: ${researchArtifact.score} (${researchArtifact.error})`));
   }
 
   // 1. Extended Reasoning test
@@ -734,11 +794,14 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   artifactTests.push({ id: "instruction_following", kind: "instructions", prompt: MULTISTEP_INSTRUCTION, response: instructions.output, score: instructions.score, passed: instructions.pass, error: instructions.score === "FAIL" ? instructions.output : null, metrics: instructions.metrics });
   artifactTests.push({ id: "tool_usage", kind: "tools", prompt: "What's weather in Tokyo and calculate 15*24?", response: tools.response, score: tools.score, passed: tools.pass, error: tools.score === "ERROR" ? tools.response : null, metrics: tools.metrics });
   artifactTests.push(...(codingSummary ? codingTestRecords(codingSummary) : []));
+  if (researchArtifact) artifactTests.push({ id: researchArtifact.id, kind: "research", category: "research-artifact", prompt: "Research benefits of urban trees and write research.md and page.html.", response: null, score: researchArtifact.score, passed: researchArtifact.passed, error: researchArtifact.error, metrics: researchArtifact.metrics, research: { toolCalls: researchArtifact.toolCalls, files: Object.keys(researchArtifact.files) } });
   const aggregate = aggregateMetrics(artifactTests.filter(test => test.kind !== "coding"));
   let artifactPath: string | null = null;
+  const serverStats = await captureServerStats();
   if (options.writeArtifact) {
     try {
-      artifactPath = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", suite, model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: artifactTests, summary: { reasoning: { score: reasoning.score, passed: reasoning.results.filter(r => r.pass).length, total: reasoning.results.length }, instructions: instructions.score, tools: tools.score, metrics: aggregate } });
+      const artifact = { schemaVersion: 1 as const, benchmark: { name: "opl-simplebench" as const, suite, model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: artifactTests, summary: { reasoning: { score: reasoning.score, passed: reasoning.results.filter(r => r.pass).length, total: reasoning.results.length }, instructions: instructions.score, tools: tools.score, metrics: aggregate, ...(serverStats ? { serverStats } : {}) } };
+      artifactPath = researchArtifact ? writeArtifactBundle(artifact, researchArtifact.files) : writeArtifact(artifact);
     } catch (e: any) { lines.push(warn(`Artifact could not be written: ${e?.message || e}`)); }
   }
   
