@@ -208,8 +208,9 @@ test("uses unambiguous and alternate-valid reasoning fixtures", () => {
   assert.equal(rooster?.expectedAnswer, "no");
   assert.match(code?.prompt ?? "", /value will x have/);
   assert.equal(code?.expectedAnswer, "15");
-  assert.deepEqual(analogy?.expectedAnswer, ["boot", "sock"]);
+  assert.deepEqual(analogy?.expectedAnswer, ["boot", "sock", "shoe"]);
   assert.equal(scoreReasoning("ANSWER: Sock", analogy?.expectedAnswer ?? "").pass, true);
+  assert.equal(scoreReasoning("ANSWER: Shoe", analogy?.expectedAnswer ?? "").pass, true);
   assert.equal(scoreReasoning("That premise is not possible.", "no").pass, false);
 });
 
@@ -356,9 +357,10 @@ test("runs public and hidden coding-lite verification independently", () => {
   const task = CODING_LITE_TASKS[0];
   const root = createCodingTaskDir(task);
   try {
-    assert.equal(runCodingVerifier(task, root, "public").passed, true);
+    assert.equal(runCodingVerifier(task, root, "public").passed, false); // buggy code fails the aligned public test
     assert.equal(runCodingVerifier(task, root, "hidden").passed, false);
     fs.writeFileSync(path.join(root, "src", "sum.mjs"), "export function sumInclusive(start, end) { let total = 0; for (let value = start; value <= end; value += 1) total += value; return total; }\n");
+    assert.equal(runCodingVerifier(task, root, "public").passed, true); // fixed code passes both
     assert.equal(runCodingVerifier(task, root, "hidden").passed, true);
   } finally {
     fs.rmSync(root, { recursive: true });

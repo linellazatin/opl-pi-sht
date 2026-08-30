@@ -19,12 +19,12 @@ export const REASONING_TESTS: ReasoningFixture[] = [
     { name: "syllogism", prompt: "All mammals are warm-blooded. All dogs are mammals. Therefore, what can we conclude about dogs? Answer with the conclusion. ANSWER: <conclusion>", expectedAnswer: "warm-blooded", category: "logic" },
     { name: "if_then_chain", prompt: "If it rains, the ground gets wet. If the ground gets wet, the grass grows. It is raining. What happens? Think step by step. ANSWER: <outcome>", expectedAnswer: "grass grows", category: "logic" },
     // Phase 2: Causal reasoning
-    { name: "cause_effect", prompt: "If you plant a seed in good soil with water and sunlight, what happens? Think about cause and effect. ANSWER: <outcome>", expectedAnswer: "grows", category: "causal" },
+    { name: "cause_effect", prompt: "If you plant a seed in good soil with water and sunlight, what happens? Think about cause and effect. ANSWER: <outcome>", expectedAnswer: ["grows", "grow", "germinate"], category: "causal" },
     // Phase 2: Comparative reasoning
     { name: "relative_quantities", prompt: "Tom has 3 times as many apples as Sara. Sara has 5 apples. How many apples does Tom have? ANSWER: <number>", expectedAnswer: "15", category: "comparative" },
     // Phase 2: Analogical reasoning
     { name: "analogy_1", prompt: "Book is to Shelf as Chair is to what? Think about relationships. ANSWER: <container>", expectedAnswer: "room", category: "analogy" },
-    { name: "analogy_2", prompt: "Hand is to Glove as Foot is to what? ANSWER: <item>", expectedAnswer: ["boot", "sock"], category: "analogy" },
+    { name: "analogy_2", prompt: "Hand is to Glove as Foot is to what? ANSWER: <item>", expectedAnswer: ["boot", "sock", "shoe"], category: "analogy" },
     // Phase 2: Common sense (physical properties)
     { name: "physics_1", prompt: "Does a bowling ball or a tennis ball have more mass? ANSWER: <object>", expectedAnswer: "bowling ball", category: "commonsense" },
     { name: "physics_2", prompt: "What happens to a metal spoon when heated? It usually becomes...? ANSWER: <state>", expectedAnswer: "hot", category: "commonsense" },
@@ -33,7 +33,7 @@ export const REASONING_TESTS: ReasoningFixture[] = [
     // Phase 2: Common sense (social situations)
     { name: "social_1", prompt: "If someone says 'please' and 'thank you', they are usually considered...? ANSWER: <trait>", expectedAnswer: "polite", category: "commonsense" },
     // Phase 2: Common sense (animals/nature)
-    { name: "animals_1", prompt: "What do dolphins live in? ANSWER: <environment>", expectedAnswer: "water", category: "commonsense" },
+    { name: "animals_1", prompt: "What do dolphins live in? ANSWER: <environment>", expectedAnswer: ["water", "ocean", "sea"], category: "commonsense" },
     // Phase 2: General knowledge
     { name: "gk_1", prompt: "Which planet is known as the Red Planet? ANSWER: <planet>", expectedAnswer: "mars", category: "commonsense" },
     { name: "gk_2", prompt: "How many days are in a leap year? ANSWER: <number>", expectedAnswer: "366", category: "commonsense" },

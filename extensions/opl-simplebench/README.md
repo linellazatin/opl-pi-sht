@@ -143,6 +143,8 @@ Twenty deterministic prompts cover arithmetic, logic, causal reasoning, comparis
 
 `STRONG` means a correct answer with detected reasoning evidence; `MODERATE` means a correct answer; `WEAK` and `FAIL` are incorrect answers with or without detected evidence. This is a lightweight regression benchmark, not a comprehensive intelligence evaluation.
 
+Expected answers accept semantically equivalent responses: `animals_1` accepts water/ocean/sea; `analogy_2` accepts boot/sock/shoe; `cause_effect` accepts grows/grow/germinate.
+
 ### Instruction following
 
 The model must emit valid JSON with the required schema and values. The artifact records the complete output and schema result.
@@ -155,21 +157,36 @@ The model receives weather and calculation tools. For OpenAI-compatible and Olla
 
 Coding-lite is the execution-backed coding-agent suite. It runs model-directed edits in temporary directories. The model can list, search, read, write, and run the fixture's public tests, but cannot execute arbitrary commands, access the real repository, read hidden verification code, or use the network. The host runs hidden verification after the model stops.
 
+The agent loop defaults to **5 turns** per task (reduced from 12). This tighter budget forces the model to converge on a solution quickly and makes turn count a meaningful quality signal. Results are scored on three dimensions:
+
+- **STRONG** — solved in 1–2 turns (first or second attempt correct)
+- **MODERATE** — solved in 3–4 turns (one error, self-corrected)
+- **WEAK** — solved in 5 turns (hit the turn limit)
+- **FAIL** — not solved within the turn budget
+
+The score field in `tests[]` uses this efficiency grade rather than a binary STRONG/FAIL. The JSON summary includes a per-bucket count (`summary.coding.efficiency.strong/moderate/weak/fail`). The recommendation's coding category uses efficiency-weighted scoring (STRONG=1.0, MODERATE=0.7, WEAK=0.4, FAIL=0), requiring a weighted average ≥0.5 for the coding category to count as passing.
+
+Each fixture also carries an `inlinePrompt` with the buggy code embedded directly. Pass `singleShot: true` to `runCodingTask` to run a single-turn no-tools variant — the model reads the code in the prompt and outputs the corrected file, with no feedback loop. This is a pure model quality signal with zero agent loop variance.
+
 The six tasks cover a boundary bug, input validation, cross-file debugging, behavior-preserving cleanup, a CLI flag, and a complete edit-and-verify loop. A task passes only when hidden verification succeeds and no unrelated files were changed.
+
+**Public tests are aligned with hidden tests.** All public test assertions validate the same behavior as hidden assertions (different inputs, same semantics). No public test validates incorrect behavior that the model should fix — the `fix-off-by-one` adversarial trap has been corrected.
 
 Use `--coding-lite` for coding tasks only. Use `--test-all` to run the existing reasoning, instruction, and tool-format tests plus coding-lite. Use `--all --test-all` to run the complete suite for every discovered Ollama model.
 
 ### Recommendation policy
 
-The recommendation is based on the three displayed categories:
+The recommendation is based on the three (or four) displayed categories:
 
 | Result | Recommendation |
 |---|---|
-| Strong reasoning, JSON pass, tool pass | STRONG |
-| Moderate reasoning, JSON pass, tool pass | GOOD |
-| Any two categories pass | USABLE |
-| One category passes | LIMITED |
-| No category passes | WEAK |
+| Strong reasoning, JSON pass, tool pass, all coding STRONG | STRONG |
+| Strong reasoning, JSON pass, tool pass (coding not all STRONG) | GOOD |
+| Any three categories pass | USABLE |
+| Two categories pass | LIMITED |
+| One or zero categories pass | WEAK |
+
+When coding-lite is included, the coding category uses efficiency-weighted scoring (STRONG=1.0, MODERATE=0.7, WEAK=0.4, FAIL=0). The category counts as passing when the weighted average ≥ 0.5 across all tasks.
 
 ## Provider authentication
 

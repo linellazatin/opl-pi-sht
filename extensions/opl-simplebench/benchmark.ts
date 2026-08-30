@@ -559,7 +559,8 @@ async function testInstructionFollowingExtended(chatFn: ChatFn, model: string): 
   try {
     const result = await chatFn(model, [{ role: "user", content: MULTISTEP_INSTRUCTION }]);
     const metrics = metricsFromChat({ ...result, startedAt: result.startedAt ?? new Date(start).toISOString(), finishedAt: result.finishedAt ?? new Date().toISOString() });
-    const parsed = JSON.parse(result.content.trim());
+    const cleaned = result.content.trim().replace(/```json?\s*/gi, "").replace(/```/g, "").trim();
+    const parsed = JSON.parse(cleaned);
     const schemaValid = !!(parsed.name && parsed.can_count === true && parsed.sum === 42 && parsed.language && parsed.colors?.length === 3 && parsed.timestamp);
     if (schemaValid) return { pass: true, score: "STRONG", output: JSON.stringify(parsed), schemaValid, elapsedMs: Date.now() - start, metrics };
     if (parsed.name && parsed.sum === 42) return { pass: true, score: "MODERATE", output: JSON.stringify(parsed), schemaValid: false, elapsedMs: Date.now() - start, metrics };
@@ -626,11 +627,11 @@ function codingTestRecords(coding: Awaited<ReturnType<typeof testCodingLite>>): 
       category: "coding-lite",
       prompt: task.prompt,
       response: null,
-      score: result.passed ? "STRONG" : "FAIL",
+      score: result.passed ? (result.efficiency ?? "STRONG") : "FAIL",
       passed: result.passed,
       error: result.error,
       metrics: result.metrics,
-      coding: { publicPassed: result.publicPassed, hiddenPassed: result.hiddenPassed, verifiedAfterEdit: result.verifiedAfterEdit, unrelatedFiles: result.unrelatedFiles, toolCalls: result.toolCalls, turns: result.turns },
+      coding: { publicPassed: result.publicPassed, hiddenPassed: result.hiddenPassed, verifiedAfterEdit: result.verifiedAfterEdit, unrelatedFiles: result.unrelatedFiles, toolCalls: result.toolCalls, turns: result.turns, efficiency: result.efficiency },
     };
   });
 }
@@ -731,19 +732,23 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
     lines.push(section("CODING-LITE TEST"));
     lines.push(info(`Testing ${CODING_LITE_TASKS.length} execution-backed coding tasks...`));
     codingSummary = await testCodingLite(chatFn, model, progress);
-    for (const result of codingSummary.results) lines.push(result.passed ? ok(`✓ ${result.id}: passed (${result.toolCalls} tools, ${result.turns} turns)`) : fail(`✗ ${result.id}: failed (${result.error || "hidden verification failed"})`));
-    lines.push(info(`Coding Lite: ${codingSummary.passed}/${codingSummary.total} tasks passed`));
+    for (const result of codingSummary.results) {
+      const eff = result.passed ? `${result.efficiency} (${result.turns} turn${result.turns !== 1 ? "s" : ""})` : "FAIL";
+      lines.push(result.passed ? ok(`✓ ${result.id}: ${eff}`) : fail(`✗ ${result.id}: ${eff} (${result.error || "hidden verification failed"})`));
+    }
+    lines.push(info(`Coding Lite: ${codingSummary.passed}/${codingSummary.total} passed — ${codingSummary.results.filter(r => r.efficiency === "STRONG").length} STRONG, ${codingSummary.results.filter(r => r.efficiency === "MODERATE").length} MODERATE, ${codingSummary.results.filter(r => r.efficiency === "WEAK").length} WEAK`));
     if (options.codingLite && !options.testAll) {
       const totalMs = Date.now() - totalStart;
       let artifactPath: string | null = null;
       const serverStats = await captureServerStats();
       if (options.writeArtifact) {
-        try { artifactPath = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", suite, model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: codingTestRecords(codingSummary), summary: serverStats ? { serverStats } : {} }); }
+        try { artifactPath = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", suite, model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: codingTestRecords(codingSummary), summary: { coding: { passed: codingSummary.passed, total: codingSummary.total, efficiency: { strong: codingSummary.results.filter(r => r.efficiency === "STRONG").length, moderate: codingSummary.results.filter(r => r.efficiency === "MODERATE").length, weak: codingSummary.results.filter(r => r.efficiency === "WEAK").length, fail: codingSummary.results.filter(r => r.efficiency === "FAIL").length } }, ...(serverStats ? { serverStats } : {}) } }); }
         catch (e: any) { lines.push(warn(`Artifact could not be written: ${e?.message || e}`)); }
       }
+      const effCounts = { strong: codingSummary.results.filter(r => r.efficiency === "STRONG").length, moderate: codingSummary.results.filter(r => r.efficiency === "MODERATE").length, weak: codingSummary.results.filter(r => r.efficiency === "WEAK").length };
       const codingOverall = codingRecommendation(codingSummary.passed, codingSummary.total);
       lines.push(section("CODING-LITE RECOMMENDATION"));
-      lines.push(codingOverall.label === "WEAK" ? fail(`${model} is ${codingOverall.label} (${codingOverall.passed}/${codingOverall.total} coding tasks passed)`) : ok(`${model} is ${codingOverall.label} (${codingOverall.passed}/${codingOverall.total} coding tasks passed)`));
+      lines.push(codingOverall.label === "WEAK" ? fail(`${model} is ${codingOverall.label} (${codingOverall.passed}/${codingOverall.total} passed — ${effCounts.strong} STRONG, ${effCounts.moderate} MODERATE, ${effCounts.weak} WEAK)`) : ok(`${model} is ${codingOverall.label} (${codingOverall.passed}/${codingOverall.total} passed — ${effCounts.strong} STRONG, ${effCounts.moderate} MODERATE, ${effCounts.weak} WEAK)`));
       lines.push(info(artifactPath ? `Artifact: ${artifactPath}` : "Artifact: disabled (--no-artifact)"));
       return lines.join("\n");
     }
@@ -800,7 +805,7 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   const serverStats = await captureServerStats();
   if (options.writeArtifact) {
     try {
-      const artifact = { schemaVersion: 1 as const, benchmark: { name: "opl-simplebench" as const, suite, model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: artifactTests, summary: { reasoning: { score: reasoning.score, passed: reasoning.results.filter(r => r.pass).length, total: reasoning.results.length }, instructions: instructions.score, tools: tools.score, metrics: aggregate, ...(serverStats ? { serverStats } : {}) } };
+      const artifact = { schemaVersion: 1 as const, benchmark: { name: "opl-simplebench" as const, suite, model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: artifactTests, summary: { reasoning: { score: reasoning.score, passed: reasoning.results.filter(r => r.pass).length, total: reasoning.results.length }, instructions: instructions.score, tools: tools.score, ...(codingSummary ? { coding: { passed: codingSummary.passed, total: codingSummary.total, efficiency: { strong: codingSummary.results.filter(r => r.efficiency === "STRONG").length, moderate: codingSummary.results.filter(r => r.efficiency === "MODERATE").length, weak: codingSummary.results.filter(r => r.efficiency === "WEAK").length, fail: codingSummary.results.filter(r => r.efficiency === "FAIL").length } } } : {}), metrics: aggregate, ...(serverStats ? { serverStats } : {}) } };
       artifactPath = researchArtifact ? writeArtifactBundle(artifact, researchArtifact.files) : writeArtifact(artifact);
     } catch (e: any) { lines.push(warn(`Artifact could not be written: ${e?.message || e}`)); }
   }
@@ -816,14 +821,14 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
     { name: "Reasoning", pass: reasoning.score === "STRONG" || reasoning.score === "MODERATE", score: reasoning.score },
     { name: "Instructions", pass: instructions.pass, score: instructions.score },
     { name: "Tool Usage", pass: tools.pass, score: tools.score },
-    ...(codingSummary ? [{ name: "Coding Lite", pass: codingSummary.passed >= Math.ceil(codingSummary.total / 2), score: `${codingSummary.passed}/${codingSummary.total}` }] : []),
+    ...(codingSummary ? [{ name: "Coding Lite", pass: codingSummary.passed >= Math.ceil(codingSummary.total / 2), score: `${codingSummary.passed}/${codingSummary.total} (${codingSummary.results.filter(r => r.efficiency === "STRONG").length}× STRONG)` }] : []),
     ...(researchArtifact ? [{ name: "Research Artifact", pass: researchArtifact.passed, score: researchArtifact.score }] : []),
   ];
   lines.push(...formatTestSummary(summaryTests, totalMs));
   
   lines.push("");
   lines.push(info(`Detailed: Reasoning ${reasoningPassed}/${reasoningTotal} tests passed, Instructions ${instructionPassed}/1, Tool Usage ${toolPassed}/1${codingSummary ? `, Coding Lite ${codingSummary.passed}/${codingSummary.total}` : ""}${researchArtifact ? `, Research Artifact ${researchArtifact.score}` : ""}`));
-  const categoryRecommendation = recommendation(reasoning.score, instructions.pass, tools.pass, codingSummary);
+  const categoryRecommendation = recommendation(reasoning.score, instructions.pass, tools.pass, codingSummary ? { ...codingSummary, efficiency: { strong: codingSummary.results.filter(r => r.efficiency === "STRONG").length, moderate: codingSummary.results.filter(r => r.efficiency === "MODERATE").length, weak: codingSummary.results.filter(r => r.efficiency === "WEAK").length, fail: codingSummary.results.filter(r => r.efficiency === "FAIL").length } } : undefined);
   lines.push(section("RECOMMENDATION"));
   lines.push(categoryRecommendation.label === "WEAK" ? fail(`${model} is ${categoryRecommendation.label}`) : ok(`${model} is ${categoryRecommendation.label}`));
   if (codingSummary) lines.push(info(`Coding Lite contribution: ${codingSummary.passed}/${codingSummary.total} tasks`));

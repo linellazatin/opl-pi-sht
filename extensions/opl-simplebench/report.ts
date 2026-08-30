@@ -16,12 +16,19 @@ export function formatRecommendation(model: string, passed: number, total: numbe
   return [section("RECOMMENDATION"), label === "WEAK" ? fail(`${model} is ${label}`) : ok(`${model} is ${label}`)];
 }
 
-export function recommendation(reasoning: string, instructionsPass: boolean, toolsPass: boolean, coding?: { passed: number; total: number }) {
+export function recommendation(reasoning: string, instructionsPass: boolean, toolsPass: boolean, coding?: { passed: number; total: number; efficiency?: { strong: number; moderate: number; weak: number; fail: number } }) {
   const reasoningPass = reasoning === "STRONG" || reasoning === "MODERATE";
-  const passed = Number(reasoningPass) + Number(instructionsPass) + Number(toolsPass) + (coding ? Number(coding.passed >= Math.ceil(coding.total / 2)) : 0);
+  // Efficiency-weighted coding pass: STRONG=1.0, MODERATE=0.7, WEAK=0.4, FAIL=0
+  const codingPass = coding ? (() => {
+    if (!coding.efficiency) return coding.passed >= Math.ceil(coding.total / 2);
+    const weighted = coding.efficiency.strong * 1.0 + coding.efficiency.moderate * 0.7 + coding.efficiency.weak * 0.4;
+    return coding.total > 0 && weighted / coding.total >= 0.5;
+  })() : undefined;
+  const passed = Number(reasoningPass) + Number(instructionsPass) + Number(toolsPass) + (codingPass !== undefined ? Number(codingPass) : 0);
   const total = coding ? 4 : 3;
+  const allCodingStrong = coding?.efficiency ? coding.efficiency.strong === coding.total : coding?.passed === coding?.total;
   const label = coding
-    ? passed === 4 ? reasoning === "STRONG" && coding.passed === coding.total ? "STRONG" : "GOOD" : passed === 3 ? "USABLE" : passed === 2 ? "LIMITED" : passed === 1 ? "LIMITED" : "WEAK"
+    ? passed === 4 ? reasoning === "STRONG" && allCodingStrong ? "STRONG" : "GOOD" : passed === 3 ? "USABLE" : passed === 2 ? "LIMITED" : passed === 1 ? "LIMITED" : "WEAK"
     : passed === 3 ? reasoning === "STRONG" ? "STRONG" : "GOOD" : passed === 2 ? "USABLE" : passed === 1 ? "LIMITED" : "WEAK";
   return { label, passed, total };
 }
