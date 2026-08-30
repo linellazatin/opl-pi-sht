@@ -6,10 +6,25 @@
 - `configs/opl-simplebench.json.sample`: camelCase `researchSearchProvider` (`ddgs` or `searxng`), `researchSearchUrl`, `researchMaxResults`, `llamaServerUrl`, and `llamagputopUrl`. `--llama-server` and `--llamagputop` are boolean opt-ins using those configured URLs; `--test-all` includes the benchmark-local research-artifact task and writes a `result.json`/`research.md`/`page.html` bundle.
 - `opl-simplebench --llama-server` (tool `llama_server`): writes `summary.serverStats` from configured direct llama-server `/props` + `/metrics` without changing LiteLLM inference. `modelConfig` = ctx, slots, temp, top-k/p, min-p, repeat, spec-type (null for build-only fields: ngl, flash-attn, threads, batch, kv-k/v, n-max, draft-kv); `modelStats` = prefill/gen/session-avg tok/s and speculative acceptance from the before/after `/metrics` delta.
 - `opl-simplebench --llamagputop` (tool `llamagputop`): treats configured `/stats` as authoritative, fills `serverStats` config/stats without matching Pi's selected model, and records the served ID as `modelConfig.model`; raw responses are excluded. On `/stats` failure, `/health` is checked for diagnostics only.
+- **Coding-lite efficiency scoring**: each task result now carries `efficiency: STRONG | MODERATE | WEAK | FAIL` based on turns used (1 = STRONG, 2–3 = MODERATE, 4–5 = WEAK, failed = FAIL). The `score` field in `tests[]` uses this grade. `summary.coding.efficiency` contains per-bucket counts. Recommendation uses efficiency-weighted coding score (STRONG=1.0, MODERATE=0.7, WEAK=0.4, FAIL=0, threshold 0.5).
+- **Coding-lite single-shot mode**: each `CodingTaskFixture` now carries `inlinePrompt` with the buggy code embedded. Pass `singleShot: true` to `runCodingTask` for a no-tools, single-turn variant — pure model quality signal with no agent loop variance.
+- **`inlinePrompt` for all six tasks**: `fix-off-by-one`, `validate-config`, `diagnose-cross-file`, `safe-refactor`, `cli-flag`, `verify-after-edit`.
 
 ### Changed
 - `/stats` is authoritative for llamagputop `model`, `spec-type`, and `reasoning`, replacing `/props` placeholder values such as `none`.
 - llama-server capture is opt-in; inference endpoint and sampling unchanged. `/metrics` deltas are server-wide cumulative telemetry (not per-request); response usage stays authoritative. Probe errors go to `serverStats.errors` and never fail the run; `/props` and `/stats` are never stored raw.
+- **Coding-lite `maxTurns` default reduced from 12 to 5.** Tighter turn budget removes sampling-path variance and makes turn-to-solution a meaningful signal.
+- **Efficiency thresholds recalibrated for 5-turn budget**: STRONG = 1–2 turns, MODERATE = 3–4 turns, WEAK = 5 turns (hit limit). With a 5-turn max, the minimum read→write→run sequence takes 3–4 turns; the old STRONG=1/MODERATE=2–3 thresholds were unreachable in agent-loop mode.
+- **`safe-refactor` public test now exercises empty-string filtering.** Public verifier changed from `['a', 'b']` (original code already passes, model gets no signal) to include `['a', '', 'b']`, matching the hidden test. Without this, the model ran tests, saw green, and exhausted turns without ever adding the filter.
+- **Coding-lite notify output** now shows per-task efficiency grade and turn count (`STRONG (1 turn)`, `MODERATE (2 turns)`, etc.) and a summary line with STRONG/MODERATE/WEAK counts.
+- **Coding-lite artifact `summary`** now includes `summary.coding` with `passed`, `total`, and `efficiency` bucket counts.
+
+### Fixed
+- `animals_1` expected answer now accepts `water`, `ocean`, and `sea` (was `water` only; model answers `ocean`).
+- `analogy_2` expected answer now accepts `boot`, `sock`, and `shoe` (was `boot`/`sock`; `shoe` is the direct analogue to `glove`).
+- `cause_effect` expected answer now accepts `grows`, `grow`, and `germinate` (was `grows` only; stemming mismatch caused false failures).
+- `fix-off-by-one` public verifier now tests correct inclusive behavior (`sumInclusive(1, 4) === 10`), removing the adversarial contradiction where fixing the bug caused the public test to fail.
+- `instruction_following` now strips markdown fences before `JSON.parse`, matching the repair logic already in `util/config.ts`.
 
 ## [0.1.8] - 2026-08-28
 
