@@ -11,7 +11,7 @@ import { aggregateMetrics, mergeRequestMetrics, metricsFromChat, usageFromRaw, e
 import { scoreReasoning } from "../extensions/opl-simplebench/scoring";
 import { REASONING_TESTS, MULTISTEP_INSTRUCTION } from "../extensions/opl-simplebench/tests";
 import { CODING_LITE_TASKS, createCodingTaskDir, resolveCodingPath, runCodingTask, runCodingVerifier } from "../extensions/opl-simplebench/coding";
-import { runResearchArtifactTask } from "../extensions/opl-simplebench/research";
+import { RESEARCH_TASK_PROMPT, runResearchArtifactTask } from "../extensions/opl-simplebench/research";
 import { applyLlamagputop, applyLlamagputopModelStats, buildServerStats, diffPrometheusMetrics, healthUrl, managementBaseUrl, normalizeLlamagputopStats, normalizeLlamaServerProps, parsePrometheusMetrics, statsUrl } from "../extensions/opl-simplebench/llama-server";
 
 test("parses artifact and thinking-max benchmark modes", () => {
@@ -312,15 +312,26 @@ test("completes the baseline tool loop with strict llama-server message roles", 
   assert.equal(result.pass, true);
 });
 
+test("makes research, citations, and minimalist UI requirements explicit", () => {
+  assert.match(RESEARCH_TASK_PROMPT, /web_search/);
+  assert.match(RESEARCH_TASK_PROMPT, /read_skill/);
+  assert.match(RESEARCH_TASK_PROMPT, /## Sources/);
+  assert.match(RESEARCH_TASK_PROMPT, /minimalist/i);
+  assert.match(RESEARCH_TASK_PROMPT, /no gradients/i);
+});
+
 test("runs fixture-backed research artifact workflow", async () => {
   let turn = 0;
+  const progress: string[] = [];
   const result = await runResearchArtifactTask(async (_model, messages) => {
     turn += 1;
     if (turn === 1) return { content: "", elapsedMs: 1, toolCalls: [{ function: { name: "web_search", arguments: JSON.stringify({ query: "urban trees benefits" }) } }] };
-    if (turn === 2) return { content: "", elapsedMs: 1, toolCalls: [{ function: { name: "read_skill", arguments: "{}" } }, { function: { name: "write_file", arguments: JSON.stringify({ path: "research.md", content: "# Urban Trees\n\n[Source](https://example.com/trees)" }) } }, { function: { name: "write_file", arguments: JSON.stringify({ path: "page.html", content: "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width\"></head><body><main><h1>Urban Trees</h1><p>Research summary.</p></main></body></html>" }) } }] };
+    if (turn === 2) return { content: "", elapsedMs: 1, toolCalls: [{ function: { name: "read_skill", arguments: "{}" } }, { function: { name: "write_file", arguments: JSON.stringify({ path: "research.md", content: "# Urban Trees\n\n## Sources\n\n[Source](https://example.com/trees)" }) } }, { function: { name: "write_file", arguments: JSON.stringify({ path: "page.html", content: "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width\"></head><body><main><h1>Urban Trees</h1><p>Research summary.</p></main></body></html>" }) } }] };
     return { content: "done", elapsedMs: 1 };
-  }, "fixture-model", { search: async () => [{ title: "Trees", url: "https://example.com/trees", snippet: "Benefits" }] });
+  }, "fixture-model", { search: async () => [{ title: "Trees", url: "https://example.com/trees", snippet: "Benefits" }], onProgress: message => progress.push(message) });
   assert.equal(result.score, "STRONG");
+  assert.ok(progress.some(message => message.includes("research-artifact: agent turn 1")));
+  assert.ok(progress.some(message => message.includes("research-artifact: web_search")));
   assert.equal(result.passed, true);
   assert.equal(result.files["research.md"].includes("https://example.com/trees"), true);
   assert.equal(result.files["page.html"].includes("<main>"), true);

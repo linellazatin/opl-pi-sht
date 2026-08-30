@@ -34,6 +34,14 @@ export interface ResearchArtifactResult {
 }
 
 const MINIMALIST_UI_SKILL = "Use semantic HTML, a restrained palette, readable typography, no gradients, and no heavy shadows.";
+export const RESEARCH_TASK_PROMPT = `Research benefits of urban trees with the provided tools.
+
+You MUST:
+1. Call web_search for real sources before writing.
+2. Call read_skill and apply its minimalist UI guidance to page.html.
+3. Write research.md with a concise synthesis and a ## Sources section containing Markdown links to returned source URLs.
+4. Write page.html as a minimal, responsive editorial page: semantic HTML with <main>, a viewport meta tag, restrained colors, readable type, no gradients, and no heavy shadows.
+Do not answer only in chat: create both files.`;
 const RESEARCH_TOOLS = [
   { type: "function", function: { name: "web_search", description: "Search the web for sources.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
   { type: "function", function: { name: "read_skill", description: "Read the benchmark-local minimalist UI design guidance.", parameters: { type: "object", properties: {} } } },
@@ -50,7 +58,7 @@ function verify(files: Record<string, string>, tools: string[], sources: Researc
   const html = files["page.html"] ?? "";
   const searched = tools.includes("web_search");
   const skillRead = tools.includes("read_skill");
-  const citesSource = sources.some(source => markdown.includes(source.url));
+  const citesSource = /##\s+Sources/i.test(markdown) && sources.some(source => markdown.includes(source.url));
   const htmlPasses = /<html[\s>]/i.test(html) && /<main[\s>]/i.test(html) && /name=["']viewport["']/i.test(html) && !/(linear-gradient|radial-gradient|box-shadow)/i.test(html);
   const complete = searched && skillRead && !!markdown && !!html && citesSource && htmlPasses;
   if (complete) return { score: "STRONG", passed: true, error: null };
@@ -58,18 +66,19 @@ function verify(files: Record<string, string>, tools: string[], sources: Researc
   return { score: "FAIL", passed: false, error: "research artifact task incomplete" };
 }
 
-export async function runResearchArtifactTask(chatFn: ChatFn, model: string, options: { search: (query: string) => Promise<ResearchSource[]>; maxTurns?: number } ): Promise<ResearchArtifactResult> {
+export async function runResearchArtifactTask(chatFn: ChatFn, model: string, options: { search: (query: string) => Promise<ResearchSource[]>; maxTurns?: number; onProgress?: (message: string) => void } ): Promise<ResearchArtifactResult> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "simplebench-research-"));
   const tools: string[] = [];
   const requestMetrics: RequestMetrics[] = [];
   let sources: ResearchSource[] = [];
   let error: string | null = null;
   const messages: ChatMessage[] = [
-    { role: "system", content: "Complete a research artifact task using benchmark-local tools. Search the web, read the minimalist UI skill, then write research.md with source URLs and page.html using that guidance." },
-    { role: "user", content: "Research benefits of urban trees. Write research.md with cited sources and page.html presenting the findings." },
+    { role: "system", content: "Complete a research artifact task using benchmark-local tools. Follow every requirement in the user task." },
+    { role: "user", content: RESEARCH_TASK_PROMPT },
   ];
   try {
     for (let turn = 0; turn < (options.maxTurns ?? 8); turn += 1) {
+      options.onProgress?.(`research-artifact: agent turn ${turn + 1}/${options.maxTurns ?? 8}...`);
       const response = await chatFn(model, messages, { tools: RESEARCH_TOOLS });
       requestMetrics.push(metricsFromChat(response));
       const calls = response.toolCalls ?? [];
@@ -80,6 +89,7 @@ export async function runResearchArtifactTask(chatFn: ChatFn, model: string, opt
         const name = fn.name;
         const args = parseArgs(fn.arguments);
         tools.push(name);
+        options.onProgress?.(`research-artifact: ${name}`);
         try {
           if (name === "web_search") {
             sources = await options.search(String(args.query ?? ""));

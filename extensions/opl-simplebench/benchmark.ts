@@ -752,7 +752,7 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   if (options.testAll) {
     lines.push(section("RESEARCH ARTIFACT TEST"));
     lines.push(info("Testing benchmark-local web research, minimalist UI guidance, and file artifacts..."));
-    researchArtifact = await runResearchArtifactTask(toolChatFn, model, { search: query => searchConfiguredResearch(query, benchConfig) });
+    researchArtifact = await runResearchArtifactTask(toolChatFn, model, { search: query => searchConfiguredResearch(query, benchConfig), onProgress: message => progress(`[1/1] research-artifact: ${message.slice("research-artifact: ".length)}`) });
     lines.push(researchArtifact.passed ? ok(`Research artifact: ${researchArtifact.score}`) : fail(`Research artifact: ${researchArtifact.score} (${researchArtifact.error})`));
   }
 
@@ -817,11 +817,12 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
     { name: "Instructions", pass: instructions.pass, score: instructions.score },
     { name: "Tool Usage", pass: tools.pass, score: tools.score },
     ...(codingSummary ? [{ name: "Coding Lite", pass: codingSummary.passed >= Math.ceil(codingSummary.total / 2), score: `${codingSummary.passed}/${codingSummary.total}` }] : []),
+    ...(researchArtifact ? [{ name: "Research Artifact", pass: researchArtifact.passed, score: researchArtifact.score }] : []),
   ];
   lines.push(...formatTestSummary(summaryTests, totalMs));
   
   lines.push("");
-  lines.push(info(`Detailed: Reasoning ${reasoningPassed}/${reasoningTotal} tests passed, Instructions ${instructionPassed}/1, Tool Usage ${toolPassed}/1${codingSummary ? `, Coding Lite ${codingSummary.passed}/${codingSummary.total}` : ""}`));
+  lines.push(info(`Detailed: Reasoning ${reasoningPassed}/${reasoningTotal} tests passed, Instructions ${instructionPassed}/1, Tool Usage ${toolPassed}/1${codingSummary ? `, Coding Lite ${codingSummary.passed}/${codingSummary.total}` : ""}${researchArtifact ? `, Research Artifact ${researchArtifact.score}` : ""}`));
   const categoryRecommendation = recommendation(reasoning.score, instructions.pass, tools.pass, codingSummary);
   lines.push(section("RECOMMENDATION"));
   lines.push(categoryRecommendation.label === "WEAK" ? fail(`${model} is ${categoryRecommendation.label}`) : ok(`${model} is ${categoryRecommendation.label}`));

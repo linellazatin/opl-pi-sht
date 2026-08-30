@@ -79,7 +79,7 @@ Use this in sensitive environments. The terminal summary still reports category 
 
 ### Research artifact in `--test-all`
 
-`--test-all` runs a benchmark-local agent workflow after coding-lite. It offers `web_search`, `read_skill`, and restricted `write_file` tools, then verifies `research.md` source URLs and minimalist `page.html` structure. `web_search` uses `researchSearchProvider` and `researchSearchUrl` from `opl-simplebench.json`: DDGS calls `/search/text`; SearXNG calls `/search`. This is benchmark-local tool evidence, not an invocation of the separately installed `opl-webaccess` extension or the Pi skill runtime. `STRONG` requires search, minimalist guidance read, cited Markdown, and HTML passing the semantic/viewport/no-gradient/no-heavy-shadow rubric.
+`--test-all` runs a benchmark-local agent workflow after coding-lite. Its prompt requires the model to call `web_search`, call `read_skill` for minimalist UI guidance, write `research.md` with a concise synthesis and a `## Sources` section linking returned URLs, and write a responsive editorial `page.html`. The HTML must use semantic `<main>` content and viewport metadata, with restrained colors and readable type, no gradients, and no heavy shadows. `web_search` uses `researchSearchProvider` and `researchSearchUrl` from `opl-simplebench.json`: DDGS calls `/search/text`; SearXNG calls `/search`. This is benchmark-local tool evidence, not an invocation of the separately installed `opl-webaccess` extension or the Pi skill runtime. `STRONG` requires every tool/file/citation/rubric check.
 
 ### Inspect a result
 
