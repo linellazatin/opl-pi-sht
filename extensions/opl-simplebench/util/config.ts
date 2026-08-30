@@ -66,8 +66,9 @@ export const CONFIG = {
 // User Configuration Overrides
 // ============================================================================
 
-const TEST_CONFIG_DIR = path.join(os.homedir(), ".pi", "agent");
-export const TEST_CONFIG_PATH = path.join(TEST_CONFIG_DIR, "simplebench-config.json");
+const TEST_CONFIG_DIR = process.env.PI_AGENT_DIR || path.join(os.homedir(), ".pi", "agent");
+export const TEST_CONFIG_PATH = path.join(TEST_CONFIG_DIR, "configs", "opl-simplebench.json");
+const LEGACY_TEST_CONFIG_PATH = path.join(TEST_CONFIG_DIR, "simplebench-config.json");
 
 /** Shape of the user configuration file. */
 export interface ModelTestUserConfig {
@@ -80,6 +81,11 @@ export interface ModelTestUserConfig {
   providerTimeoutMs?: number;
   providerToolTimeoutMs?: number;
   contextBatchSize?: number;
+  researchSearchProvider?: "ddgs" | "searxng";
+  researchSearchUrl?: string;
+  researchMaxResults?: number;
+  llamaServerUrl?: string;
+  llamagputopUrl?: string;
 }
 
 /**
@@ -88,10 +94,8 @@ export interface ModelTestUserConfig {
  */
 export function readTestConfig(): ModelTestUserConfig {
   try {
-    if (fs.existsSync(TEST_CONFIG_PATH)) {
-      const raw = fs.readFileSync(TEST_CONFIG_PATH, "utf-8");
-      return JSON.parse(raw) as ModelTestUserConfig;
-    }
+    const configPath = fs.existsSync(TEST_CONFIG_PATH) ? TEST_CONFIG_PATH : LEGACY_TEST_CONFIG_PATH;
+    if (fs.existsSync(configPath)) return JSON.parse(fs.readFileSync(configPath, "utf-8")) as ModelTestUserConfig;
   } catch { /* config read/parse failure is non-critical — defaults are used */ }
   return {};
 }

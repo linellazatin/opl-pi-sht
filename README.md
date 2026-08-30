@@ -11,7 +11,7 @@ A portable collection of various Pi coding agent extensions. Repository director
 Install a versioned GitHub release with Pi:
 
 ```bash
-pi install git:github.com/linellazatin/opl-pi-sht@v0.1.8
+pi install git:github.com/linellazatin/opl-pi-sht@v0.1.9
 ```
 
 Pi installs the package under `~/.pi/agent/git/github.com/linellazatin/opl-pi-sht` and runs root `npm install`, so `opl-webaccess` and `opl-browser` runtime dependencies are available. Pi packages do not install optional extension config files; copy only the configs you need from that checkout to `~/.pi/agent/configs/`.
@@ -42,7 +42,7 @@ Copy mode overwrites matching destinations. Link mode skips existing destination
 | Extension                                                     | Summary                                                                                                                                                                                                                      | Commands, tools, and configuration                                                                             |
 | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | [`opl-init`](extensions/opl-init/README.md)                   | Fingerprinted repository-guide generator.                                                                                                                                                                                    | `/init`; no config.                                                                                            |
-| [`opl-simplebench`](extensions/opl-simplebench/README.md)     | Auditable provider-aware model benchmark with JSON artifacts and metrics.                                                                                                                                                    | `/simplebench`, `simplebench`; supports Ollama, OpenAI-compatible providers, and Bedrock; no dedicated config. |
+| [`opl-simplebench`](extensions/opl-simplebench/README.md)     | Auditable provider-aware model benchmark with JSON artifacts and metrics.                                                                                                                                                    | `/simplebench`, `simplebench`; supports Ollama, OpenAI-compatible providers, and Bedrock; optional `opl-simplebench.json`. |
 | [`opl-webaccess`](extensions/opl-webaccess/README.md)         | Search plus readable URL/PDF retrieval with session recovery.                                                                                                                                                                | `web_search`, `fetch_content`, `get_search_content`; `opl-webaccess.json`.                                     |
 | [`opl-browser`](extensions/opl-browser/README.md)             | Chromium automation via Playwright; single dispatcher tool replacing the chrome-devtools MCP.                                                                                                                                | `browser` (action-based); `opl-browser.json`.                                                                  |
 | [`opl-ctxtrim`](extensions/opl-ctxtrim/README.md)             | Trims verbose`ctx_*` tool-schema descriptions on outbound provider requests (~67% smaller schema, ~4,700-6,300 tokens/request). Built specifically for the [context-mode](https://github.com/mksglu/context-mode) extension. | No commands/tools; no config.                                                                                  |
@@ -156,6 +156,7 @@ Copy applicable files from [`configs/`](configs/) to `~/.pi/agent/configs/`. For
 
 - `opl-footer.json`, `opl-input.json`, `opl-modes.json`, `opl-todo.json`, `opl-webaccess.json`
 - `opl-browser` has optional configuration (`opl-browser.json`); all fields default, so it works without any config file.
+- `opl-simplebench` has optional `opl-simplebench.json`; copy `configs/opl-simplebench.json.sample` to configure DDGS/SearXNG research and llama metadata endpoints.
 - `opl-init` and `opl-questionnaire` have no external configuration.
 - Config files must be valid JSON, with no comments or trailing commas beyond deliberate `_comment` keys.
 - `opl-modes` owns active-mode appearance. Each mode's `appearance.prefix`, `prefixColor`, and `borderColor` style `opl-input`; `appearance.modeColor` styles `opl-footer`'s unified mode label. Renderers retain hardcoded fallbacks.
@@ -179,7 +180,7 @@ npx playwright install chromium
 
 A Pi Git package still needs the one-time `npx playwright install chromium` command shown above.
 
-`opl-simplebench` writes a full JSON benchmark artifact in Pi's current working directory by default. Use `/simplebench --no-artifact` or `simplebench({ no_artifact: true })` when responses must not be written to disk. Provider credentials remain outside tracked configuration; configure them through Pi provider settings, environment variables, or Pi authentication.
+`opl-simplebench` writes a full JSON benchmark artifact in Pi's current working directory by default. `--test-all` additionally writes `research.md` and `page.html` beside `result.json` in a result bundle. Copy `configs/opl-simplebench.json.sample` to `~/.pi/agent/configs/opl-simplebench.json` to configure DDGS/SearXNG research and optional llama-server/llamagputop metadata endpoints. Use `/simplebench --no-artifact` or `simplebench({ no_artifact: true })` when responses must not be written to disk. Provider credentials remain outside tracked configuration; configure them through Pi provider settings, environment variables, or Pi authentication.
 
 ## Tests
 

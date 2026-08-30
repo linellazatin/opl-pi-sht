@@ -9,6 +9,21 @@ export function artifactFileName(model: string, suite: "baseline" | "coding-lite
   return `simplebench--${suiteName}-${safeModel}-${thinking}-${stamp}.json`;
 }
 
+export function writeArtifactBundle(artifact: RunArtifact, files: Record<string, string>): string {
+  const name = artifactFileName(artifact.benchmark.model, artifact.benchmark.suite || "baseline", artifact.benchmark.thinking.requested).replace(/\.json$/, "");
+  for (let suffix = 0; ; suffix += 1) {
+    const output = path.resolve(process.cwd(), suffix ? `${name}-${suffix}` : name);
+    try {
+      fs.mkdirSync(output);
+      fs.writeFileSync(path.join(output, "result.json"), JSON.stringify(artifact, null, 2) + "\n", "utf8");
+      for (const [file, content] of Object.entries(files)) fs.writeFileSync(path.join(output, path.basename(file)), content, "utf8");
+      return output;
+    } catch (error: any) {
+      if (error?.code !== "EEXIST") throw error;
+    }
+  }
+}
+
 export function writeArtifact(artifact: RunArtifact): string {
   const name = artifactFileName(artifact.benchmark.model, artifact.benchmark.suite || "baseline", artifact.benchmark.thinking.requested);
   const extension = path.extname(name);

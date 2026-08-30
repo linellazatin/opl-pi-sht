@@ -7,7 +7,7 @@ import { createBenchmark } from "./benchmark";
 
 export function parseCommandArgs(args: string): SimplebenchOptions {
   const tokens = args.trim().split(/\s+/).filter(Boolean);
-  return { model: tokens.find(token => !token.startsWith("--")), allModels: tokens.includes("--all"), writeArtifact: !tokens.includes("--no-artifact"), thinkingMax: tokens.includes("--thinking-max"), codingLite: tokens.includes("--coding-lite"), testAll: tokens.includes("--test-all") };
+  return { model: tokens.find(token => !token.startsWith("--")), allModels: tokens.includes("--all"), writeArtifact: !tokens.includes("--no-artifact"), thinkingMax: tokens.includes("--thinking-max"), codingLite: tokens.includes("--coding-lite"), testAll: tokens.includes("--test-all"), llamaServer: tokens.includes("--llama-server"), llamagputop: tokens.includes("--llamagputop") };
 }
 
 export default function (pi: ExtensionAPI) {
@@ -16,7 +16,7 @@ export default function (pi: ExtensionAPI) {
 
 pi.registerCommand("simplebench", {
   description: "Benchmark a model with auditable reasoning, instruction, and tool-use tests.",
-  detailedHelp: "\n\n🔍 Simplebench Extension\n\nThis extension tests AI models across multiple dimensions:\n• Reasoning: 20 diverse puzzles (logic, math, spatial, commonsense)\n• Tool Usage: Ability to use available tools effectively\n• Instruction Following: How well the model follows complex JSON instructions\n• Coding Lite: Six isolated, execution-backed coding tasks\n\n📋 Usage Examples:\n  /simplebench                    # Test current model\n  /simplebench <model>           # Test a specific model\n  /simplebench --all             # Test all Ollama models\n  /simplebench <model> --coding-lite # Run only coding tasks\n  /simplebench <model> --test-all # Run baseline plus coding tasks\n  /simplebench --all --test-all  # Run complete suite for every Ollama model\n  /simplebench <model> --thinking-max # Request max reasoning\n  /simplebench --help            # Show this help\n  /simplebench --clear-cache     # Clear tool support cache\n\nCoding tasks run in disposable directories and never access the user repository.\n",
+  detailedHelp: "\n\n🔍 Simplebench Extension\n\nThis extension tests AI models across multiple dimensions:\n• Reasoning: 20 diverse puzzles (logic, math, spatial, commonsense)\n• Tool Usage: Ability to use available tools effectively\n• Instruction Following: How well the model follows complex JSON instructions\n• Coding Lite: Six isolated, execution-backed coding tasks\n\n📋 Usage Examples:\n  /simplebench                    # Test current model\n  /simplebench <model>           # Test a specific model\n  /simplebench --all             # Test all Ollama models\n  /simplebench <model> --coding-lite # Run only coding tasks\n  /simplebench <model> --test-all # Run baseline plus coding tasks\n  /simplebench --all --test-all  # Run complete suite for every Ollama model\n  /simplebench <model> --thinking-max # Request max reasoning\n  /simplebench <model> --llama-server # Capture configured /props and /metrics\n  /simplebench <model> --llamagputop # Capture configured llama.cpp stats\n  /simplebench --help            # Show this help\n  /simplebench --clear-cache     # Clear tool support cache\n\nCoding tasks run in disposable directories and never access the user repository.\n",
   getArgumentCompletions: async (prefix) => {
     try {
       const models = await getOllamaModels();
@@ -37,7 +37,7 @@ pi.registerCommand("simplebench", {
       ctx.ui.notify(
         "🔍 Simplebench Extension\n\n" +
         "📋 Usage:\n" +
-        "  /simplebench [model] [--no-artifact] [--thinking-max] - Test current or specific model\n" +
+        "  /simplebench [model] [--no-artifact] [--thinking-max] [--llama-server] - Test current or specific model\n" +
         "  /simplebench [model] --coding-lite - Run coding tasks only\n" +
         "  /simplebench [model] --test-all - Run baseline plus coding tasks\n" +
         "  /simplebench --all --test-all - Run complete suite for all Ollama models\n" +
@@ -145,11 +145,13 @@ pi.registerTool({
       thinking_max: { type: "boolean", description: "Request maximum reasoning on an OpenAI-compatible provider or a direct Bedrock model that advertises max thinking. Omit to use provider defaults." },
       coding_lite: { type: "boolean", description: "Run only the six execution-backed coding tasks in disposable directories." },
       test_all: { type: "boolean", description: "Run the existing baseline tests plus coding-lite." },
+      llama_server: { type: "boolean", description: "Capture /props and /metrics from configured llamaServerUrl. Inference routing is unchanged." },
+      llamagputop: { type: "boolean", description: "Capture configured llamagputopUrl /stats. The declared endpoint is authoritative; no Pi model match is required." },
     },
   } as any,
   execute: async (_toolCallId, _params, _signal, _onUpdate, ctx) => {
     const params = _params as any;
-    const options: SimplebenchOptions = { model: params?.model as string | undefined, allModels: false, writeArtifact: params?.no_artifact !== true, thinkingMax: params?.thinking_max === true, codingLite: params?.coding_lite === true, testAll: params?.test_all === true };
+    const options: SimplebenchOptions = { model: params?.model as string | undefined, allModels: false, writeArtifact: params?.no_artifact !== true, thinkingMax: params?.thinking_max === true, codingLite: params?.coding_lite === true, testAll: params?.test_all === true, llamaServer: params?.llama_server === true, llamagputop: params?.llamagputop === true };
     const model = options.model || ctx.model?.id;
     if (!model) {
       return {

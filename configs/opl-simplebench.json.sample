@@ -1,0 +1,8 @@
+{
+  "_comment": "Copy to ~/.pi/agent/configs/opl-simplebench.json. Endpoints are optional and only used by their corresponding Simplebench flags.",
+  "researchSearchProvider": "ddgs",
+  "researchSearchUrl": "http://127.0.0.1:8000",
+  "researchMaxResults": 5,
+  "llamaServerUrl": "http://127.0.0.1:8080/v1",
+  "llamagputopUrl": "http://127.0.0.1:4321/stats"
+}
