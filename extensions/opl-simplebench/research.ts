@@ -55,14 +55,14 @@ export interface ResearchArtifactResult {
   metrics: RequestMetrics;
 }
 
-const MINIMALIST_UI_SKILL = "Use semantic HTML, a restrained palette, readable typography, no gradients, and no heavy shadows.";
+const MINIMALIST_UI_SKILL = "Use semantic HTML, a restrained palette, readable typography, no gradients, and no heavy shadows. Do not use any CSS box-shadow declaration.";
 export const RESEARCH_TASK_PROMPT = `Research benefits of urban trees with the provided tools.
 
 You MUST:
 1. Call web_search for real sources before writing.
 2. Call read_skill and apply its minimalist UI guidance to page.html.
 3. Write research.md with a concise synthesis and a ## Sources section containing Markdown links to returned source URLs.
-4. Write page.html as a minimal, responsive editorial page: semantic HTML with <main>, a viewport meta tag, restrained colors, readable type, no gradients, and no heavy shadows.
+4. Write page.html as a minimal, responsive editorial page: semantic HTML with <main>, a viewport meta tag, restrained colors, readable type, no gradients, and no heavy shadows. Do not use any CSS box-shadow declaration.
 Do not answer only in chat: create both files.`;
 export const GROUNDED_RESEARCH_TASK_PROMPT = `Research benefits of urban trees with the provided tools.
 
@@ -70,7 +70,7 @@ You MUST:
 1. Call web_search and use only its source cards.
 2. Call read_skill and apply its minimalist UI guidance to page.html.
 3. Write research.md with a ## Findings section containing every provided required fact as a Markdown bullet followed by its inline source ID, such as [S1]. Under ## Sources, use exactly - [S1](https://research.fixture/S1) for S1 and the equivalent Markdown-link syntax for each cited source.
-4. Write page.html as a minimal, responsive editorial page: semantic HTML with <main>, a viewport meta tag, restrained colors, readable type, no gradients, and no heavy shadows.
+4. Write page.html as a minimal, responsive editorial page: semantic HTML with <main>, a viewport meta tag, restrained colors, readable type, no gradients, and no heavy shadows. Do not use any CSS box-shadow declaration.
 Do not answer only in chat: create both files.`;
 const RESEARCH_TOOLS = [
   { type: "function", function: { name: "web_search", description: "Search the web for sources.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
