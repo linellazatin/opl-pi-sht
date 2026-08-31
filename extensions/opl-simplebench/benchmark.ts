@@ -9,7 +9,7 @@ import { writeArtifact, writeArtifactBundle } from "./artifact";
 import { aggregateMetrics, emptyMetrics, mergeRequestMetrics, metricsFromChat } from "./metrics";
 import { REASONING_TESTS, MULTISTEP_INSTRUCTION, CALC_TOOL_DEFINITION } from "./tests";
 import { CODING_LITE_TASKS, runCodingTask } from "./coding";
-import { runResearchArtifactTask, searchConfiguredResearch } from "./research";
+import { runGroundedResearchTask, runResearchArtifactTask, searchConfiguredResearch } from "./research";
 import { scoreReasoning, averageScore } from "./scoring";
 import { applyLlamagputop, applyLlamagputopModelStats, buildServerStats, fetchLlamaServerMetrics, fetchLlamaServerProps, fetchLlamagputopHealth, fetchLlamagputopStats, type ServerStats } from "./llama-server";
 import type { SimplebenchOptions, TestRecord } from "./types";
@@ -41,6 +41,19 @@ export function resolveThinkingMode(providerInfo: { kind: string; apiMode?: stri
     return { requested: "max", effective: "pi-bedrock-reasoning", level: "max" };
   }
   throw new Error("--thinking-max is supported only for OpenAI-compatible and direct Bedrock models");
+}
+
+export function isValidInstructionOutput(output: string): boolean {
+  try {
+    const parsed = JSON.parse(output.trim());
+    return !!parsed && !Array.isArray(parsed) && typeof parsed === "object"
+      && Object.keys(parsed).length === 3
+      && parsed.operation === "status"
+      && parsed.requestId === "bench-42"
+      && parsed.ok === true;
+  } catch {
+    return false;
+  }
 }
 
 export function openAiThinkingOptions(thinkingMax: boolean): Record<string, string> {
@@ -559,12 +572,9 @@ async function testInstructionFollowingExtended(chatFn: ChatFn, model: string): 
   try {
     const result = await chatFn(model, [{ role: "user", content: MULTISTEP_INSTRUCTION }]);
     const metrics = metricsFromChat({ ...result, startedAt: result.startedAt ?? new Date(start).toISOString(), finishedAt: result.finishedAt ?? new Date().toISOString() });
-    const cleaned = result.content.trim().replace(/```json?\s*/gi, "").replace(/```/g, "").trim();
-    const parsed = JSON.parse(cleaned);
-    const schemaValid = !!(parsed.name && parsed.can_count === true && parsed.sum === 42 && parsed.language && parsed.colors?.length === 3 && parsed.timestamp);
-    if (schemaValid) return { pass: true, score: "STRONG", output: JSON.stringify(parsed), schemaValid, elapsedMs: Date.now() - start, metrics };
-    if (parsed.name && parsed.sum === 42) return { pass: true, score: "MODERATE", output: JSON.stringify(parsed), schemaValid: false, elapsedMs: Date.now() - start, metrics };
-    return { pass: false, score: "WEAK", output: JSON.stringify(parsed), schemaValid: false, elapsedMs: Date.now() - start, metrics };
+    const output = result.content.trim();
+    const schemaValid = isValidInstructionOutput(output);
+    return { pass: schemaValid, score: schemaValid ? "STRONG" : "FAIL", output, schemaValid, elapsedMs: Date.now() - start, metrics };
   } catch (e: any) {
     return { pass: false, score: "FAIL", output: e.message, schemaValid: false, elapsedMs: Date.now() - start, metrics: emptyMetrics() };
   }
@@ -590,8 +600,7 @@ async function testToolUsageExtended(chatFn: ChatFn, model: string, useToolResul
     const validCalc = results.some(r => r.name === "calculate" && r.result === "360");
     if (!calls.length) return { pass: false, score: "FAIL", toolCalls: toolNames, response: first.content, elapsedMs: Date.now() - started, metrics: metricsFromChat(first) };
     if (!useToolResultMessages) {
-      const score = validWeather && validCalc ? "STRONG" : validWeather || validCalc ? "MODERATE" : "WEAK";
-      return { pass: true, score, toolCalls: toolNames, response: first.content, elapsedMs: Date.now() - started, metrics: metricsFromChat(first) };
+      return { pass: false, score: "FAIL", toolCalls: toolNames, response: first.content, elapsedMs: Date.now() - started, metrics: metricsFromChat(first) };
     }
     const followup = await chatFn(model, buildToolContinuationMessages(initialMessages, first.content, calls, results.map(result => result.result)), { tools });
     const finalText = `${followup.content || ""}`.toLowerCase();
@@ -726,6 +735,7 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   // Progress notification helper — safe to call even without a TUI context
   const progress = (msg: string) => ctx?.ui?.notify?.(msg, "info");
   let codingSummary: Awaited<ReturnType<typeof testCodingLite>> | null = null;
+  let researchGrounded: Awaited<ReturnType<typeof runGroundedResearchTask>> | null = null;
   let researchArtifact: Awaited<ReturnType<typeof runResearchArtifactTask>> | null = null;
 
   if (options.codingLite || options.testAll) {
@@ -755,15 +765,21 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   }
 
   if (options.testAll) {
-    lines.push(section("RESEARCH ARTIFACT TEST"));
-    lines.push(info("Testing benchmark-local web research, minimalist UI guidance, and file artifacts..."));
-    researchArtifact = await runResearchArtifactTask(toolChatFn, model, { search: query => searchConfiguredResearch(query, benchConfig), onProgress: message => progress(`[1/1] research-artifact: ${message.slice("research-artifact: ".length)}`) });
-    lines.push(researchArtifact.passed ? ok(`Research artifact: ${researchArtifact.score}`) : fail(`Research artifact: ${researchArtifact.score} (${researchArtifact.error})`));
+    lines.push(section("GROUNDED RESEARCH TEST"));
+    lines.push(info("Testing fixed source cards, claim citations, minimalist UI guidance, and file artifacts..."));
+    researchGrounded = await runGroundedResearchTask(toolChatFn, model, { onProgress: message => progress(`[1/1] ${message}`) });
+    lines.push(researchGrounded.passed ? ok(`Grounded research: ${researchGrounded.score}`) : fail(`Grounded research: ${researchGrounded.score} (${researchGrounded.error})`));
+  }
+  if (options.researchLive) {
+    lines.push(section("LIVE RESEARCH SMOKE TEST"));
+    lines.push(info("Testing configured live search and artifact workflow; this does not affect recommendation..."));
+    researchArtifact = await runResearchArtifactTask(toolChatFn, model, { search: query => searchConfiguredResearch(query, benchConfig), onProgress: message => progress(`[live] ${message}`) });
+    lines.push(researchArtifact.passed ? ok(`Live research: ${researchArtifact.score}`) : fail(`Live research: ${researchArtifact.score} (${researchArtifact.error})`));
   }
 
-  // 1. Extended Reasoning test
-  lines.push(section("REASONING TEST (EXTENDED)"));
-  lines.push(info(`Testing ${REASONING_TESTS.length} reasoning puzzles...`));
+  // 1. Closed-answer contract test
+  lines.push(section("CLOSED-ANSWER CONTRACT TEST"));
+  lines.push(info(`Testing ${REASONING_TESTS.length} deterministic answer and final-line contracts...`));
   const reasoning = await testReasoningExtended(chatFn, model, progress);
 
   for (const r of reasoning.results) {
@@ -771,7 +787,7 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
     const scoreLabel = r.score === "STRONG" ? ok : r.score === "MODERATE" ? warn : r.score === "WEAK" ? warn : fail;
     lines.push(scoreLabel(`${passMark} ${r.name} (${r.category}): ${r.score} - expected "${r.expectedAnswer}", got "${r.answer}"${r.details ? ` [${r.details}]` : ""}`));
   }
-  lines.push(ok(`Average score: ${reasoning.score}`));
+  lines.push(ok(`Closed-answer contract score: ${reasoning.score}`));
 
   // 2. Extended Instruction Following test
   progress("[2/3] Instruction following test...");
@@ -799,14 +815,15 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   artifactTests.push({ id: "instruction_following", kind: "instructions", prompt: MULTISTEP_INSTRUCTION, response: instructions.output, score: instructions.score, passed: instructions.pass, error: instructions.score === "FAIL" ? instructions.output : null, metrics: instructions.metrics });
   artifactTests.push({ id: "tool_usage", kind: "tools", prompt: "What's weather in Tokyo and calculate 15*24?", response: tools.response, score: tools.score, passed: tools.pass, error: tools.score === "ERROR" ? tools.response : null, metrics: tools.metrics });
   artifactTests.push(...(codingSummary ? codingTestRecords(codingSummary) : []));
-  if (researchArtifact) artifactTests.push({ id: researchArtifact.id, kind: "research", category: "research-artifact", prompt: "Research benefits of urban trees and write research.md and page.html.", response: null, score: researchArtifact.score, passed: researchArtifact.passed, error: researchArtifact.error, metrics: researchArtifact.metrics, research: { toolCalls: researchArtifact.toolCalls, files: Object.keys(researchArtifact.files) } });
+  if (researchGrounded) artifactTests.push({ id: researchGrounded.id, kind: "research-grounded", category: "research-grounded", prompt: "Research supplied urban-tree source cards and cite each required claim.", response: null, score: researchGrounded.score, passed: researchGrounded.passed, error: researchGrounded.error, metrics: researchGrounded.metrics, research: { toolCalls: researchGrounded.toolCalls, files: Object.keys(researchGrounded.files) } });
+  if (researchArtifact) artifactTests.push({ id: researchArtifact.id, kind: "research-live", category: "research-live", prompt: "Research benefits of urban trees and write research.md and page.html.", response: null, score: researchArtifact.score, passed: researchArtifact.passed, error: researchArtifact.error, metrics: researchArtifact.metrics, research: { toolCalls: researchArtifact.toolCalls, files: Object.keys(researchArtifact.files) } });
   const aggregate = aggregateMetrics(artifactTests.filter(test => test.kind !== "coding"));
   let artifactPath: string | null = null;
   const serverStats = await captureServerStats();
   if (options.writeArtifact) {
     try {
-      const artifact = { schemaVersion: 1 as const, benchmark: { name: "opl-simplebench" as const, suite, model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: artifactTests, summary: { reasoning: { score: reasoning.score, passed: reasoning.results.filter(r => r.pass).length, total: reasoning.results.length }, instructions: instructions.score, tools: tools.score, ...(codingSummary ? { coding: { passed: codingSummary.passed, total: codingSummary.total, efficiency: { strong: codingSummary.results.filter(r => r.efficiency === "STRONG").length, moderate: codingSummary.results.filter(r => r.efficiency === "MODERATE").length, weak: codingSummary.results.filter(r => r.efficiency === "WEAK").length, fail: codingSummary.results.filter(r => r.efficiency === "FAIL").length } } } : {}), metrics: aggregate, ...(serverStats ? { serverStats } : {}) } };
-      artifactPath = researchArtifact ? writeArtifactBundle(artifact, researchArtifact.files) : writeArtifact(artifact);
+      const artifact = { schemaVersion: 1 as const, benchmark: { name: "opl-simplebench" as const, suite, model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: artifactTests, summary: { reasoning: { score: reasoning.score, passed: reasoning.results.filter(r => r.pass).length, total: reasoning.results.length }, instructions: instructions.score, tools: tools.score, ...(codingSummary ? { coding: { passed: codingSummary.passed, total: codingSummary.total, efficiency: { strong: codingSummary.results.filter(r => r.efficiency === "STRONG").length, moderate: codingSummary.results.filter(r => r.efficiency === "MODERATE").length, weak: codingSummary.results.filter(r => r.efficiency === "WEAK").length, fail: codingSummary.results.filter(r => r.efficiency === "FAIL").length } } } : {}), ...(researchGrounded ? { researchGrounded: researchGrounded.score } : {}), ...(researchArtifact ? { researchLive: researchArtifact.score } : {}), metrics: aggregate, ...(serverStats ? { serverStats } : {}) } };
+      artifactPath = researchGrounded ? writeArtifactBundle(artifact, researchGrounded.files) : writeArtifact(artifact);
     } catch (e: any) { lines.push(warn(`Artifact could not be written: ${e?.message || e}`)); }
   }
   
@@ -818,16 +835,17 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   const totalTests = reasoningTotal + 1 + 1;
   
   const summaryTests = [
-    { name: "Reasoning", pass: reasoning.score === "STRONG" || reasoning.score === "MODERATE", score: reasoning.score },
+    { name: "Closed-answer contract", pass: reasoning.score === "STRONG" || reasoning.score === "MODERATE", score: reasoning.score },
     { name: "Instructions", pass: instructions.pass, score: instructions.score },
     { name: "Tool Usage", pass: tools.pass, score: tools.score },
     ...(codingSummary ? [{ name: "Coding Lite", pass: codingSummary.passed >= Math.ceil(codingSummary.total / 2), score: `${codingSummary.passed}/${codingSummary.total} (${codingSummary.results.filter(r => r.efficiency === "STRONG").length}× STRONG)` }] : []),
-    ...(researchArtifact ? [{ name: "Research Artifact", pass: researchArtifact.passed, score: researchArtifact.score }] : []),
+    ...(researchGrounded ? [{ name: "Grounded Research", pass: researchGrounded.passed, score: researchGrounded.score }] : []),
+    ...(researchArtifact ? [{ name: "Live Research", pass: researchArtifact.passed, score: researchArtifact.score }] : []),
   ];
   lines.push(...formatTestSummary(summaryTests, totalMs));
   
   lines.push("");
-  lines.push(info(`Detailed: Reasoning ${reasoningPassed}/${reasoningTotal} tests passed, Instructions ${instructionPassed}/1, Tool Usage ${toolPassed}/1${codingSummary ? `, Coding Lite ${codingSummary.passed}/${codingSummary.total}` : ""}${researchArtifact ? `, Research Artifact ${researchArtifact.score}` : ""}`));
+  lines.push(info(`Detailed: Closed-answer contract ${reasoningPassed}/${reasoningTotal} tests passed, Instructions ${instructionPassed}/1, Tool Usage ${toolPassed}/1${codingSummary ? `, Coding Lite ${codingSummary.passed}/${codingSummary.total}` : ""}${researchGrounded ? `, Grounded Research ${researchGrounded.score}` : ""}${researchArtifact ? `, Live Research ${researchArtifact.score}` : ""}`));
   const categoryRecommendation = recommendation(reasoning.score, instructions.pass, tools.pass, codingSummary ? { ...codingSummary, efficiency: { strong: codingSummary.results.filter(r => r.efficiency === "STRONG").length, moderate: codingSummary.results.filter(r => r.efficiency === "MODERATE").length, weak: codingSummary.results.filter(r => r.efficiency === "WEAK").length, fail: codingSummary.results.filter(r => r.efficiency === "FAIL").length } } : undefined);
   lines.push(section("RECOMMENDATION"));
   lines.push(categoryRecommendation.label === "WEAK" ? fail(`${model} is ${categoryRecommendation.label}`) : ok(`${model} is ${categoryRecommendation.label}`));

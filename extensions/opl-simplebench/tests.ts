@@ -1,58 +1,39 @@
 export interface ReasoningFixture {
   name: string;
   prompt: string;
-  expectedAnswer: string | string[];
+  expectedAnswer: string;
   category: string;
 }
 
+const finalAnswer = "Reason as needed. Put only the exact answer on your final line.";
+
 export const REASONING_TESTS: ReasoningFixture[] = [
-    // Original tests
-    { name: "snail_wall", prompt: "A snail climbs 3 feet up a wall each day, but slides back 2 feet each night. The wall is 10 feet tall. How many days does it take the snail to reach the top? Think step by step. ANSWER: <number>", expectedAnswer: "8", category: "logic" },
-    { name: "math_sequence", prompt: "What is the next number in this sequence: 2, 6, 18, 54, ? Think step by step. ANSWER: <number>", expectedAnswer: "162", category: "math" },
-    { name: "spatial_directions", prompt: "If you face north, turn 90 degrees clockwise, then turn 180 degrees counter-clockwise without changing your position, which direction are you facing? ANSWER: <direction>", expectedAnswer: "west", category: "spatial" },
-    { name: "commonsense", prompt: "Can a rooster lay an egg? Answer yes or no. ANSWER: <yes-or-no>", expectedAnswer: "no", category: "commonsense" },
-    { name: "code_simplify", prompt: "What value will x have after this code runs: let x = 0; for(let i=1; i<=5; i++) x += i; ANSWER: <number>", expectedAnswer: "15", category: "code" },
-    // Phase 2: Counter-intuitive reasoning
-    { name: "bat_and_ball", prompt: "A bat and a ball cost $1.10 total. The bat costs $1 more than the ball. How much does the ball cost? Think step by step. ANSWER: <number> cents", expectedAnswer: "5", category: "counterint" },
-    { name: "scale_weight", prompt: "A scale weight is 100g. A similar scale weight is 4 times as heavy. How much does the second one weigh? Answer in grams. ANSWER: <number>", expectedAnswer: "400", category: "counterint" },
-    // Phase 2: Logical deduction
-    { name: "syllogism", prompt: "All mammals are warm-blooded. All dogs are mammals. Therefore, what can we conclude about dogs? Answer with the conclusion. ANSWER: <conclusion>", expectedAnswer: "warm-blooded", category: "logic" },
-    { name: "if_then_chain", prompt: "If it rains, the ground gets wet. If the ground gets wet, the grass grows. It is raining. What happens? Think step by step. ANSWER: <outcome>", expectedAnswer: "grass grows", category: "logic" },
-    // Phase 2: Causal reasoning
-    { name: "cause_effect", prompt: "If you plant a seed in good soil with water and sunlight, what happens? Think about cause and effect. ANSWER: <outcome>", expectedAnswer: ["grows", "grow", "germinate"], category: "causal" },
-    // Phase 2: Comparative reasoning
-    { name: "relative_quantities", prompt: "Tom has 3 times as many apples as Sara. Sara has 5 apples. How many apples does Tom have? ANSWER: <number>", expectedAnswer: "15", category: "comparative" },
-    // Phase 2: Analogical reasoning
-    { name: "analogy_1", prompt: "Book is to Shelf as Chair is to what? Think about relationships. ANSWER: <container>", expectedAnswer: "room", category: "analogy" },
-    { name: "analogy_2", prompt: "Hand is to Glove as Foot is to what? ANSWER: <item>", expectedAnswer: ["boot", "sock", "shoe"], category: "analogy" },
-    // Phase 2: Common sense (physical properties)
-    { name: "physics_1", prompt: "Does a bowling ball or a tennis ball have more mass? ANSWER: <object>", expectedAnswer: "bowling ball", category: "commonsense" },
-    { name: "physics_2", prompt: "What happens to a metal spoon when heated? It usually becomes...? ANSWER: <state>", expectedAnswer: "hot", category: "commonsense" },
-    // Phase 2: Common sense (everyday objects)
-    { name: "objects_1", prompt: "What tool would you use to cut paper? ANSWER: <tool>", expectedAnswer: "scissors", category: "commonsense" },
-    // Phase 2: Common sense (social situations)
-    { name: "social_1", prompt: "If someone says 'please' and 'thank you', they are usually considered...? ANSWER: <trait>", expectedAnswer: "polite", category: "commonsense" },
-    // Phase 2: Common sense (animals/nature)
-    { name: "animals_1", prompt: "What do dolphins live in? ANSWER: <environment>", expectedAnswer: ["water", "ocean", "sea"], category: "commonsense" },
-    // Phase 2: General knowledge
-    { name: "gk_1", prompt: "Which planet is known as the Red Planet? ANSWER: <planet>", expectedAnswer: "mars", category: "commonsense" },
-    { name: "gk_2", prompt: "How many days are in a leap year? ANSWER: <number>", expectedAnswer: "366", category: "commonsense" },
-  ];
+  { name: "snail_wall", prompt: `A snail climbs 3 feet each day and slides 2 feet each night. The wall is 10 feet tall. How many days until it first reaches the top? ${finalAnswer}`, expectedAnswer: "8", category: "logic" },
+  { name: "math_sequence", prompt: `What is the next number: 2, 6, 18, 54, ? ${finalAnswer}`, expectedAnswer: "162", category: "math" },
+  { name: "spatial_directions", prompt: `Face north. Turn 90 degrees clockwise, then 180 degrees counter-clockwise. Which direction are you facing? ${finalAnswer}`, expectedAnswer: "west", category: "spatial" },
+  { name: "commonsense", prompt: `Can a rooster lay an egg? Answer yes or no. ${finalAnswer}`, expectedAnswer: "no", category: "commonsense" },
+  { name: "code_simplify", prompt: `What is x after: let x = 0; for (let i = 1; i <= 5; i++) x += i; ${finalAnswer}`, expectedAnswer: "15", category: "code" },
+  { name: "bat_and_ball", prompt: `A bat and ball cost 110 cents. The bat costs 100 cents more than the ball. How many cents does the ball cost? ${finalAnswer}`, expectedAnswer: "5", category: "counterint" },
+  { name: "scale_weight", prompt: `One weight is 100 grams. Another is four times as heavy. How many grams does the second weigh? ${finalAnswer}`, expectedAnswer: "400", category: "counterint" },
+  { name: "syllogism", prompt: `All mammals are warm-blooded. All dogs are mammals. What property do all dogs have? Answer exactly: warm-blooded. ${finalAnswer}`, expectedAnswer: "warm-blooded", category: "logic" },
+  { name: "if_then_chain", prompt: `If it rains, the ground gets wet. If the ground gets wet, grass grows. It is raining. What happens to the grass? Answer exactly: grass grows. ${finalAnswer}`, expectedAnswer: "grass grows", category: "logic" },
+  { name: "cause_effect", prompt: `A tomato plant produces 4 tomatoes each day for 3 days. How many tomatoes does it produce? ${finalAnswer}`, expectedAnswer: "12", category: "causal" },
+  { name: "relative_quantities", prompt: `Tom has three times as many apples as Sara. Sara has five apples. How many apples does Tom have? ${finalAnswer}`, expectedAnswer: "15", category: "comparative" },
+  { name: "analogy_1", prompt: `A book is placed on a shelf. A chair is placed on what surface? ${finalAnswer}`, expectedAnswer: "floor", category: "analogy" },
+  { name: "analogy_2", prompt: `3 is to 6 as 5 is to what number? ${finalAnswer}`, expectedAnswer: "10", category: "analogy" },
+  { name: "physics_1", prompt: `Which has more mass? Answer exactly: bowling ball or tennis ball. ${finalAnswer}`, expectedAnswer: "bowling ball", category: "commonsense" },
+  { name: "physics_2", prompt: `Compared with before heating, is a metal spoon hotter or colder after it is heated? ${finalAnswer}`, expectedAnswer: "hotter", category: "commonsense" },
+  { name: "objects_1", prompt: `What tool cuts paper? ${finalAnswer}`, expectedAnswer: "scissors", category: "commonsense" },
+  { name: "social_1", prompt: `Someone says please and thank you. Are they polite or rude? Answer polite or rude. ${finalAnswer}`, expectedAnswer: "polite", category: "commonsense" },
+  { name: "animals_1", prompt: `Dolphins live in water, not on land. Answer exactly: water or land. ${finalAnswer}`, expectedAnswer: "water", category: "commonsense" },
+  { name: "gk_1", prompt: `Which planet is known as the Red Planet? ${finalAnswer}`, expectedAnswer: "mars", category: "commonsense" },
+  { name: "gk_2", prompt: `How many days are in a leap year? ${finalAnswer}`, expectedAnswer: "366", category: "commonsense" },
+];
 
-
-export const MULTISTEP_INSTRUCTION = `You must respond with ONLY a valid JSON object. No markdown, no explanation.
-The JSON object must have exactly these keys:
-{
-  "name": "<your model name>",
-  "can_count": true,
-  "sum": 42,
-  "language": "English",
-  "colors": ["red", "blue", "green"],
-  "timestamp": "<current time in ISO format>"
-}
-Return only the JSON.`;
+export const MULTISTEP_INSTRUCTION = `Respond with only this JSON object, with no Markdown or explanation:
+{"operation":"status","requestId":"bench-42","ok":true}`;
 
 export const CALC_TOOL_DEFINITION = {
-    type: "function" as const,
-    function: { name: "calculate", description: "Perform a mathematical calculation", parameters: { type: "object", properties: { expression: { type: "string" } }, required: ["expression"] } },
-  };
+  type: "function" as const,
+  function: { name: "calculate", description: "Perform a mathematical calculation", parameters: { type: "object", properties: { expression: { type: "string" } }, required: ["expression"] } },
+};
