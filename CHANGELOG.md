@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.11] - 2026-08-31
+
+### Fixed
+- Research prompt hardening on css declaration
+- `cause_effect`, `relative_quantities`, `analogy_1`, `bat_and_ball`, `scale_weight`, and `commonsense` reasoning test prompts hardening for more deterministic response ask.
+
 ## [0.1.10] - 2026-08-30
 
 ### Changed
