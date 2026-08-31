@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.10] - 2026-08-30
+
+### Changed
+- **Closed-answer reasoning grading** evaluates only the normalized final non-empty response line. Prompts use one canonical answer; ambiguous alternatives and keyword-based “reasoning quality” scoring were removed.
+- **Instruction following** requires the exact deterministic JSON object, rejecting Markdown fences, extra keys, and incorrect values.
+- **Coding-lite completion** requires a passing public `run_tests` result after the final edit, in addition to hidden verification and allowed-file checks.
+- Tool-completion tests no longer pass providers that cannot continue after tool results.
+- **Research grading**: `--test-all` uses deterministic source cards and verifies exact inline claim citations. `--research-live` retains configured DDGS/SearXNG research as an integration smoke test that does not affect recommendation.
+- **Closed-answer fixtures and reporting** now use canonical tokens/noun phrases or explicit choices, avoid optional articles and unconstrained specificity, and label their strict result as a closed-answer contract rather than broad reasoning capability.
+
+### Fixed
+- `instruction_following` no longer strips Markdown fences before JSON parsing; the JSON-only contract rejects them.
+
 ## [0.1.9] - 2026-08-30
 
 ### Added

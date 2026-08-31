@@ -4,37 +4,38 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "bun:test";
 import { parseCommandArgs } from "../extensions/opl-simplebench/index";
-import { buildToolContinuationMessages, createBenchmark, hasOllamaAssistantOutput, openAiThinkingOptions, resolveBenchmarkModel, resolveThinkingMode } from "../extensions/opl-simplebench/benchmark";
+import { buildToolContinuationMessages, createBenchmark, hasOllamaAssistantOutput, isValidInstructionOutput, openAiThinkingOptions, resolveBenchmarkModel, resolveThinkingMode } from "../extensions/opl-simplebench/benchmark";
 import { artifactFileName, writeArtifact, writeArtifactBundle } from "../extensions/opl-simplebench/artifact";
-import { codingRecommendation, formatInstructionScore, recommendation } from "../extensions/opl-simplebench/report";
+import { codingRecommendation, formatInstructionScore, recommendation, renderSummary } from "../extensions/opl-simplebench/report";
 import { aggregateMetrics, mergeRequestMetrics, metricsFromChat, usageFromRaw, emptyMetrics } from "../extensions/opl-simplebench/metrics";
 import { scoreReasoning } from "../extensions/opl-simplebench/scoring";
 import { REASONING_TESTS, MULTISTEP_INSTRUCTION } from "../extensions/opl-simplebench/tests";
 import { CODING_LITE_TASKS, createCodingTaskDir, resolveCodingPath, runCodingTask, runCodingVerifier } from "../extensions/opl-simplebench/coding";
-import { RESEARCH_TASK_PROMPT, runResearchArtifactTask } from "../extensions/opl-simplebench/research";
+import { GROUNDED_RESEARCH_TASK_PROMPT, GROUNDED_URBAN_TREES_FIXTURE, isMinimalistResearchHtml, RESEARCH_TASK_PROMPT, runGroundedResearchTask, runResearchArtifactTask, verifyGroundedResearch } from "../extensions/opl-simplebench/research";
 import { applyLlamagputop, applyLlamagputopModelStats, buildServerStats, diffPrometheusMetrics, healthUrl, managementBaseUrl, normalizeLlamagputopStats, normalizeLlamaServerProps, parsePrometheusMetrics, statsUrl } from "../extensions/opl-simplebench/llama-server";
 
 test("parses artifact and thinking-max benchmark modes", () => {
   assert.deepEqual(parseCommandArgs("global.openai.gpt-5.6-terra --no-artifact"), {
-    model: "global.openai.gpt-5.6-terra", allModels: false, writeArtifact: false, thinkingMax: false, codingLite: false, testAll: false, llamaServer: false, llamagputop: false,
+    model: "global.openai.gpt-5.6-terra", allModels: false, writeArtifact: false, thinkingMax: false, codingLite: false, testAll: false, researchLive: false, llamaServer: false, llamagputop: false,
   });
   assert.deepEqual(parseCommandArgs("--all --no-artifact"), {
-    model: undefined, allModels: true, writeArtifact: false, thinkingMax: false, codingLite: false, testAll: false, llamaServer: false, llamagputop: false,
+    model: undefined, allModels: true, writeArtifact: false, thinkingMax: false, codingLite: false, testAll: false, researchLive: false, llamaServer: false, llamagputop: false,
   });
   assert.deepEqual(parseCommandArgs("global.openai.gpt-5.6-terra --thinking-max"), {
-    model: "global.openai.gpt-5.6-terra", allModels: false, writeArtifact: true, thinkingMax: true, codingLite: false, testAll: false, llamaServer: false, llamagputop: false,
+    model: "global.openai.gpt-5.6-terra", allModels: false, writeArtifact: true, thinkingMax: true, codingLite: false, testAll: false, researchLive: false, llamaServer: false, llamagputop: false,
   });
   assert.deepEqual(parseCommandArgs("global.openai.gpt-5.6-terra --coding-lite"), {
-    model: "global.openai.gpt-5.6-terra", allModels: false, writeArtifact: true, thinkingMax: false, codingLite: true, testAll: false, llamaServer: false, llamagputop: false,
+    model: "global.openai.gpt-5.6-terra", allModels: false, writeArtifact: true, thinkingMax: false, codingLite: true, testAll: false, researchLive: false, llamaServer: false, llamagputop: false,
   });
   assert.deepEqual(parseCommandArgs("--all --test-all"), {
-    model: undefined, allModels: true, writeArtifact: true, thinkingMax: false, codingLite: false, testAll: true, llamaServer: false, llamagputop: false,
+    model: undefined, allModels: true, writeArtifact: true, thinkingMax: false, codingLite: false, testAll: true, researchLive: false, llamaServer: false, llamagputop: false,
   });
 });
 
 test("parses boolean configured metadata modes", () => {
   assert.equal(parseCommandArgs("qwen --llama-server").llamaServer, true);
   assert.equal(parseCommandArgs("qwen --llamagputop").llamagputop, true);
+  assert.equal(parseCommandArgs("qwen --research-live").researchLive, true);
   assert.equal(parseCommandArgs("qwen").llamaServer, false);
 });
 
@@ -190,34 +191,68 @@ test("does not overwrite an artifact created within the same second", () => {
 
 test("keeps benchmark fixtures and extracted scorer available to the runner", () => {
   assert.equal(REASONING_TESTS.length, 20);
-  assert.match(MULTISTEP_INSTRUCTION, /valid JSON object/);
-  assert.deepEqual(scoreReasoning("The answer is 8 because the snail climbs.", "8"), {
-    answer: "8", extractionMethod: "expected-substring", matchedWords: ["because"], score: "STRONG", pass: true,
+  assert.match(MULTISTEP_INSTRUCTION, /only this JSON object/);
+  assert.deepEqual(scoreReasoning("The snail climbs.\n8", "8"), {
+    answer: "8", extractionMethod: "final-line", matchedWords: [], score: "STRONG", pass: true,
   });
 });
 
-test("uses the pass property consumed by the reasoning runner", () => {
-  assert.equal(scoreReasoning("The answer is 8 because it reaches the top.", "8").pass, true);
+test("requires the exact JSON-only instruction contract", () => {
+  assert.equal(isValidInstructionOutput('{"operation":"status","requestId":"bench-42","ok":true}'), true);
+  assert.equal(isValidInstructionOutput('```json\n{"operation":"status","requestId":"bench-42","ok":true}\n```'), false);
+  assert.equal(isValidInstructionOutput('{"operation":"status","requestId":"bench-42","ok":true,"extra":false}'), false);
+  assert.equal(isValidInstructionOutput('{"operation":"status","requestId":"other","ok":true}'), false);
 });
 
-test("uses unambiguous and alternate-valid reasoning fixtures", () => {
+test("uses the pass property consumed by the reasoning runner", () => {
+  assert.equal(scoreReasoning("It reaches the top.\n8", "8").pass, true);
+});
+
+test("scores only the final non-empty reasoning line", () => {
+  assert.equal(scoreReasoning("West is a possibility.\nSouth", "west").pass, false);
+  assert.equal(scoreReasoning("The answer is 8.\n7", "8").pass, false);
+  assert.equal(scoreReasoning("Working:\nWEST.", "west").pass, true);
+});
+
+test("uses closed-answer reasoning fixtures", () => {
   const rooster = REASONING_TESTS.find(test => test.name === "commonsense");
   const code = REASONING_TESTS.find(test => test.name === "code_simplify");
   const analogy = REASONING_TESTS.find(test => test.name === "analogy_2");
-  assert.match(rooster?.prompt ?? "", /Can a rooster lay an egg/);
+  const syllogism = REASONING_TESTS.find(test => test.name === "syllogism");
+  const social = REASONING_TESTS.find(test => test.name === "social_1");
+  const chain = REASONING_TESTS.find(test => test.name === "if_then_chain");
+  const bowlingBall = REASONING_TESTS.find(test => test.name === "physics_1");
+  const dolphins = REASONING_TESTS.find(test => test.name === "animals_1");
+  assert.match(rooster?.prompt ?? "", /exact answer on your final line/);
   assert.equal(rooster?.expectedAnswer, "no");
-  assert.match(code?.prompt ?? "", /value will x have/);
+  assert.match(code?.prompt ?? "", /exact answer on your final line/);
   assert.equal(code?.expectedAnswer, "15");
-  assert.deepEqual(analogy?.expectedAnswer, ["boot", "sock", "shoe"]);
-  assert.equal(scoreReasoning("ANSWER: Sock", analogy?.expectedAnswer ?? "").pass, true);
-  assert.equal(scoreReasoning("ANSWER: Shoe", analogy?.expectedAnswer ?? "").pass, true);
+  assert.equal(syllogism?.expectedAnswer, "warm-blooded");
+  assert.match(syllogism?.prompt ?? "", /Answer exactly: warm-blooded/i);
+  assert.equal(chain?.expectedAnswer, "grass grows");
+  assert.match(chain?.prompt ?? "", /Answer exactly: grass grows/i);
+  assert.equal(analogy?.expectedAnswer, "10");
+  assert.match(analogy?.prompt ?? "", /3 is to 6 as 5 is to/i);
+  assert.match(social?.prompt ?? "", /polite or rude/i);
+  assert.equal(bowlingBall?.expectedAnswer, "bowling ball");
+  assert.match(bowlingBall?.prompt ?? "", /Answer exactly: bowling ball or tennis ball/i);
+  assert.equal(dolphins?.expectedAnswer, "water");
+  assert.match(dolphins?.prompt ?? "", /Answer exactly: water or land/i);
+  assert.equal(scoreReasoning("Shoe", analogy?.expectedAnswer ?? "").pass, false);
   assert.equal(scoreReasoning("That premise is not possible.", "no").pass, false);
 });
 
-test("canonicalizes compass directions for direct result inspection", () => {
-  assert.equal(scoreReasoning("ANSWER: W", "west").answer, "west");
-  assert.equal(scoreReasoning("I am facing east.", "east").pass, true);
-  assert.equal(scoreReasoning("ANSWER: south", "west").pass, false);
+test("labels strict closed-answer output as a contract instead of general reasoning", () => {
+  const output = renderSummary("test", { score: "STRONG", passed: 20, total: 20 }, { score: "STRONG", passed: true, output: "{}" }, { score: "STRONG", passed: true, calls: [], response: "done" }, null, { requests: 1, toolCalls: 0, latency: { averageMs: 1, p95Ms: 1 } });
+  assert.match(output, /Closed-answer contract: STRONG \(20\/20\)/);
+  assert.doesNotMatch(output, /Reasoning: STRONG/);
+});
+
+test("compares normalized exact final answers", () => {
+  assert.equal(scoreReasoning("WEST.", "west").answer, "west");
+  assert.equal(scoreReasoning("east", "east").pass, true);
+  assert.equal(scoreReasoning("w", "west").pass, false);
+  assert.equal(scoreReasoning("south", "west").pass, false);
 });
 
 test("extracts OpenAI, Bedrock, and Ollama authoritative usage", () => {
@@ -313,12 +348,60 @@ test("completes the baseline tool loop with strict llama-server message roles", 
   assert.equal(result.pass, true);
 });
 
+test("does not pass a partial tool trace when continuation is unavailable", async () => {
+  const result = await createBenchmark().testToolUsageExtended(async () => ({
+    content: "", elapsedMs: 1, toolCalls: [{ function: { name: "get_weather", arguments: { location: "Tokyo" } } }],
+  }), "single-turn-model", false);
+  assert.equal(result.pass, false);
+});
+
+test("defines deterministic grounded research source cards", () => {
+  assert.equal(GROUNDED_URBAN_TREES_FIXTURE.sources.map(source => source.id).join(","), "S1,S2,S3");
+  assert.deepEqual(GROUNDED_URBAN_TREES_FIXTURE.claims.map(claim => claim.sourceId), ["S1", "S1", "S2"]);
+});
+
+test("requires each grounded research claim to cite its supporting source", () => {
+  const valid = `## Findings
+- Tree canopy reduces direct solar exposure on streets. [S1]
+- Shaded pavement has lower surface temperatures. [S1]
+- Tree canopies intercept some rainfall before it reaches the ground. [S2]
+## Sources
+- [S1](https://research.fixture/S1)
+- [S2](https://research.fixture/S2)`;
+  assert.equal(verifyGroundedResearch(valid, GROUNDED_URBAN_TREES_FIXTURE).passed, true);
+  assert.equal(verifyGroundedResearch(valid.replace("[S2]", "[S3]"), GROUNDED_URBAN_TREES_FIXTURE).passed, false);
+  assert.equal(verifyGroundedResearch(valid.replace("[S2]", "[SX]"), GROUNDED_URBAN_TREES_FIXTURE).passed, false);
+  assert.equal(verifyGroundedResearch(valid.replace("- Shaded pavement has lower surface temperatures. [S1]\n", ""), GROUNDED_URBAN_TREES_FIXTURE).passed, false);
+});
+
+test("accepts explicitly disabled shadows in grounded research HTML", () => {
+  const html = '<html><head><meta name="viewport"></head><body><main style="box-shadow: none"></main></body></html>';
+  assert.equal(isMinimalistResearchHtml(html), true);
+  assert.equal(isMinimalistResearchHtml(html.replace("none", "0 2px 4px #000")), false);
+});
+
+test("states the exact grounded research source-link syntax", () => {
+  assert.match(GROUNDED_RESEARCH_TASK_PROMPT, /- \[S1\]\(https:\/\/research\.fixture\/S1\)/);
+});
+
 test("makes research, citations, and minimalist UI requirements explicit", () => {
   assert.match(RESEARCH_TASK_PROMPT, /web_search/);
   assert.match(RESEARCH_TASK_PROMPT, /read_skill/);
   assert.match(RESEARCH_TASK_PROMPT, /## Sources/);
   assert.match(RESEARCH_TASK_PROMPT, /minimalist/i);
   assert.match(RESEARCH_TASK_PROMPT, /no gradients/i);
+});
+
+test("runs deterministic grounded research separately from live search", async () => {
+  let turn = 0;
+  const result = await runGroundedResearchTask(async () => {
+    turn += 1;
+    if (turn === 1) return { content: "", elapsedMs: 1, toolCalls: [{ function: { name: "web_search", arguments: '{"query":"urban trees"}' } }] };
+    if (turn === 2) return { content: "", elapsedMs: 1, toolCalls: [{ function: { name: "read_skill", arguments: "{}" } }, { function: { name: "write_file", arguments: JSON.stringify({ path: "research.md", content: "## Findings\n- Tree canopy reduces direct solar exposure on streets. [S1]\n- Shaded pavement has lower surface temperatures. [S1]\n- Tree canopies intercept some rainfall before it reaches the ground. [S2]\n## Sources\n- [S1](https://research.fixture/S1)\n- [S2](https://research.fixture/S2)" }) } }, { function: { name: "write_file", arguments: JSON.stringify({ path: "page.html", content: "<html><head><meta name=\"viewport\"></head><body><main></main></body></html>" }) } }] };
+    return { content: "done", elapsedMs: 1 };
+  }, "fixture-model");
+  assert.equal(result.id, "research-grounded");
+  assert.equal(result.passed, true);
 });
 
 test("runs fixture-backed research artifact workflow", async () => {
@@ -401,6 +484,16 @@ test("recovers from malformed coding-tool arguments and tracks every turn", asyn
   assert.equal(result.metrics.requestCount, 2);
   assert.equal(result.metrics.outputTokens, 8);
   assert.equal(result.metrics.toolCalls[0]?.name, "read_file");
+});
+
+test("does not call failed public tests post-edit verification", async () => {
+  let turn = 0;
+  const result = await runCodingTask(async () => {
+    turn += 1;
+    if (turn === 1) return { content: "", elapsedMs: 1, toolCalls: [{ function: { name: "write_file", arguments: JSON.stringify({ path: "src/sum.mjs", content: "export const sumInclusive = () => 0;\n" }) } }] };
+    return { content: "", elapsedMs: 1, toolCalls: [{ function: { name: "run_tests", arguments: "{}" } }] };
+  }, "test-model", CODING_LITE_TASKS[0]);
+  assert.equal(result.verifiedAfterEdit, false);
 });
 
 test("returns recoverable errors when a coding agent searches a missing path", async () => {

@@ -1,6 +1,6 @@
 # opl-simplebench
 
-Auditable Pi model benchmark for reasoning, JSON instruction following, and tool-call generation. It supports Ollama, OpenAI-compatible providers such as LiteLLM and OpenRouter, and Amazon Bedrock Converse.
+Auditable Pi model benchmark for closed-answer contracts, JSON instruction following, and tool-call generation. It supports Ollama, OpenAI-compatible providers such as LiteLLM and OpenRouter, and Amazon Bedrock Converse.
 
 ## Commands, flags, and tool calls
 
@@ -10,9 +10,9 @@ Auditable Pi model benchmark for reasoning, JSON instruction following, and tool
 /simplebench <model> [--no-artifact] [--thinking-max]
 /simplebench <model> --coding-lite
 /simplebench <model> --test-all
+/simplebench <model> --research-live
 /simplebench <model> --llama-server
 /simplebench <model> --llamagputop
-/simplebench <model> --test-all
 /simplebench --all [--no-artifact]
 /simplebench --all --test-all
 /simplebench --help
@@ -35,17 +35,18 @@ simplebench({ model: "global.openai.gpt-5.6-terra", test_all: true })
 
 - Cache-bypassing by default: OpenAI-compatible requests (LiteLLM, OpenRouter, etc.) send `cache: {"no-cache": true}` so a proxy-level response cache never serves results. A benchmark must measure real inference; without this, identical prompts across runs return cached responses instantly and the proxy logs show 200s while the backend server stays idle.
 
-- Twenty fixed reasoning prompts, one strict JSON instruction test, and one chained tool-call test.
+- Twenty fixed closed-answer contracts, one strict JSON instruction test, and one chained tool-call test.
 - Six opt-in execution-backed coding tasks in disposable directories (`--coding-lite`).
-- `--test-all` runs baseline, coding-lite, and the live research-artifact task; `--all` still selects every Ollama model.
+- `--test-all` runs baseline, coding-lite, and deterministic grounded research; `--research-live` adds the configured live research-artifact integration smoke test. `--all` still selects every Ollama model.
 - `--llama-server` (`llama_server: true`) captures configured direct llama-server `/props` and `/metrics` without changing inference routing, so it works with a LiteLLM proxy.
 - `--llamagputop` (`llamagputop: true`) captures configured llama.cpp `/stats` metadata independently of the inference provider; its served model ID is authoritative.
+> This feature needs an http wrapper to have [`llamagputop`](https://github.com/XscannedX/llamagputop) expose its metrics. My current personal implementation has a llamagputop_http py that does this, and I do `python3 -m http.server <port>` from the host model server. DIY, I know.
 - Provider-default sampling and reasoning by default, with explicit `--thinking-max` for OpenAI-compatible proxies and metadata-gated direct Bedrock models.
 - Full JSON artifacts containing exact prompts, responses, scores, errors, per-test timing, provider usage, and returned tool calls.
 - Aggregate request count, retry count, tool-call count, token totals where returned by the provider, output tok/s where calculable, and average/median/P95 latency.
 - Provider API keys from `models.json` (`$VAR`/`${VAR}` expansion), environment variables, or Pi `auth.json`.
 - Amazon Bedrock Converse calls with SigV4 and AWS CLI credential export for assume-role/SSO profiles.
-- Category-based recommendations, avoiding a contradictory `WEAK` label when reasoning is moderate but JSON and tool-use tests pass.
+- Category-based recommendations, avoiding a contradictory `WEAK` label when the closed-answer contract is moderate but JSON and tool-use tests pass.
 
 ## How to use it
 
@@ -77,9 +78,11 @@ Use this in sensitive environments. The terminal summary still reports category 
 
 `--all` is intentionally limited to Ollama discovery. It writes one artifact per model unless `--no-artifact` is set.
 
-### Research artifact in `--test-all`
+### Grounded research in `--test-all`
 
-`--test-all` runs a benchmark-local agent workflow after coding-lite. Its prompt requires the model to call `web_search`, call `read_skill` for minimalist UI guidance, write `research.md` with a concise synthesis and a `## Sources` section linking returned URLs, and write a responsive editorial `page.html`. The HTML must use semantic `<main>` content and viewport metadata, with restrained colors and readable type, no gradients, and no heavy shadows. `web_search` uses `researchSearchProvider` and `researchSearchUrl` from `opl-simplebench.json`: DDGS calls `/search/text`; SearXNG calls `/search`. This is benchmark-local tool evidence, not an invocation of the separately installed `opl-webaccess` extension or the Pi skill runtime. `STRONG` requires every tool/file/citation/rubric check.
+`--test-all` runs a deterministic agent workflow after coding-lite. `web_search` returns three benchmark-local source cards. The model must write every required finding as a Markdown bullet with its inline source ID (`[S1]`, `[S2]`) and list each cited source under `## Sources` as a Markdown link, for example `- [S1](https://research.fixture/S1)`. The verifier checks each exact claim-to-source relationship, source-list URL, tool trace, and the responsive minimalist `page.html` contract. It invokes no LLM judge, external search service, embedding model, or entailment model.
+
+`--research-live` additionally runs the existing configured DDGS/SearXNG workflow as an integration smoke test. It reports search/tool/file reliability only and never affects the benchmark recommendation or grounded capability score.
 
 ### Inspect a result
 
@@ -137,21 +140,21 @@ An artifact write error does not invalidate an otherwise completed benchmark; Si
 
 ## Benchmark methodology
 
-### Reasoning
+### Closed-answer contract
 
-Twenty deterministic prompts cover arithmetic, logic, causal reasoning, comparison, physical/common sense, and analogies. A result records the expected answer, extracted answer, extraction method, and heuristic reasoning evidence.
+Twenty deterministic closed-answer prompts cover arithmetic, logic, causal reasoning, comparison, physical/common sense, and analogies. Each prompt asks for a canonical token or noun phrase, or explicitly supplies its permitted choices, then instructs the model to put only that exact answer on the final non-empty line. The grader normalizes case, outer whitespace, and terminal punctuation, then compares that line with the fixture's one canonical answer.
 
-`STRONG` means a correct answer with detected reasoning evidence; `MODERATE` means a correct answer; `WEAK` and `FAIL` are incorrect answers with or without detected evidence. This is a lightweight regression benchmark, not a comprehensive intelligence evaluation.
+A correct answer and final-line contract is `STRONG`; an incorrect or malformed final answer is `FAIL`. This measures closed-answer correctness plus output-contract compliance, not general reasoning capability. Explanation text is retained in artifacts but is not treated as evidence of reasoning quality. This is a lightweight regression benchmark, not a comprehensive intelligence evaluation.
 
-Expected answers accept semantically equivalent responses: `animals_1` accepts water/ocean/sea; `analogy_2` accepts boot/sock/shoe; `cause_effect` accepts grows/grow/germinate.
+Fixtures intentionally have one canonical answer. They do not use ambiguous prompts, alternate-answer lists, optional articles, or unconstrained specificity such as `water` versus `saltwater`.
 
 ### Instruction following
 
-The model must emit valid JSON with the required schema and values. The artifact records the complete output and schema result.
+The model must emit only the specified deterministic JSON object. Simplebench rejects Markdown fences, extra keys, wrong types, and wrong literal values. The artifact records the complete output and schema result.
 
 ### Tool usage
 
-The model receives weather and calculation tools. For OpenAI-compatible and Ollama providers, Simplebench validates expected tool names and arguments, executes deterministic local results, and requires the final answer to use both results. For local llama-server evaluation, start with `--jinja` and a tool-aware chat template; models or templates that cannot call tools receive a benchmark failure rather than a compatibility workaround. Direct Bedrock keeps its existing single-request tool-call check.
+The model receives weather and calculation tools. Simplebench validates expected tool names and arguments, executes deterministic local results, and requires a continuation response that uses both results. A provider or template that cannot continue after tool results fails this completion test rather than receiving a compatibility pass.
 
 ### Coding lite
 
@@ -168,7 +171,7 @@ The score field in `tests[]` uses this efficiency grade rather than a binary STR
 
 Each fixture also carries an `inlinePrompt` with the buggy code embedded directly. Pass `singleShot: true` to `runCodingTask` to run a single-turn no-tools variant — the model reads the code in the prompt and outputs the corrected file, with no feedback loop. This is a pure model quality signal with zero agent loop variance.
 
-The six tasks cover a boundary bug, input validation, cross-file debugging, behavior-preserving cleanup, a CLI flag, and a complete edit-and-verify loop. A task passes only when hidden verification succeeds and no unrelated files were changed.
+The six tasks cover a boundary bug, input validation, cross-file debugging, behavior-preserving cleanup, a CLI flag, and a complete edit-and-verify loop. A task passes only when hidden verification succeeds, no unrelated files were changed, and the agent ran a passing public test after its last edit.
 
 **Public tests are aligned with hidden tests.** All public test assertions validate the same behavior as hidden assertions (different inputs, same semantics). No public test validates incorrect behavior that the model should fix — the `fix-off-by-one` adversarial trap has been corrected.
 

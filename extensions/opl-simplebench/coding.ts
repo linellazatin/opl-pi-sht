@@ -224,10 +224,13 @@ export async function runCodingTask(chatFn: ChatFn, model: string, task: CodingT
         const args = parsed.value;
         toolCalls += 1;
         if (name === "write_file") verifiedAfterEdit = false;
-        if (name === "run_tests") verifiedAfterEdit = true;
         let result: string;
         try { result = parsed.error ? codingToolError(parsed.error) : executeCodingTool(root, task, name, args); }
         catch (e: any) { result = codingToolError(e?.message || String(e)); }
+        if (name === "run_tests") {
+          try { verifiedAfterEdit = JSON.parse(result).passed === true; }
+          catch { verifiedAfterEdit = false; }
+        }
         results.push(`TOOL_RESULT ${name}: ${result}`);
         options.onProgress?.(`${task.id}: ${name} (${toolCalls})`);
       }
@@ -239,7 +242,7 @@ export async function runCodingTask(chatFn: ChatFn, model: string, task: CodingT
     const changed = listChangedFiles(root, task.files);
     const unrelatedFiles = changed.filter(file => !task.allowedFiles.includes(file));
     const metrics = mergeRequestMetrics(requestMetrics);
-    const passed = hiddenResult.passed && unrelatedFiles.length === 0;
+    const passed = hiddenResult.passed && unrelatedFiles.length === 0 && verifiedAfterEdit;
     const efficiency: CodingTaskResult["efficiency"] =
       !passed      ? "FAIL"
       : turns <= 2 ? "STRONG"
