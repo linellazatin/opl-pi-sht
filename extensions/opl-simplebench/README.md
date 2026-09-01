@@ -142,7 +142,7 @@ An artifact write error does not invalidate an otherwise completed benchmark; Si
 
 ### Closed-answer contract
 
-Twenty deterministic closed-answer prompts cover arithmetic, logic, causal reasoning, comparison, physical/common sense, and analogies. Each prompt asks for a canonical token or noun phrase, or explicitly supplies its permitted choices, then instructs the model to put only that exact answer on the final non-empty line. The grader normalizes case, outer whitespace, and terminal punctuation, then compares that line with the fixture's one canonical answer.
+Twenty deterministic closed-answer prompts cover arithmetic, logic, causal reasoning, comparison, physical/common sense, and analogies. Each prompt asks for a canonical token or noun phrase, or explicitly supplies its permitted choices, then instructs the model to put only that exact answer on the final non-empty line. The grader normalizes case, outer whitespace, and terminal punctuation. Word answers compare the final non-empty line; numeric answers scan backward for the line whose last numeric token equals the expected value, so a trailing bare-number remnant leaked by a thinking template after the real final line does not fail a correct answer.
 
 A correct answer and final-line contract is `STRONG`; an incorrect or malformed final answer is `FAIL`. This measures closed-answer correctness plus output-contract compliance, not general reasoning capability. Explanation text is retained in artifacts but is not treated as evidence of reasoning quality. This is a lightweight regression benchmark, not a comprehensive intelligence evaluation.
 
@@ -154,7 +154,7 @@ The model must emit only the specified deterministic JSON object. Simplebench re
 
 ### Tool usage
 
-The model receives weather and calculation tools. Simplebench validates expected tool names and arguments, executes deterministic local results, and requires a continuation response that uses both results. A provider or template that cannot continue after tool results fails this completion test rather than receiving a compatibility pass.
+The model receives weather and calculation tools. Simplebench validates expected tool names and arguments (canonicalizing arithmetic spellings like `15*24`, `15 × 24`, `15x24`, and parenthesized or trailing-`=` forms, and locations like `Tokyo` or `Tokyo, Japan`), executes deterministic local results, and requires a continuation response that uses both results. A provider or template that cannot continue after tool results fails this completion test rather than receiving a compatibility pass.
 
 ### Coding lite
 
@@ -171,7 +171,7 @@ The score field in `tests[]` uses this efficiency grade rather than a binary STR
 
 Each fixture also carries an `inlinePrompt` with the buggy code embedded directly. Pass `singleShot: true` to `runCodingTask` to run a single-turn no-tools variant — the model reads the code in the prompt and outputs the corrected file, with no feedback loop. This is a pure model quality signal with zero agent loop variance.
 
-The six tasks cover a boundary bug, input validation, cross-file debugging, behavior-preserving cleanup, a CLI flag, and a complete edit-and-verify loop. A task passes only when hidden verification succeeds, no unrelated files were changed, and the agent ran a passing public test after its last edit.
+The six tasks cover a boundary bug, input validation, cross-file debugging, behavior-preserving cleanup, a CLI flag, and a complete edit-and-verify loop. A task passes when hidden verification succeeds and no unrelated files were changed. Whether the agent ran a passing public test after its last edit (`verifiedAfterEdit`) is reported per task but is not required: a concise model that stops after writing correct code still passes.
 
 **Public tests are aligned with hidden tests.** All public test assertions validate the same behavior as hidden assertions (different inputs, same semantics). No public test validates incorrect behavior that the model should fix — the `fix-off-by-one` adversarial trap has been corrected.
 

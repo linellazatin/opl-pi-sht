@@ -2,13 +2,32 @@ export function normalizeAnswer(value: string): string {
   return value.trim().replace(/[.!?]+$/, "").trim().toLowerCase();
 }
 
-export function extractAnswer(response: string): { answer: string; method: string } {
-  const line = response.trimEnd().split("\n").map(line => line.trim()).filter(Boolean).at(-1);
+const NUMERIC_ANSWER = /^\d+$/;
+
+function lastNumericToken(line: string): string | null {
+  const tokens = line.match(/\d+/g);
+  return tokens && tokens.length ? tokens[tokens.length - 1] : null;
+}
+
+export function extractAnswer(response: string, expected?: string): { answer: string; method: string } {
+  const lines = response.trimEnd().split("\n").map(line => line.trim()).filter(Boolean);
+  // Numeric contracts: scan backward for a line whose last numeric token is the
+  // expected value. This accepts naked "8" / "8 days" answers and skips trailing
+  // bare-number remnants that thinking templates leak after the real final line.
+  if (expected && NUMERIC_ANSWER.test(expected)) {
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const token = lastNumericToken(lines[i]);
+      if (token === expected) {
+        return { answer: token, method: i === lines.length - 1 ? "final-line" : "expected-last-numeric" };
+      }
+    }
+  }
+  const line = lines.at(-1);
   return line ? { answer: normalizeAnswer(line), method: "final-line" } : { answer: "?", method: "none" };
 }
 
 export function scoreReasoning(response: string, expected: string) {
-  const extracted = extractAnswer(response);
+  const extracted = extractAnswer(response, expected);
   const correct = extracted.answer === normalizeAnswer(expected);
   return {
     answer: extracted.answer,
