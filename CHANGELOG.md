@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.13] - 2026-09-01
+
+### Added
+- **`--tag=<word>`** (`tag` tool parameter) for `/simplebench`: labels a run as `benchmark.tag` in the artifact, e.g. `simplebench-coldrun-coding-lite-<model>-<thinking>-<timestamp>.json`. Tags are restricted to a single word (letters, digits, dot, dash, underscore); invalid tags are rejected before the run starts.
+
 ## [0.1.12] - 2026-08-31
 
 ### Changed
