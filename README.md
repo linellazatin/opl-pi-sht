@@ -11,7 +11,7 @@ A portable collection of various Pi coding agent extensions. Repository director
 Install a versioned GitHub release with Pi:
 
 ```bash
-pi install git:github.com/linellazatin/opl-pi-sht@v0.1.11
+pi install git:github.com/linellazatin/opl-pi-sht@v0.1.12
 ```
 
 Pi installs the package under `~/.pi/agent/git/github.com/linellazatin/opl-pi-sht` and runs root `npm install`, so `opl-webaccess` and `opl-browser` runtime dependencies are available. Pi packages do not install optional extension config files; copy only the configs you need from that checkout to `~/.pi/agent/configs/`.
