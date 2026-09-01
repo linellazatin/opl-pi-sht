@@ -7,7 +7,13 @@ import { createBenchmark } from "./benchmark";
 
 export function parseCommandArgs(args: string): SimplebenchOptions {
   const tokens = args.trim().split(/\s+/).filter(Boolean);
-  return { model: tokens.find(token => !token.startsWith("--")), allModels: tokens.includes("--all"), writeArtifact: !tokens.includes("--no-artifact"), thinkingMax: tokens.includes("--thinking-max"), codingLite: tokens.includes("--coding-lite"), testAll: tokens.includes("--test-all"), researchLive: tokens.includes("--research-live"), llamaServer: tokens.includes("--llama-server"), llamagputop: tokens.includes("--llamagputop") };
+  const tagToken = tokens.find(token => token.startsWith("--tag="));
+  let tag: string | undefined;
+  if (tagToken) {
+    tag = tagToken.slice("--tag=".length);
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(tag)) throw new Error(`--tag must be a single word (letters, digits, dot, dash, underscore): got "${tag}"`);
+  }
+  return { model: tokens.find(token => !token.startsWith("--")), allModels: tokens.includes("--all"), writeArtifact: !tokens.includes("--no-artifact"), thinkingMax: tokens.includes("--thinking-max"), codingLite: tokens.includes("--coding-lite"), testAll: tokens.includes("--test-all"), researchLive: tokens.includes("--research-live"), llamaServer: tokens.includes("--llama-server"), llamagputop: tokens.includes("--llamagputop"), ...(tag ? { tag } : {}) };
 }
 
 export default function (pi: ExtensionAPI) {
@@ -16,7 +22,7 @@ export default function (pi: ExtensionAPI) {
 
 pi.registerCommand("simplebench", {
   description: "Benchmark a model with auditable closed-answer, instruction, and tool-use tests.",
-  detailedHelp: "\n\n🔍 Simplebench Extension\n\nThis extension tests AI models across multiple dimensions:\n• Closed-answer contract: 20 deterministic final-line answers (logic, math, spatial, commonsense)\n• Tool Usage: Ability to use available tools effectively\n• Instruction Following: How well the model follows complex JSON instructions\n• Coding Lite: Six isolated, execution-backed coding tasks\n\n📋 Usage Examples:\n  /simplebench                    # Test current model\n  /simplebench <model>           # Test a specific model\n  /simplebench --all             # Test all Ollama models\n  /simplebench <model> --coding-lite # Run only coding tasks\n  /simplebench <model> --test-all # Run baseline, coding, and grounded research\n  /simplebench <model> --research-live # Add live search integration smoke test\n  /simplebench --all --test-all  # Run complete suite for every Ollama model\n  /simplebench <model> --thinking-max # Request max reasoning\n  /simplebench <model> --llama-server # Capture configured /props and /metrics\n  /simplebench <model> --llamagputop # Capture configured llama.cpp stats\n  /simplebench --help            # Show this help\n  /simplebench --clear-cache     # Clear tool support cache\n\nCoding tasks run in disposable directories and never access the user repository.\n",
+  detailedHelp: "\n\n🔍 Simplebench Extension\n\nThis extension tests AI models across multiple dimensions:\n• Closed-answer contract: 20 deterministic final-line answers (logic, math, spatial, commonsense)\n• Tool Usage: Ability to use available tools effectively\n• Instruction Following: How well the model follows complex JSON instructions\n• Coding Lite: Six isolated, execution-backed coding tasks\n\n📋 Usage Examples:\n  /simplebench                    # Test current model\n  /simplebench <model>           # Test a specific model\n  /simplebench --all             # Test all Ollama models\n  /simplebench <model> --coding-lite # Run only coding tasks\n  /simplebench <model> --test-all # Run baseline, coding, and grounded research\n  /simplebench <model> --research-live # Add live search integration smoke test\n  /simplebench --all --test-all  # Run complete suite for every Ollama model\n  /simplebench <model> --thinking-max # Request max reasoning\n  /simplebench <model> --llama-server # Capture configured /props and /metrics\n  /simplebench <model> --llamagputop # Capture configured llama.cpp stats\n  /simplebench <model> --tag=coldrun # Label the run: benchmark.tag plus artifact filename prefix\n  /simplebench --help            # Show this help\n  /simplebench --clear-cache     # Clear tool support cache\n\nCoding tasks run in disposable directories and never access the user repository.\n",
   getArgumentCompletions: async (prefix) => {
     try {
       const models = await getOllamaModels();
@@ -30,7 +36,13 @@ pi.registerCommand("simplebench", {
       return;
     }
 
-    const parsedArgs = parseCommandArgs(args);
+    let parsedArgs: SimplebenchOptions;
+    try {
+      parsedArgs = parseCommandArgs(args);
+    } catch (e: any) {
+      ctx.ui.notify(e?.message || String(e), "error");
+      return;
+    }
     const arg = args.trim();
 
     if (arg === "--help") {
@@ -41,6 +53,7 @@ pi.registerCommand("simplebench", {
         "  /simplebench [model] --coding-lite - Run coding tasks only\n" +
         "  /simplebench [model] --test-all - Run baseline, coding, and deterministic grounded research\n" +
         "  /simplebench [model] --research-live - Add live-search integration smoke test\n" +
+        "  /simplebench [model] --tag=<word> - Label the run (single word; added to benchmark.tag and the artifact name)\n" +
         "  /simplebench --all --test-all - Run complete suite for all Ollama models\n" +
         "  /simplebench --clear-cache - Clear tool support cache\n",
         "info"
@@ -149,11 +162,18 @@ pi.registerTool({
       research_live: { type: "boolean", description: "Run configured live-search research as an integration smoke test; it does not affect recommendation." },
       llama_server: { type: "boolean", description: "Capture /props and /metrics from configured llamaServerUrl. Inference routing is unchanged." },
       llamagputop: { type: "boolean", description: "Capture configured llamagputopUrl /stats. The declared endpoint is authoritative; no Pi model match is required." },
+      tag: { type: "string", description: "Optional single-word label (letters, digits, dot, dash, underscore). Stored under benchmark.tag and prefixed onto the artifact file or bundle name." },
     },
   } as any,
   execute: async (_toolCallId, _params, _signal, _onUpdate, ctx) => {
     const params = _params as any;
-    const options: SimplebenchOptions = { model: params?.model as string | undefined, allModels: false, writeArtifact: params?.no_artifact !== true, thinkingMax: params?.thinking_max === true, codingLite: params?.coding_lite === true, testAll: params?.test_all === true, researchLive: params?.research_live === true, llamaServer: params?.llama_server === true, llamagputop: params?.llamagputop === true };
+    if (params?.tag !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(params.tag))) {
+      return {
+        content: [{ type: "text", text: "--tag must be a single word (letters, digits, dot, dash, underscore)" }],
+        isError: true,
+      } as AgentToolResult;
+    }
+    const options: SimplebenchOptions = { model: params?.model as string | undefined, allModels: false, writeArtifact: params?.no_artifact !== true, thinkingMax: params?.thinking_max === true, codingLite: params?.coding_lite === true, testAll: params?.test_all === true, researchLive: params?.research_live === true, llamaServer: params?.llama_server === true, llamagputop: params?.llamagputop === true, ...(params?.tag ? { tag: String(params.tag) } : {}) };
     const model = options.model || ctx.model?.id;
     if (!model) {
       return {

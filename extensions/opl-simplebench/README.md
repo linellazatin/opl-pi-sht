@@ -13,6 +13,7 @@ Auditable Pi model benchmark for closed-answer contracts, JSON instruction follo
 /simplebench <model> --research-live
 /simplebench <model> --llama-server
 /simplebench <model> --llamagputop
+/simplebench <model> --tag=<word>
 /simplebench --all [--no-artifact]
 /simplebench --all --test-all
 /simplebench --help
@@ -40,6 +41,7 @@ simplebench({ model: "global.openai.gpt-5.6-terra", test_all: true })
 - `--test-all` runs baseline, coding-lite, and deterministic grounded research; `--research-live` adds the configured live research-artifact integration smoke test. `--all` still selects every Ollama model.
 - `--llama-server` (`llama_server: true`) captures configured direct llama-server `/props` and `/metrics` without changing inference routing, so it works with a LiteLLM proxy.
 - `--llamagputop` (`llamagputop: true`) captures configured llama.cpp `/stats` metadata independently of the inference provider; its served model ID is authoritative.
+- `--tag=<word>` (`tag: "<word>"`) labels a run: stored as `benchmark.tag` and prefixed onto the artifact file or bundle name, for example `simplebench-coldrun-coding-lite-<model>-...`. The tag must be a single word (letters, digits, dot, dash, underscore).
 > This feature needs an http wrapper to have [`llamagputop`](https://github.com/XscannedX/llamagputop) expose its metrics. My current personal implementation has a llamagputop_http py that does this, and I do `python3 -m http.server <port>` from the host model server. DIY, I know.
 - Provider-default sampling and reasoning by default, with explicit `--thinking-max` for OpenAI-compatible proxies and metadata-gated direct Bedrock models.
 - Full JSON artifacts containing exact prompts, responses, scores, errors, per-test timing, provider usage, and returned tool calls.
@@ -131,7 +133,7 @@ simplebench--test-all-<sanitized-model>-<thinking>-<UTC-timestamp>/
 
 simplebench--<suite>-<sanitized-model>-<thinking>-<UTC-timestamp>.json
 
-The default suite is named `3ptest`, so examples are `simplebench--test-all-<model>-max-<UTC-timestamp>.json` and `simplebench--3ptest-<model>-default-<UTC-timestamp>.json`.
+The default suite is named `3ptest`, so examples are `simplebench--test-all-<model>-max-<UTC-timestamp>.json` and `simplebench--3ptest-<model>-default-<UTC-timestamp>.json`. With `--tag=coldrun` the same names become `simplebench-coldrun-<suite>-<model>-...`.
 ```
 
 They deliberately preserve benchmark prompts and model responses for auditability. They never include credentials, Authorization headers, AWS credentials, cookies, or provider authentication payloads. Use `--no-artifact` if storing responses is not appropriate.
