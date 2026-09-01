@@ -39,6 +39,14 @@ test("parses boolean configured metadata modes", () => {
   assert.equal(parseCommandArgs("qwen").llamaServer, false);
 });
 
+test("parses a single-word tag into options and artifact naming", () => {
+  assert.equal(parseCommandArgs("qwen --coding-lite --tag=coldrun").tag, "coldrun");
+  assert.equal(parseCommandArgs("qwen").tag, undefined);
+  assert.throws(() => parseCommandArgs("qwen --tag=bad/name"), /single word/);
+  assert.throws(() => parseCommandArgs("qwen --tag="), /single word/);
+  assert.equal(artifactFileName("qwen", "coding-lite", "default", new Date("2026-08-23T12:00:00Z"), "coldrun"), "simplebench-coldrun-coding-lite-qwen-default-2026-08-23T12-00-00Z.json");
+});
+
 test("normalizes configured metadata URLs", () => {
   assert.equal(statsUrl("http://host:4321"), "http://host:4321/stats");
   assert.equal(statsUrl("http://host:4321/stats"), "http://host:4321/stats");

@@ -1,10 +1,16 @@
 {
   "name": "opl-pi-sht",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "keywords": [
-    "pi-package"
+    "pi",
+    "pi-package",
+    "pi-coding-agent",
+    "pi-extension",
+    "coding-agent",
+    "extension"
   ],
-  "private": true,
+  "license": "MIT",
+  "author": "linellazatin",
   "pi": {
     "extensions": [
       "./extensions/*/index.ts"
