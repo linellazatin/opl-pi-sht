@@ -580,6 +580,14 @@ async function testInstructionFollowingExtended(chatFn: ChatFn, model: string): 
   }
 }
 
+function canonicalizeExpression(value: unknown): string {
+  return String(value ?? "").replace(/\s+/g, "").replace(/[×x·∗]/g, "*").replace(/^\(+/, "").replace(/\)+$/, "").replace(/=+$/, "");
+}
+
+function canonicalizeLocation(value: unknown): string {
+  return String(value ?? "").toLowerCase().replace(/[^a-z]+/g, " ");
+}
+
 async function testToolUsageExtended(chatFn: ChatFn, model: string, useToolResultMessages = true): Promise<{ pass: boolean; score: string; toolCalls: string[]; response: string; elapsedMs: number; metrics: ReturnType<typeof emptyMetrics> }> {
   try {
     const tools = [WEATHER_TOOL_DEFINITION, CALC_TOOL_DEFINITION];
@@ -592,8 +600,8 @@ async function testToolUsageExtended(chatFn: ChatFn, model: string, useToolResul
       const fn = call.function || call;
       let args: any = {};
       try { args = typeof fn.arguments === "string" ? JSON.parse(fn.arguments) : (fn.arguments || {}); } catch { return { name: fn.name, result: "INVALID_ARGUMENTS" }; }
-      if (fn.name === "get_weather" && String(args.location).toLowerCase() === "tokyo") return { name: fn.name, result: "Tokyo: clear, 22C" };
-      if (fn.name === "calculate" && String(args.expression).replace(/\s/g, "") === "15*24") return { name: fn.name, result: "360" };
+      if (fn.name === "get_weather" && canonicalizeLocation(args.location).split(" ").includes("tokyo")) return { name: fn.name, result: "Tokyo: clear, 22C" };
+      if (fn.name === "calculate" && canonicalizeExpression(args.expression) === "15*24") return { name: fn.name, result: "360" };
       return { name: fn.name, result: "INVALID_ARGUMENTS" };
     });
     const validWeather = results.some(r => r.name === "get_weather" && r.result !== "INVALID_ARGUMENTS");

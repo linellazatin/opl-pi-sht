@@ -208,10 +208,20 @@ test("uses the pass property consumed by the reasoning runner", () => {
   assert.equal(scoreReasoning("It reaches the top.\n8", "8").pass, true);
 });
 
-test("scores only the final non-empty reasoning line", () => {
+test("matches numeric answers as the last number on any line, skipping trailing remnants", () => {
+  // Trailing bare-number remnant after a correct sentence → PASS (thinking-template noise).
+  assert.equal(scoreReasoning("The ball costs 5 cents.\n10", "5").pass, true);
+  // Trailing wrong number treated as a remnant when an earlier line ends with the expected value.
+  assert.equal(scoreReasoning("The answer is 8.\n7", "8").pass, true);
+  // A wrong final line must still fail when no earlier line carries the expected value.
+  assert.equal(scoreReasoning("The answer is 9.\n7", "8").pass, false);
+  // Rejecting the expected value in prose (last numeric on the line is 10) still fails.
+  assert.equal(scoreReasoning("5 is wrong, the ball is 10.", "5").pass, false);
+  // Word answers keep strict final-line matching.
   assert.equal(scoreReasoning("West is a possibility.\nSouth", "west").pass, false);
-  assert.equal(scoreReasoning("The answer is 8.\n7", "8").pass, false);
   assert.equal(scoreReasoning("Working:\nWEST.", "west").pass, true);
+  // A naked numeric final line is the usual case and still passes.
+  assert.equal(scoreReasoning("The snail climbs.\n8", "8").pass, true);
 });
 
 test("uses closed-answer reasoning fixtures", () => {
@@ -494,6 +504,34 @@ test("does not call failed public tests post-edit verification", async () => {
     return { content: "", elapsedMs: 1, toolCalls: [{ function: { name: "run_tests", arguments: "{}" } }] };
   }, "test-model", CODING_LITE_TASKS[0]);
   assert.equal(result.verifiedAfterEdit, false);
+  assert.equal(result.passed, false); // broken code still fails regardless of the gate change
+});
+
+test("passes correct code even when run_tests is never called after the final edit", async () => {
+  let turn = 0;
+  const result = await runCodingTask(async () => {
+    turn += 1;
+    if (turn === 1) return { content: "", elapsedMs: 1, toolCalls: [{ function: { name: "write_file", arguments: JSON.stringify({ path: "src/sum.mjs", content: "export function sumInclusive(start, end) { let total = 0; for (let value = start; value <= end; value += 1) total += value; return total; }\n" }) } }] };
+    return { content: "done", elapsedMs: 1 };
+  }, "test-model", CODING_LITE_TASKS[0]);
+  assert.equal(turn, 2);
+  assert.equal(result.passed, true); // correctness-only gate: hidden tests green, no unrelated files
+  assert.equal(result.verifiedAfterEdit, false); // self-verification is reported, not required
+});
+
+test("accepts canonical tool-arg variants in the chained tool test", async () => {
+  let turns = 0;
+  const result = await createBenchmark().testToolUsageExtended(async () => {
+    turns += 1;
+    if (turns === 1) return { content: "", elapsedMs: 1, toolCalls: [
+      { function: { name: "get_weather", arguments: { location: "Tokyo, Japan" } } },
+      { function: { name: "calculate", arguments: { expression: "15 × 24" } } },
+    ] };
+    return { content: "Tokyo is clear at 22C. 15 multiplied by 24 is 360.", elapsedMs: 1 };
+  }, "canonical-model");
+  assert.equal(turns, 2);
+  assert.equal(result.score, "STRONG");
+  assert.equal(result.pass, true);
 });
 
 test("returns recoverable errors when a coding agent searches a missing path", async () => {

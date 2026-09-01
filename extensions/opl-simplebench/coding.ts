@@ -62,19 +62,19 @@ export const CODING_LITE_TASKS: CodingTaskFixture[] = [
   },
   {
     id: "safe-refactor",
-    prompt: "Make the formatter behavior correct for empty values while preserving the existing output. You may refactor src/format.mjs, but do not change the exported function name. Run tests after editing.",
+    prompt: "Make formatLabels skip entries that are empty after trimming. For [' a ', '', 'b'], the exact result must be 'A, B'; preserve the existing output for non-empty values. You may refactor src/format.mjs, but do not change the exported function name. Run tests after editing.",
     files: { "src/format.mjs": "export function formatLabels(values) { return values.map(value => String(value).trim().toUpperCase()).join(', '); }\n" },
     allowedFiles: ["src/format.mjs"],
     verify: (root, hidden) => hidden ? assertCode(root, "src/format.mjs", "m.formatLabels([' a ', '', 'b']) === 'A, B'") : assertCode(root, "src/format.mjs", "m.formatLabels([' a ', '', 'b']) === 'A, B' && m.formatLabels([' a ', 'b']) === 'A, B'"),
-    inlinePrompt: "Make formatLabels skip empty values after trimming. Keep the exported name and all other output unchanged.\n\nFile: src/format.mjs\n```js\nexport function formatLabels(values) { return values.map(value => String(value).trim().toUpperCase()).join(', '); }\n```\n\nReply with ONLY the corrected file content.",
+    inlinePrompt: "Make formatLabels skip entries that are empty after trimming. For [' a ', '', 'b'], the exact result must be 'A, B'; keep the exported name and all other output unchanged.\n\nFile: src/format.mjs\n```js\nexport function formatLabels(values) { return values.map(value => String(value).trim().toUpperCase()).join(', '); }\n```\n\nReply with ONLY the corrected file content.",
   },
   {
     id: "cli-flag",
-    prompt: "Add a --upper flag to src/cli.mjs. Without it, print the supplied name unchanged; with it, print uppercase text. Preserve the current usage error and run tests after editing.",
+    prompt: "Add a --upper flag to src/cli.mjs. The supported invocations are `cli --upper alice` and `cli alice`. Without the flag, print the supplied name unchanged; with it, print uppercase text. Preserve the current usage error and run tests after editing.",
     files: { "src/cli.mjs": "const args = process.argv.slice(2);\nif (args.length === 0) { console.error('usage: cli <name>'); process.exit(2); }\nconsole.log(args[0]);\n" },
     allowedFiles: ["src/cli.mjs"],
     verify: (root, hidden) => hidden ? `const { spawnSync } = await import('node:child_process'); const r1 = spawnSync(process.execPath, ['src/cli.mjs', '--upper', 'alice'], { cwd: ${JSON.stringify(root)}, encoding: 'utf8' }); const r2 = spawnSync(process.execPath, ['src/cli.mjs', 'alice'], { cwd: ${JSON.stringify(root)}, encoding: 'utf8' }); if (r1.status !== 0 || r1.stdout.trim() !== 'ALICE') throw new Error('verification failed'); if (r2.status !== 0 || r2.stdout.trim() !== 'alice') throw new Error('verification failed');` : `const { spawnSync } = await import('node:child_process'); const r = spawnSync(process.execPath, ['src/cli.mjs', '--upper', 'alice'], { cwd: ${JSON.stringify(root)}, encoding: 'utf8' }); if (r.status !== 0 || r.stdout.trim() !== 'ALICE') throw new Error('verification failed');`,
-    inlinePrompt: "Add a --upper flag. Without it, print the name unchanged; with it, print uppercase. Preserve the usage error on empty args.\n\nFile: src/cli.mjs\n```js\nconst args = process.argv.slice(2);\nif (args.length === 0) { console.error('usage: cli <name>'); process.exit(2); }\nconsole.log(args[0]);\n```\n\nReply with ONLY the corrected file content.",
+    inlinePrompt: "Add a --upper flag. The supported invocations are `cli --upper alice` and `cli alice`. Without the flag, print the name unchanged; with it, print uppercase. Preserve the usage error on empty args.\n\nFile: src/cli.mjs\n```js\nconst args = process.argv.slice(2);\nif (args.length === 0) { console.error('usage: cli <name>'); process.exit(2); }\nconsole.log(args[0]);\n```\n\nReply with ONLY the corrected file content."
   },
   {
     id: "verify-after-edit",
@@ -106,7 +106,16 @@ export function createCodingTaskDir(task: CodingTaskFixture): string {
 
 export function runCodingVerifier(task: CodingTaskFixture, root: string, mode: "public" | "hidden") {
   const result = spawnSync(process.execPath, ["--eval", task.verify(root, mode === "hidden")], { cwd: root, encoding: "utf8", timeout: 10_000 });
-  return { passed: result.status === 0, output: `${result.stdout ?? ""}${result.stderr ?? ""}`.trim() };
+  const rawOutput = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
+  return { passed: result.status === 0, output: result.status === 0 ? rawOutput : truncateVerifierError(rawOutput) };
+}
+
+/** Keep only the thrown error line; the eval stack embeds the full script and tmp path. */
+function truncateVerifierError(raw: string): string {
+  const marker = raw.lastIndexOf("Error: ");
+  if (marker < 0) return raw.slice(-200);
+  const end = raw.indexOf("\n", marker);
+  return end === -1 ? raw.slice(marker) : raw.slice(marker, end);
 }
 
 function safeJson(value: unknown): { value: any; error?: string } {
@@ -242,7 +251,10 @@ export async function runCodingTask(chatFn: ChatFn, model: string, task: CodingT
     const changed = listChangedFiles(root, task.files);
     const unrelatedFiles = changed.filter(file => !task.allowedFiles.includes(file));
     const metrics = mergeRequestMetrics(requestMetrics);
-    const passed = hiddenResult.passed && unrelatedFiles.length === 0 && verifiedAfterEdit;
+    // Pass is correctness-only: hidden tests green and only allowed files touched.
+    // verifiedAfterEdit (self-verification habit) is reported but not required — a
+    // concise model that stops after writing correct code must not fail.
+    const passed = hiddenResult.passed && unrelatedFiles.length === 0;
     const efficiency: CodingTaskResult["efficiency"] =
       !passed      ? "FAIL"
       : turns <= 2 ? "STRONG"

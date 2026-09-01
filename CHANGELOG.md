@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.12] - 2026-08-31
+
+### Changed
+- **Coding-lite pass** is correctness-only: hidden tests green and no unrelated files. `verifiedAfterEdit` (public tests after final edit) is reported but no longer required.
+- **Numeric closed answers** match the expected value as the last numeric token on any line (backward scan), so trailing thinking-template remnants no longer fail correct answers. Word answers keep strict final-line matching.
+- **Tool test** accepts canonical argument variants (`15*24`, `15 × 24`, `15x24`, `(15*24)`, `15*24=`) and locations such as `Tokyo, Japan`.
+
+### Removed
+- Dead legacy code from `opl-simplebench/util/config.ts`: unified reasoning/tool/instruction runners, tool-support cache, and test-history/regression store (grep-confirmed unused). The `--clear-cache` path is retained.
+
+### Fixed
+- Coding verifier failures keep only the thrown error line; the full `node --eval` source and tmp path are no longer embedded in artifacts.
+
 ## [0.1.11] - 2026-08-31
 
 ### Fixed

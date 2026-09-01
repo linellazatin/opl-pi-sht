@@ -6,17 +6,16 @@ A private Pi coding-agent extension kit packaged as a Git-installable Pi package
 
 ## Commands
 
-- `npm test` runs all ten extension suites.
-- `npm run test:opl-<name>` runs one suite: `browser`, `ctxtrim`, `footer`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, or `simplebench`.
-- Tests use Bun. Focused suites test helpers where applicable, then bundle the chosen extension through `tests/extension-smoke.test.mjs` with `OPL_EXTENSION`.
-- `./install.sh` copies all extensions and tracked `.json` configs into `~/.pi/agent`; `./install.sh --link` creates non-destructive symlinks. `--only` selects extensions; choosing `opl-footer`, `opl-input`, or `opl-modes` installs the complete UI bundle.
-- Set `PI_AGENT_DIR` to install outside `$HOME/.pi/agent`.
+- `npm test` — runs all ten extension suites: `browser`, `ctxtrim`, `footer`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, and `simplebench`.
+- `npm run test:opl-<name>` — runs one suite by name.
+- `./install.sh` — copies all extensions and tracked `.json` configs into `~/.pi/agent`; `--link` creates non-destructive symlinks. `--only` selects extensions; choosing `opl-footer`, `opl-input`, or `opl-modes` installs the complete UI bundle.
+- `PI_AGENT_DIR=<path>` — set to install outside `$HOME/.pi/agent`.
 
-There are no build, lint, or typecheck scripts.
+Tests use Bun. Smoke tests do not exercise live TUI behavior, provider credentials, network providers, extraction, or real model interactions. `opl-webaccess` has no standalone implemented test command; use the root suite.
 
 ## Architecture
 
-Each `extensions/opl-*/index.ts` is independently loadable through the root `pi.extensions` glob. `opl-modes` is the only owner of active-tool selection and published mode appearance; `opl-input` and `opl-footer` consume that state. Preserve compatibility identifiers such as `mode-switcher`, `chat-mode`, and `plan-mode`.
+Each `extensions/opl-*/index.ts` is independently loadable through the root `pi.extensions` glob. `opl-modes` is the sole owner of active-tool selection and published mode appearance; `opl-input` and `opl-footer` consume that state. Preserve compatibility identifiers such as `mode-switcher`, `chat-mode`, and `plan-mode`.
 
 `opl-browser` is a single lazy Playwright dispatcher. `opl-webaccess` supplies provider-backed search and readable URL/PDF extraction. `opl-ctxtrim` only trims known context-mode schema descriptions, preserves all schema fields, and fails open for unknown payloads. `opl-init` generates fingerprinted `AGENTS.md` files. `opl-simplebench` contains provider runners, scoring, artifacts, direct llama-server metadata, llamagputop stats, coding tasks, and a benchmark-local research-artifact workflow.
 
@@ -26,7 +25,7 @@ Each `extensions/opl-*/index.ts` is independently loadable through the root `pi.
 
 `opl-modes.json` owns active-mode appearance and the shared read-only Bash policy. Its top-level `bashPatterns` applies to chat and plan unless a mode deliberately diverges.
 
-Copy `configs/opl-simplebench.json.sample` to `~/.pi/agent/configs/opl-simplebench.json` for optional live adapters. Its camelCase fields include `researchSearchProvider` (`ddgs` or `searxng`), `researchSearchUrl`, `researchMaxResults`, `llamaServerUrl`, and `llamagputopUrl`. `--test-all` includes the benchmark-local research artifact; `--llama-server` and `--llamagputop` are boolean opt-ins using configured URLs. Simplebench retains legacy timeout compatibility with `simplebench-config.json`.
+Copy `configs/opl-simplebench.json.sample` to `~/.pi/agent/configs/opl-simplebench.json` for optional live adapters. Its camelCase fields include `researchSearchProvider` (`ddgs` or `searxng`), `researchSearchUrl`, `researchMaxResults`, `llamaServerUrl`, and `llamagputopUrl`.
 
 `opl-webaccess` and `opl-browser` have nested runtime dependencies for checkout installs; install them in their extension directories. Browser additionally needs `npx playwright install chromium`.
 
@@ -38,12 +37,13 @@ Copy installation overwrites matching destinations; link mode skips existing fil
 
 ## Key files
 
-- `install.sh`: installer and UI-bundle selection.
-- `tests/extension-smoke.test.mjs`: shared entrypoint smoke runner.
-- `configs/`: portable config examples and samples.
-- `extensions/opl-modes/`: mode registry, policy, plan lifecycle, and shared state.
-- `extensions/opl-simplebench/`: benchmark orchestration, artifact output, research, llama metadata, and scoring.
-- `extensions/opl-browser/`, `extensions/opl-webaccess/`: external runtime integrations.
-- `extensions/opl-footer/segments/`: one module per footer cell.
-- `research/`: measured design assessments; use as background, not as a runtime dependency.
-<!-- opl-init:fp 8632a0f1b14dd140 -->
+- `install.sh` — installer and UI-bundle selection.
+- `tests/extension-smoke.test.mjs` — shared entrypoint smoke runner.
+- `configs/` — portable config examples and samples.
+- `extensions/opl-modes/` — mode registry, policy, plan lifecycle, and shared state.
+- `extensions/opl-simplebench/` — benchmark orchestration, artifact output, research, llama metadata, and scoring.
+- `extensions/opl-browser/`, `extensions/opl-webaccess/` — external runtime integrations.
+- `extensions/opl-footer/segments/` — one module per footer cell.
+- `AGENTS.md` — agent-facing rules and workflow guidance.
+
+<!-- opl-init:fp ff72df1cdf191ca5 -->
