@@ -6,16 +6,19 @@ on:
       - "v*"
 
 permissions:
+  id-token: write
   contents: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment: npm
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
       - uses: oven-sh/setup-bun@v2
       - run: npm install
@@ -32,3 +35,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body: ${{ steps.changelog.outputs.notes }}
+      - run: npm install -g npm@latest
+      - run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ''
