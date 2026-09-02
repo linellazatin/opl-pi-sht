@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.14] - 2026-09-02
+
+### Fixed
+- **`opl-init` reliability for smaller models**: `/init` now writes a deterministic fingerprinted baseline `AGENTS.md` before asking the model to refine it, so a Markdown-only response cannot leave the repository unchanged. The prompt explicitly requires a write-tool call and read-back verification.
+- **`opl-init` fingerprint stability**: `AGENTS.md` is excluded from the Git status fingerprint, preventing the guide from becoming immediately stale after it is written.
+
 ## [0.1.13] - 2026-09-01
 
 ### Added
