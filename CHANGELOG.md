@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.15] - 2026-09-02
+
+### Changed
+- **`opl-footer` session_stats**: replaced redundant counters (turns/steps/mreq/mtool; turns and mreq were literally the same expression, steps and mtool near-identical) with `prompts · api calls · tool calls` 
+  - `prompts` counts user messages
+  - `api calls` counts completed assistant responses
+  - `tool calls` counts emitted tool-call blocks
+- Removed dead live counters (`turns`, `steps`, `modelRequests`, `modelToolCalls`) that the branch reconstruction had already superseded; timing accumulators are unchanged.
+
+### Added
+- **npm publishing**: published as `@openlines/opl-pi-sht`, so `pi install npm:@openlines/opl-pi-sht@0.1.15` works alongside the Git install (`pi install git:github.com/linellazatin/opl-pi-sht@v0.1.15`).
+
 ## [0.1.14] - 2026-09-02
 
 ### Fixed

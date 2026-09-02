@@ -8,20 +8,40 @@ A portable collection of various Pi coding agent extensions. Repository director
 
 ### Pi package
 
-Install a versioned GitHub release with Pi:
+Install a versioned release from npm or GitHub. Both ship identical content; pick one source per machine, because Pi treats the npm and Git entries as separate packages and installing both loads every extension twice.
 
 ```bash
-pi install git:github.com/linellazatin/opl-pi-sht@v0.1.14
+pi install npm:@openlines/opl-pi-sht@0.1.15
+pi install git:github.com/linellazatin/opl-pi-sht@v0.1.15
 ```
 
-Pi installs the package under `~/.pi/agent/git/github.com/linellazatin/opl-pi-sht` and runs root `npm install`, so `opl-webaccess` and `opl-browser` runtime dependencies are available. Pi packages do not install optional extension config files; copy only the configs you need from that checkout to `~/.pi/agent/configs/`.
+> Omitting the version on the npm source tracks the latest published release; Git refs stay pinned, so move them with `pi install ...@v<new>`.
+
+Pi installs the package under `~/.pi/agent/npm/node_modules/@openlines/opl-pi-sht` (npm) or `~/.pi/agent/git/github.com/linellazatin/opl-pi-sht` (Git) and runs root `npm install`, so `opl-webaccess` and `opl-browser` runtime dependencies are available. Pi packages do not install optional extension config files; copy only the configs you need from that checkout's `configs/` to `~/.pi/agent/configs/`.
 
 `opl-browser` also needs Chromium once after package installation:
 
 ```bash
-cd ~/.pi/agent/git/github.com/linellazatin/opl-pi-sht
+cd ~/.pi/agent/npm/node_modules/@openlines/opl-pi-sht   # or the git checkout path
 npx playwright install chromium
 ```
+
+#### Selecting extensions
+
+`pi install` has no per-extension flag like `./install.sh --only`. After installing the package, narrow it in `~/.pi/agent/settings.json` using the object form (filters are globs relative to the package root and layer on top of the package manifest):
+
+```json
+{
+  "packages": [
+    {
+      "source": "npm:@openlines/opl-pi-sht@0.1.15",
+      "extensions": ["extensions/opl-init/index.ts", "extensions/opl-todo/index.ts"]
+    }
+  ]
+}
+```
+
+`pi config` provides the same control interactively: toggle individual extensions from an installed package without editing globs.
 
 ### Checkout installer
 
@@ -152,7 +172,7 @@ The fixed cost of a full install is small and paid once per session, then cached
 
 ## Configuration
 
-Copy applicable files from [`configs/`](configs/) to `~/.pi/agent/configs/`. For a Pi Git package installation, the source directory is `~/.pi/agent/git/github.com/linellazatin/opl-pi-sht/configs/`:
+Copy applicable files from [`configs/`](configs/) to `~/.pi/agent/configs/`. For a Pi package installation, the source directory is `~/.pi/agent/npm/node_modules/@openlines/opl-pi-sht/configs/` (npm) or `~/.pi/agent/git/github.com/linellazatin/opl-pi-sht/configs/` (Git):
 
 - `opl-footer.json`, `opl-input.json`, `opl-modes.json`, `opl-todo.json`, `opl-webaccess.json`
 - `opl-browser` has optional configuration (`opl-browser.json`); all fields default, so it works without any config file.
@@ -167,7 +187,7 @@ See each extension README for commands, behavior, configuration fields, runtime 
 
 ## Runtime requirements
 
-All extensions use Pi's normal extension discovery. Pi installs `opl-webaccess` extraction dependencies and Playwright automatically when installed as a Git package. For the checkout installer, install nested runtime dependencies before using those extensions:
+All extensions use Pi's normal extension discovery. Pi installs `opl-webaccess` extraction dependencies and Playwright automatically when installed as an npm or Git package. For the checkout installer, install nested runtime dependencies before using those extensions:
 
 ```bash
 cd extensions/opl-webaccess
@@ -178,7 +198,7 @@ npm install
 npx playwright install chromium
 ```
 
-A Pi Git package still needs the one-time `npx playwright install chromium` command shown above.
+A Pi package (npm or Git) still needs the one-time `npx playwright install chromium` command shown above.
 
 `opl-simplebench` writes a full JSON benchmark artifact in Pi's current working directory by default. `--test-all` additionally writes `research.md` and `page.html` beside `result.json` in a result bundle. Copy `configs/opl-simplebench.json.sample` to `~/.pi/agent/configs/opl-simplebench.json` to configure DDGS/SearXNG research and optional llama-server/llamagputop metadata endpoints. Use `/simplebench --no-artifact` or `simplebench({ no_artifact: true })` when responses must not be written to disk. Provider credentials remain outside tracked configuration; configure them through Pi provider settings, environment variables, or Pi authentication.
 

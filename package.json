@@ -1,6 +1,6 @@
 {
   "name": "@openlines/opl-pi-sht",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "Pi coding-agent extension kit: token-efficient context, safe modes, fingerprinted /init, model benchmarking, web access, and browser automation.",
   "repository": {
     "type": "git",
