@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 
 // ponytail: fixed ignore list instead of a full .gitignore parser.
@@ -63,7 +63,8 @@ function fingerprintGit(root: string): string | null {
       ["status", "--porcelain=v1", "--untracked-files=all"],
       { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
     );
-    return createHash("sha256").update(head).update(status).digest("hex").slice(0, 16);
+    const relevantStatus = status.split("\n").filter(line => !line.endsWith("AGENTS.md")).join("\n");
+    return createHash("sha256").update(head).update(relevantStatus).digest("hex").slice(0, 16);
   } catch {
     return null;
   }
@@ -375,7 +376,16 @@ function buildContext(root: string, crawlResult: Crawl): string {
   return sections.join("\n\n");
 }
 
-const PROMPT = `Generate or update AGENTS.md as an agent guide for this repository. This is a single-file task: your only deliverable is AGENTS.md. Do not modify, refactor, or create any other file.
+function fallbackGuide(root: string, crawlResult: Crawl, marker: string): string {
+  const topLevel = crawlResult.tree.filter(line => !line.startsWith("  ")).slice(0, 30).join(", ");
+  const scripts = crawlResult.manifests
+    .map(manifest => manifest.path.endsWith("package.json") ? packageScripts(manifest.content) : null)
+    .find(Boolean);
+  const commandBlock = scripts ? "Package scripts:\n```\n" + scripts + "\n```" : "No package scripts were detected by the repository crawl.";
+  return `# Repository Guide\n\n## What this is\n\nRepository at \`${root}\`. Use the repository files as the source of truth; the top-level inventory includes ${topLevel || "(not available)"}.\n\n## Commands\n\n${commandBlock}\n\n## Repository inventory\n\n- File types: ${[...crawlResult.extCounts.entries()].map(([extension, count]) => `${extension} (${count})`).join(", ") || "none detected"}.\n- The full crawl is available in the init task context. Inspect specific files before changing behavior.\n\n## Agent workflow\n\nKeep changes focused on the requested behavior, preserve existing interfaces, and run the narrowest relevant test before the full suite. Keep secrets and generated output out of tracked configuration.\n${marker}\n`;
+}
+
+const PROMPT = `Generate or update AGENTS.md as an agent guide for this repository. This is an execution task, not a request for prose in chat. You MUST use the write tool to write the guide to the repository's AGENTS.md path; a response containing Markdown without writing the file is a failure. After writing, use the read tool to verify the file exists and ends with the exact fingerprint marker. Do not modify, refactor, or create any other file.
 If AGENTS.md already exists and the repository crawl below says it is current, do not overwrite or modify it. If it is marked stale, update it. If it does not exist, create it.
 
 The repository crawl below (directory tree, file counts, manifests, and any existing rule sources) is the primary source of truth. It was produced for you, so do not re-crawl, re-list, or re-scan the tree, and do not spawn subagents or task lists for this. Read a small number of specific files directly only when you must confirm a repository-specific fact the crawl does not already answer.
@@ -425,9 +435,16 @@ export default function (pi: ExtensionAPI) {
           ? "AGENTS.md status: no fingerprint marker found; treat as stale and update it."
           : "AGENTS.md status: stale (fingerprint mismatch); update it.";
       const marker = `<!-- opl-init:fp ${currentFp} -->`;
+      const crawlResult = crawl(root);
+      try {
+        writeFileSync(agentsPath, fallbackGuide(root, crawlResult, marker), "utf8");
+        ctx.ui.notify("AGENTS.md baseline written; the agent will refine it from the crawl.", "info");
+      } catch (error: any) {
+        ctx.ui.notify(`Could not write AGENTS.md baseline: ${error?.message || error}`, "error");
+      }
 
       pi.sendUserMessage(
-        `${PROMPT}\n${status}\nFingerprint marker to append as the last line: ${marker}\n\n${buildContext(root, crawl(root))}`,
+        `${PROMPT}\n${status}\nFingerprint marker to append as the last line: ${marker}\n\n${buildContext(root, crawlResult)}`,
       );
     },
   });

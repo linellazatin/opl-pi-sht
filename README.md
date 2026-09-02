@@ -11,7 +11,7 @@ A portable collection of various Pi coding agent extensions. Repository director
 Install a versioned GitHub release with Pi:
 
 ```bash
-pi install git:github.com/linellazatin/opl-pi-sht@v0.1.13
+pi install git:github.com/linellazatin/opl-pi-sht@v0.1.14
 ```
 
 Pi installs the package under `~/.pi/agent/git/github.com/linellazatin/opl-pi-sht` and runs root `npm install`, so `opl-webaccess` and `opl-browser` runtime dependencies are available. Pi packages do not install optional extension config files; copy only the configs you need from that checkout to `~/.pi/agent/configs/`.
@@ -81,7 +81,7 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 
 ### Move through work faster
 
-- **`opl-init`** writes a fingerprinted `AGENTS.md` so any agent starts already oriented in a repo, and re-runs only update when the tree actually changes.
+- **`opl-init`** writes a fingerprinted `AGENTS.md` so any agent starts already oriented in a repo. It writes a baseline before asking the model to refine the guide, so smaller models cannot leave the update only in chat; it re-runs only when the tree actually changes.
 ![init](images/ss-init.png)
 - **`opl-browser`** gives full Chromium automation (navigate, snapshot, interact, screenshot, console/network capture, evaluate) through a single tool, with handle+preview output for large results.
 - **`opl-webaccess`** adds provider-backed search plus readable URL and PDF extraction, with session recovery of earlier results.
