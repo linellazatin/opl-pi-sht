@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
 import { formatTokens, withIcon } from "../extensions/opl-footer/segments/helpers.ts";
-import { formatMs } from "../extensions/opl-footer/segments/session-stats.ts";
+import { formatMs, sessionStatsSegment } from "../extensions/opl-footer/segments/session-stats.ts";
 import { lerp } from "../extensions/opl-footer/segments/context.ts";
 import { modeSwitcherSegment } from "../extensions/opl-footer/segments/mode-switcher.ts";
+
+test("session_stats renders prompts, api calls, and tool calls", () => {
+  const ctx = { theme: { fg: (_c, s) => s }, sessionStats: { prompts: 2, apiCalls: 31, toolCalls: 48, llmMs: 0, toolMs: 0, ttftSamples: [], lastTurnaroundMs: 0 } };
+  const seg = sessionStatsSegment.render(ctx);
+  assert.equal(seg.visible, true);
+  assert.match(seg.content, /2 prompts.*31 api calls.*48 tool calls/s);
+  assert.equal(sessionStatsSegment.render({ ...ctx, sessionStats: { ...ctx.sessionStats, prompts: 0 } }).visible, false);
+});
 
 test("formats footer token and duration values at display boundaries", () => {
   assert.equal(formatTokens(0), "0");

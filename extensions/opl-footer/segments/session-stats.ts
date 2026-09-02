@@ -19,21 +19,14 @@ export function formatMs(ms: number): string {
 export const sessionStatsSegment = {
   id: "session_stats" as const,
   render(ctx: SegmentContext): RenderedSegment {
-    const { turns, steps, modelRequests, modelToolCalls } = ctx.sessionStats;
-    if (turns === 0) return { content: "", visible: false };
+    const { prompts, apiCalls, toolCalls } = ctx.sessionStats;
+    if (prompts === 0) return { content: "", visible: false };
 
-    const parts: string[] = [
-      val(ctx, `${turns}`) + dim(ctx, " turns"),
-      val(ctx, `${steps}`) + dim(ctx, " steps"),
+    const parts = [
+      val(ctx, `${prompts}`) + dim(ctx, " prompts"),
+      val(ctx, `${apiCalls}`) + dim(ctx, " api calls"),
+      val(ctx, `${toolCalls}`) + dim(ctx, " tool calls"),
     ];
-
-    // Add model stats if available
-    if (modelRequests > 0) {
-      parts.push(val(ctx, `${modelRequests}`) + dim(ctx, " mreq"));
-    }
-    if (modelToolCalls > 0) {
-      parts.push(val(ctx, `${modelToolCalls}`) + dim(ctx, " mtool"));
-    }
 
     return { content: parts.join(dim(ctx, " · ")), visible: true };
   },
@@ -42,8 +35,8 @@ export const sessionStatsSegment = {
 export const perfStatsSegment = {
   id: "perf_stats" as const,
   render(ctx: SegmentContext): RenderedSegment {
-    const { turns, llmMs, toolMs, ttftSamples, lastTurnaroundMs } = ctx.sessionStats;
-    if (turns === 0) return { content: "", visible: false };
+    const { prompts, llmMs, toolMs, ttftSamples, lastTurnaroundMs } = ctx.sessionStats;
+    if (prompts === 0) return { content: "", visible: false };
 
     const { input, output, cacheRead } = ctx.usageStats;
 
