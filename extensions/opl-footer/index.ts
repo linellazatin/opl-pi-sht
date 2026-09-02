@@ -103,11 +103,7 @@ export default function footer(pi: ExtensionAPI) {
   let cachedUsageStats: UsageStats | null = null;
   let tuiRef: TUI | null = null;
 
-  // Session stats accumulators
-  let turns = 0;
-  let steps = 0;
-  let modelRequests = 0;
-  let modelToolCalls = 0;
+  // Session stats accumulators (timing only; counts are reconstructed from the branch)
   let llmMs = 0;
   let toolMs = 0;
   let ttftSamples: number[] = [];
@@ -124,10 +120,6 @@ export default function footer(pi: ExtensionAPI) {
     currentCtx = ctx;
     lastBranchLength = 0;
     cachedUsageStats = null;
-    turns = 0;
-    steps = 0;
-    modelRequests = 0;
-    modelToolCalls = 0;
     llmMs = 0;
     toolMs = 0;
     ttftSamples = [];
@@ -165,13 +157,11 @@ export default function footer(pi: ExtensionAPI) {
   });
 
   pi.on("turn_end", async (_event: unknown, _ctx: ExtensionContext) => {
-    turns++;
     const elapsed = Date.now() - turnStartMs;
     llmMs += Math.max(0, elapsed - toolMsThisTurn);
   });
 
   pi.on("tool_execution_start", async (event: { toolCallId: string }, _ctx: ExtensionContext) => {
-    steps++;
     toolStartTimes.set(event.toolCallId, Date.now());
   });
 
@@ -278,18 +268,15 @@ export default function footer(pi: ExtensionAPI) {
     // This allows litellm proxy to correctly separate local vs cloud models
     const isLocalModel = ctx.model?.id?.startsWith?.("local.") ?? false;
 
-    // Reconstruct turns/steps from branch so they survive quit/resume.
+    // Reconstruct prompt/API-call/tool-call counts from the branch so they survive quit/resume.
     // Timing stats (llmMs, toolMs, ttftSamples) are ephemeral — not stored in messages.
-    const branchTurns = completedMessages.length;
-    const branchSteps = branch.filter(
-      (e) => e.type === "message" && (e as AssistantMessageEvent).message?.role === "toolResult",
+    const branchPrompts = branch.filter(
+      (e) => e.type === "message" && (e as AssistantMessageEvent).message?.role === "user",
     ).length;
-
-    // Count model requests (each assistant message = 1 request)
-    const branchModelRequests = completedMessages.length;
+    const branchApiCalls = completedMessages.length;
 
     // Count tool calls from assistant message content
-    const branchModelToolCalls = completedMessages.reduce((sum, msg) => {
+    const branchToolCalls = completedMessages.reduce((sum, msg) => {
       const content = (msg as any).content || [];
       return sum + content.filter((block: any) => block?.type === "toolCall").length;
     }, 0);
@@ -310,7 +297,7 @@ export default function footer(pi: ExtensionAPI) {
       theme,
       colors,
       icons: getIcons(effectiveConfig.icons),
-      sessionStats: { turns: branchTurns, steps: branchSteps, modelRequests: branchModelRequests, modelToolCalls: branchModelToolCalls, llmMs, toolMs, ttftSamples, lastTurnaroundMs },
+      sessionStats: { prompts: branchPrompts, apiCalls: branchApiCalls, toolCalls: branchToolCalls, llmMs, toolMs, ttftSamples, lastTurnaroundMs },
     };
   }
 

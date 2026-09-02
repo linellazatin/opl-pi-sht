@@ -97,12 +97,11 @@ export interface UsageStats {
   cost: number;
 }
 
-// Session performance stats accumulated via events
+// Session performance stats accumulated via events; counts reconstructed from the branch
 export interface SessionStats {
-  turns: number;
-  steps: number;
-  modelRequests: number;
-  modelToolCalls: number;
+  prompts: number;
+  apiCalls: number;
+  toolCalls: number;
   llmMs: number;
   toolMs: number;
   ttftSamples: number[];
