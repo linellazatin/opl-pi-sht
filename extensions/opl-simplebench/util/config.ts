@@ -79,6 +79,15 @@ export interface ModelTestUserConfig {
   researchMaxResults?: number;
   llamaServerUrl?: string;
   llamagputopUrl?: string;
+  runSequence?: RunSequenceConfig;
+}
+
+/** Templated multi-run benchmark sequence used by `/simplebench --sequence`. */
+export interface RunSequenceConfig {
+  enabled?: boolean;
+  llamaMetrics?: boolean;
+  pauseMs?: number;
+  sequence?: string[];
 }
 
 /**
