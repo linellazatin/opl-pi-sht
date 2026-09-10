@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.16] - 2026-09-03
+
+### Added
+- **`runSequence` template** for `/simplebench --sequence`: a config-driven multi-iteration benchmark protocol in `opl-simplebench.json`, e.g. a warm-up curve of `--coding-lite --tag=coldest` → `--3ptest --tag=colder` → `--coding-lite --tag=semiwarm` → `--test-all --research-live --tag=warm`. Each entry is a plain flag string with its own `--tag`; iterations run sequentially against the current (or passed) model, each writing its normal artifact, and a failed iteration does not abort the sequence.
+  - `llamaMetrics: true` appends `--llama-server --llamagputop` to every entry so local server stats are captured per iteration without repeating flags.
+  - `pauseMs` sleeps between iterations only (including after a failed one), keeping thermal/KV-cache cooldown consistent across the run.
+  - `enabled` gates the flag; validation rejects disabled/empty sequences, negative `pauseMs`, invalid entry tags, and entries containing `--all` or `--sequence` before any run starts. The outer `--tag` is ignored during a sequence.
+- **`--3ptest`** flag: the explicit form of the default baseline suite (reasoning, instruction following, tool calls). Pure alias; artifacts already named the baseline suite `3ptest`, so run behavior and filenames are unchanged.
+
 ## [0.1.15] - 2026-09-02
 
 ### Changed
