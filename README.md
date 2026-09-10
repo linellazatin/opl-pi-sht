@@ -200,7 +200,7 @@ npx playwright install chromium
 
 A Pi package (npm or Git) still needs the one-time `npx playwright install chromium` command shown above.
 
-`opl-simplebench` writes a full JSON benchmark artifact in Pi's current working directory by default. `--test-all` additionally writes `research.md` and `page.html` beside `result.json` in a result bundle. Copy `configs/opl-simplebench.json.sample` to `~/.pi/agent/configs/opl-simplebench.json` to configure DDGS/SearXNG research and optional llama-server/llamagputop metadata endpoints. Use `/simplebench --no-artifact` or `simplebench({ no_artifact: true })` when responses must not be written to disk. Provider credentials remain outside tracked configuration; configure them through Pi provider settings, environment variables, or Pi authentication.
+`opl-simplebench` writes a full JSON benchmark artifact in Pi's current working directory by default. `--test-all` additionally writes `research.md` and `page.html` beside `result.json` in a result bundle. `/simplebench --sequence` runs a templated multi-run protocol (for example a model warm-up curve) defined in the `runSequence` block, with per-iteration tags, optional llama-server/llamagputop metrics, and a configurable pause between iterations. Copy `configs/opl-simplebench.json.sample` to `~/.pi/agent/configs/opl-simplebench.json` to configure DDGS/SearXNG research, optional llama-server/llamagputop metadata endpoints, and the run sequence. Use `/simplebench --no-artifact` or `simplebench({ no_artifact: true })` when responses must not be written to disk. Provider credentials remain outside tracked configuration; configure them through Pi provider settings, environment variables, or Pi authentication.
 
 ## Tests
 

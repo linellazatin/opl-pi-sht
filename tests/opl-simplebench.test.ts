@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "bun:test";
-import { parseCommandArgs } from "../extensions/opl-simplebench/index";
+import { parseCommandArgs, resolveRunSequence } from "../extensions/opl-simplebench/index";
 import { buildToolContinuationMessages, createBenchmark, hasOllamaAssistantOutput, isValidInstructionOutput, openAiThinkingOptions, resolveBenchmarkModel, resolveThinkingMode } from "../extensions/opl-simplebench/benchmark";
 import { artifactFileName, writeArtifact, writeArtifactBundle } from "../extensions/opl-simplebench/artifact";
 import { codingRecommendation, formatInstructionScore, recommendation, renderSummary } from "../extensions/opl-simplebench/report";
@@ -45,6 +45,38 @@ test("parses a single-word tag into options and artifact naming", () => {
   assert.throws(() => parseCommandArgs("qwen --tag=bad/name"), /single word/);
   assert.throws(() => parseCommandArgs("qwen --tag="), /single word/);
   assert.equal(artifactFileName("qwen", "coding-lite", "default", new Date("2026-08-23T12:00:00Z"), "coldrun"), "simplebench-coldrun-coding-lite-qwen-default-2026-08-23T12-00-00Z.json");
+});
+
+test("parses --3ptest and --sequence flags", () => {
+  assert.equal(parseCommandArgs("qwen --3ptest").threePTest, true);
+  assert.equal(parseCommandArgs("qwen").threePTest, undefined);
+  assert.equal(parseCommandArgs("--sequence").sequence, true);
+  assert.equal(parseCommandArgs("qwen").sequence, undefined);
+});
+
+test("resolves runSequence entries with llamaMetrics and pauseMs", () => {
+  const resolved = resolveRunSequence({ runSequence: { enabled: true, llamaMetrics: true, pauseMs: 5000, sequence: ["--coding-lite --tag=coldest", "--3ptest --tag=colder"] } });
+  assert.equal(resolved.pauseMs, 5000);
+  assert.equal(resolved.runs.length, 2);
+  assert.equal(resolved.runs[0].options.codingLite, true);
+  assert.equal(resolved.runs[0].options.tag, "coldest");
+  assert.equal(resolved.runs[0].options.llamaServer, true);
+  assert.equal(resolved.runs[0].options.llamagputop, true);
+  assert.equal(resolved.runs[1].options.threePTest, true);
+  assert.equal(resolved.runs[1].options.tag, "colder");
+  assert.equal(resolved.runs[1].options.llamaServer, true);
+  const noMetrics = resolveRunSequence({ runSequence: { enabled: true, sequence: ["--test-all"] } });
+  assert.equal(noMetrics.pauseMs, 0);
+  assert.equal(noMetrics.runs[0].options.llamaServer, false);
+});
+
+test("rejects invalid runSequence configuration", () => {
+  assert.throws(() => resolveRunSequence({}), /not enabled/);
+  assert.throws(() => resolveRunSequence({ runSequence: { enabled: true, sequence: [] } }), /non-empty/);
+  assert.throws(() => resolveRunSequence({ runSequence: { enabled: true, sequence: ["--all --test-all"] } }), /cannot contain --all/);
+  assert.throws(() => resolveRunSequence({ runSequence: { enabled: true, sequence: ["--sequence"] } }), /cannot contain --sequence/);
+  assert.throws(() => resolveRunSequence({ runSequence: { enabled: true, pauseMs: -1, sequence: ["--3ptest"] } }), /non-negative/);
+  assert.throws(() => resolveRunSequence({ runSequence: { enabled: true, sequence: ["--tag=bad/name"] } }), /single word/);
 });
 
 test("normalizes configured metadata URLs", () => {

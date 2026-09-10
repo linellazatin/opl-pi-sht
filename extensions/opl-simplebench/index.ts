@@ -1,7 +1,7 @@
 import type { ExtensionAPI, AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { debugLog } from "./util/debug";
 import { detectProvider } from "./util/providers";
-import { TOOL_SUPPORT_CACHE_PATH } from "./util/config";
+import { readTestConfig, TOOL_SUPPORT_CACHE_PATH, type ModelTestUserConfig } from "./util/config";
 import type { SimplebenchOptions } from "./types";
 import { createBenchmark } from "./benchmark";
 
@@ -13,7 +13,25 @@ export function parseCommandArgs(args: string): SimplebenchOptions {
     tag = tagToken.slice("--tag=".length);
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(tag)) throw new Error(`--tag must be a single word (letters, digits, dot, dash, underscore): got "${tag}"`);
   }
-  return { model: tokens.find(token => !token.startsWith("--")), allModels: tokens.includes("--all"), writeArtifact: !tokens.includes("--no-artifact"), thinkingMax: tokens.includes("--thinking-max"), codingLite: tokens.includes("--coding-lite"), testAll: tokens.includes("--test-all"), researchLive: tokens.includes("--research-live"), llamaServer: tokens.includes("--llama-server"), llamagputop: tokens.includes("--llamagputop"), ...(tag ? { tag } : {}) };
+  return { model: tokens.find(token => !token.startsWith("--")), allModels: tokens.includes("--all"), writeArtifact: !tokens.includes("--no-artifact"), thinkingMax: tokens.includes("--thinking-max"), codingLite: tokens.includes("--coding-lite"), testAll: tokens.includes("--test-all"), researchLive: tokens.includes("--research-live"), llamaServer: tokens.includes("--llama-server"), llamagputop: tokens.includes("--llamagputop"), ...(tag ? { tag } : {}), ...(tokens.includes("--3ptest") ? { threePTest: true } : {}), ...(tokens.includes("--sequence") ? { sequence: true } : {}) };
+}
+
+export interface ResolvedRunSequence { runs: Array<{ entry: string; options: SimplebenchOptions }>; pauseMs: number }
+
+/** Expand the configured runSequence into per-iteration benchmark options. Throws on disabled/invalid configuration. */
+export function resolveRunSequence(userConfig: ModelTestUserConfig): ResolvedRunSequence {
+  const rs = userConfig.runSequence;
+  if (!rs?.enabled) throw new Error("runSequence is not enabled in opl-simplebench.json");
+  if (!Array.isArray(rs.sequence) || rs.sequence.length === 0) throw new Error("runSequence.sequence must be a non-empty array of flag strings");
+  const pauseMs = rs.pauseMs ?? 0;
+  if (typeof pauseMs !== "number" || !Number.isFinite(pauseMs) || pauseMs < 0) throw new Error(`runSequence.pauseMs must be a non-negative number: got ${JSON.stringify(rs.pauseMs)}`);
+  const runs = rs.sequence.map((entry: string) => {
+    const tokens = String(entry).trim().split(/\s+/);
+    if (tokens.includes("--all")) throw new Error(`runSequence entry cannot contain --all: "${entry}"`);
+    if (tokens.includes("--sequence")) throw new Error(`runSequence entry cannot contain --sequence: "${entry}"`);
+    return { entry: String(entry), options: parseCommandArgs(`${entry}${rs.llamaMetrics ? " --llama-server --llamagputop" : ""}`) };
+  });
+  return { runs, pauseMs };
 }
 
 export default function (pi: ExtensionAPI) {
@@ -22,7 +40,7 @@ export default function (pi: ExtensionAPI) {
 
 pi.registerCommand("simplebench", {
   description: "Benchmark a model with auditable closed-answer, instruction, and tool-use tests.",
-  detailedHelp: "\n\n🔍 Simplebench Extension\n\nThis extension tests AI models across multiple dimensions:\n• Closed-answer contract: 20 deterministic final-line answers (logic, math, spatial, commonsense)\n• Tool Usage: Ability to use available tools effectively\n• Instruction Following: How well the model follows complex JSON instructions\n• Coding Lite: Six isolated, execution-backed coding tasks\n\n📋 Usage Examples:\n  /simplebench                    # Test current model\n  /simplebench <model>           # Test a specific model\n  /simplebench --all             # Test all Ollama models\n  /simplebench <model> --coding-lite # Run only coding tasks\n  /simplebench <model> --test-all # Run baseline, coding, and grounded research\n  /simplebench <model> --research-live # Add live search integration smoke test\n  /simplebench --all --test-all  # Run complete suite for every Ollama model\n  /simplebench <model> --thinking-max # Request max reasoning\n  /simplebench <model> --llama-server # Capture configured /props and /metrics\n  /simplebench <model> --llamagputop # Capture configured llama.cpp stats\n  /simplebench <model> --tag=coldrun # Label the run: benchmark.tag plus artifact filename prefix\n  /simplebench --help            # Show this help\n  /simplebench --clear-cache     # Clear tool support cache\n\nCoding tasks run in disposable directories and never access the user repository.\n",
+  detailedHelp: "\n\n🔍 Simplebench Extension\n\nThis extension tests AI models across multiple dimensions:\n• Closed-answer contract: 20 deterministic final-line answers (logic, math, spatial, commonsense)\n• Tool Usage: Ability to use available tools effectively\n• Instruction Following: How well the model follows complex JSON instructions\n• Coding Lite: Six isolated, execution-backed coding tasks\n\n📋 Usage Examples:\n  /simplebench                    # Test current model\n  /simplebench <model>           # Test a specific model\n  /simplebench --all             # Test all Ollama models\n  /simplebench <model> --3ptest  # Run the default 3ptest baseline explicitly\n  /simplebench <model> --coding-lite # Run only coding tasks\n  /simplebench <model> --test-all # Run baseline, coding, and grounded research\n  /simplebench <model> --research-live # Add live search integration smoke test\n  /simplebench --all --test-all  # Run complete suite for every Ollama model\n  /simplebench <model> --sequence # Run the configured runSequence template\n  /simplebench <model> --thinking-max # Request max reasoning\n  /simplebench <model> --llama-server # Capture configured /props and /metrics\n  /simplebench <model> --llamagputop # Capture configured llama.cpp stats\n  /simplebench <model> --tag=coldrun # Label the run: benchmark.tag plus artifact filename prefix\n  /simplebench --help            # Show this help\n  /simplebench --clear-cache     # Clear tool support cache\n\nCoding tasks run in disposable directories and never access the user repository.\n",
   getArgumentCompletions: async (prefix) => {
     try {
       const models = await getOllamaModels();
@@ -54,6 +72,8 @@ pi.registerCommand("simplebench", {
         "  /simplebench [model] --test-all - Run baseline, coding, and deterministic grounded research\n" +
         "  /simplebench [model] --research-live - Add live-search integration smoke test\n" +
         "  /simplebench [model] --tag=<word> - Label the run (single word; added to benchmark.tag and the artifact name)\n" +
+        "  /simplebench [model] --3ptest - Run the default baseline suite explicitly\n" +
+        "  /simplebench [model] --sequence - Run the templated multi-iteration sequence from opl-simplebench.json (runSequence; per-entry --tag, llamaMetrics and pauseMs supported; the outer --tag is ignored)\n" +
         "  /simplebench --all --test-all - Run complete suite for all Ollama models\n" +
         "  /simplebench --clear-cache - Clear tool support cache\n",
         "info"
@@ -73,6 +93,46 @@ pi.registerCommand("simplebench", {
       } catch (err) {
         ctx.ui.notify("Could not clear cache", "error");
       }
+      return;
+    }
+
+    if (parsedArgs.sequence) {
+      let resolved: ResolvedRunSequence;
+      try {
+        resolved = resolveRunSequence(readTestConfig());
+      } catch (e: any) {
+        ctx.ui.notify(e?.message || String(e), "error");
+        return;
+      }
+      const sequenceModel = parsedArgs.model || ctx.model?.id;
+      if (!sequenceModel) {
+        ctx.ui.notify("No model specified and no model currently selected", "error");
+        return;
+      }
+      ctx.ui.notify(`Running ${resolved.runs.length}-iteration sequence (${resolved.runs.map(r => r.entry).join(" | ")})...`, "info");
+      let completed = 0;
+      for (let i = 0; i < resolved.runs.length; i++) {
+        if (i > 0 && resolved.pauseMs > 0) {
+          ctx.ui.notify(`Cooling down ${resolved.pauseMs / 1000}s before iteration ${i + 1}/${resolved.runs.length}...`, "info");
+          await new Promise(resolve => setTimeout(resolve, resolved.pauseMs));
+        }
+        const { entry, options } = resolved.runs[i];
+        const model = options.model || sequenceModel;
+        ctx.ui.notify(`Iteration ${i + 1}/${resolved.runs.length} (${entry}) on ${model}...`, "info");
+        try {
+          const report = await testModel(model, ctx, { ...options, model });
+          completed += 1;
+          pi.sendMessage({
+            customType: "simplebench-report",
+            content: report,
+            display: { type: "content", content: report },
+            details: { model, timestamp: new Date().toISOString() },
+          });
+        } catch (e: any) {
+          ctx.ui.notify(`Iteration ${i + 1} (${entry}) failed: ${e.message}`, "error");
+        }
+      }
+      ctx.ui.notify(`Sequence done: ${completed}/${resolved.runs.length} iterations completed`, "info");
       return;
     }
 
