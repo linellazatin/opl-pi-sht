@@ -1,7 +1,7 @@
 import type { ExtensionAPI, AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { debugLog } from "./util/debug";
 import { detectProvider } from "./util/providers";
-import { readTestConfig, TOOL_SUPPORT_CACHE_PATH, type ModelTestUserConfig } from "./util/config";
+import { readTestConfig, TOOL_SUPPORT_CACHE_PATH, type ModelTestUserConfig, type RunSequenceProfile } from "./util/config";
 import type { SimplebenchOptions } from "./types";
 import { createBenchmark } from "./benchmark";
 
@@ -13,25 +13,50 @@ export function parseCommandArgs(args: string): SimplebenchOptions {
     tag = tagToken.slice("--tag=".length);
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(tag)) throw new Error(`--tag must be a single word (letters, digits, dot, dash, underscore): got "${tag}"`);
   }
-  return { model: tokens.find(token => !token.startsWith("--")), allModels: tokens.includes("--all"), writeArtifact: !tokens.includes("--no-artifact"), thinkingMax: tokens.includes("--thinking-max"), codingLite: tokens.includes("--coding-lite"), testAll: tokens.includes("--test-all"), researchLive: tokens.includes("--research-live"), llamaServer: tokens.includes("--llama-server"), llamagputop: tokens.includes("--llamagputop"), ...(tag ? { tag } : {}), ...(tokens.includes("--3ptest") ? { threePTest: true } : {}), ...(tokens.includes("--sequence") ? { sequence: true } : {}) };
+  const seqToken = tokens.find(token => token === "--sequence" || token.startsWith("--sequence="));
+  let sequence: boolean | string | undefined;
+  if (seqToken) {
+    if (seqToken === "--sequence") sequence = true;
+    else {
+      sequence = seqToken.slice("--sequence=".length);
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(sequence)) throw new Error(`--sequence= must name a single word (letters, digits, dot, dash, underscore): got "${seqToken.slice("--sequence=".length)}"`);
+    }
+  }
+  return { model: tokens.find(token => !token.startsWith("--")), allModels: tokens.includes("--all"), writeArtifact: !tokens.includes("--no-artifact"), thinkingMax: tokens.includes("--thinking-max"), codingLite: tokens.includes("--coding-lite"), testAll: tokens.includes("--test-all"), researchLive: tokens.includes("--research-live"), llamaServer: tokens.includes("--llama-server"), llamagputop: tokens.includes("--llamagputop"), ...(tag ? { tag } : {}), ...(tokens.includes("--3ptest") ? { threePTest: true } : {}), ...(sequence ? { sequence } : {}) };
 }
 
-export interface ResolvedRunSequence { runs: Array<{ entry: string; options: SimplebenchOptions }>; pauseMs: number }
+export interface ResolvedRunSequence { profile: string; runs: Array<{ entry: string; options: SimplebenchOptions }>; pauseMs: number }
 
-/** Expand the configured runSequence into per-iteration benchmark options. Throws on disabled/invalid configuration. */
-export function resolveRunSequence(userConfig: ModelTestUserConfig): ResolvedRunSequence {
+const PROFILE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** Expand one configured runSequence profile into per-iteration benchmark options. Throws on disabled/invalid configuration. */
+export function resolveRunSequence(userConfig: ModelTestUserConfig, name?: string): ResolvedRunSequence {
   const rs = userConfig.runSequence;
   if (!rs?.enabled) throw new Error("runSequence is not enabled in opl-simplebench.json");
-  if (!Array.isArray(rs.sequence) || rs.sequence.length === 0) throw new Error("runSequence.sequence must be a non-empty array of flag strings");
-  const pauseMs = rs.pauseMs ?? 0;
-  if (typeof pauseMs !== "number" || !Number.isFinite(pauseMs) || pauseMs < 0) throw new Error(`runSequence.pauseMs must be a non-negative number: got ${JSON.stringify(rs.pauseMs)}`);
-  const runs = rs.sequence.map((entry: string) => {
+  const profiles: RunSequenceProfile[] = [];
+  if (Array.isArray(rs.sequence) && rs.sequence.length > 0) profiles.push({ name: "", iterations: rs.sequence, llamaMetrics: rs.llamaMetrics, pauseMs: rs.pauseMs });
+  for (const profile of rs.sequences ?? []) {
+    if (typeof profile?.name !== "string" || !PROFILE_NAME_RE.test(profile.name)) throw new Error(`runSequence profile name must be a single word (letters, digits, dot, dash, underscore): got ${JSON.stringify(profile?.name)}`);
+    if (!Array.isArray(profile.iterations) || profile.iterations.length === 0) throw new Error(`runSequence profile "${profile.name}" needs a non-empty iterations array`);
+    if (profiles.some(known => known.name === profile.name)) throw new Error(`duplicate runSequence profile name: "${profile.name}"`);
+    profiles.push(profile);
+  }
+  const label = (p: RunSequenceProfile) => p.name || "(legacy)";
+  if (profiles.length === 0) throw new Error("runSequence needs a non-empty sequence array or sequences list");
+  let chosen: RunSequenceProfile | undefined;
+  if (name) chosen = profiles.find(p => p.name === name);
+  else if (profiles.length === 1) chosen = profiles[0];
+  if (!chosen) throw new Error(name ? `unknown runSequence profile "${name}"; available: ${profiles.map(label).join(", ")}` : `--sequence needs a profile name; available: ${profiles.map(label).join(", ")}`);
+  const pauseMs = chosen.pauseMs ?? 0;
+  if (typeof pauseMs !== "number" || !Number.isFinite(pauseMs) || pauseMs < 0) throw new Error(`runSequence.pauseMs must be a non-negative number: got ${JSON.stringify(chosen.pauseMs)}`);
+  const llamaMetrics = chosen.llamaMetrics ?? rs.llamaMetrics;
+  const runs = chosen.iterations.map((entry: string) => {
     const tokens = String(entry).trim().split(/\s+/);
     if (tokens.includes("--all")) throw new Error(`runSequence entry cannot contain --all: "${entry}"`);
-    if (tokens.includes("--sequence")) throw new Error(`runSequence entry cannot contain --sequence: "${entry}"`);
-    return { entry: String(entry), options: parseCommandArgs(`${entry}${rs.llamaMetrics ? " --llama-server --llamagputop" : ""}`) };
+    if (tokens.some(token => token === "--sequence" || token.startsWith("--sequence="))) throw new Error(`runSequence entry cannot contain --sequence: "${entry}"`);
+    return { entry: String(entry), options: parseCommandArgs(`${entry}${llamaMetrics ? " --llama-server --llamagputop" : ""}`) };
   });
-  return { runs, pauseMs };
+  return { profile: chosen.name, runs, pauseMs };
 }
 
 export default function (pi: ExtensionAPI) {
@@ -40,7 +65,7 @@ export default function (pi: ExtensionAPI) {
 
 pi.registerCommand("simplebench", {
   description: "Benchmark a model with auditable closed-answer, instruction, and tool-use tests.",
-  detailedHelp: "\n\n🔍 Simplebench Extension\n\nThis extension tests AI models across multiple dimensions:\n• Closed-answer contract: 20 deterministic final-line answers (logic, math, spatial, commonsense)\n• Tool Usage: Ability to use available tools effectively\n• Instruction Following: How well the model follows complex JSON instructions\n• Coding Lite: Six isolated, execution-backed coding tasks\n\n📋 Usage Examples:\n  /simplebench                    # Test current model\n  /simplebench <model>           # Test a specific model\n  /simplebench --all             # Test all Ollama models\n  /simplebench <model> --3ptest  # Run the default 3ptest baseline explicitly\n  /simplebench <model> --coding-lite # Run only coding tasks\n  /simplebench <model> --test-all # Run baseline, coding, and grounded research\n  /simplebench <model> --research-live # Add live search integration smoke test\n  /simplebench --all --test-all  # Run complete suite for every Ollama model\n  /simplebench <model> --sequence # Run the configured runSequence template\n  /simplebench <model> --thinking-max # Request max reasoning\n  /simplebench <model> --llama-server # Capture configured /props and /metrics\n  /simplebench <model> --llamagputop # Capture configured llama.cpp stats\n  /simplebench <model> --tag=coldrun # Label the run: benchmark.tag plus artifact filename prefix\n  /simplebench --help            # Show this help\n  /simplebench --clear-cache     # Clear tool support cache\n\nCoding tasks run in disposable directories and never access the user repository.\n",
+  detailedHelp: "\n\n🔍 Simplebench Extension\n\nThis extension tests AI models across multiple dimensions:\n• Closed-answer contract: 20 deterministic final-line answers (logic, math, spatial, commonsense)\n• Tool Usage: Ability to use available tools effectively\n• Instruction Following: How well the model follows complex JSON instructions\n• Coding Lite: Six isolated, execution-backed coding tasks\n\n📋 Usage Examples:\n  /simplebench                    # Test current model\n  /simplebench <model>           # Test a specific model\n  /simplebench --all             # Test all Ollama models\n  /simplebench <model> --3ptest  # Run the default 3ptest baseline explicitly\n  /simplebench <model> --coding-lite # Run only coding tasks\n  /simplebench <model> --test-all # Run baseline, coding, and grounded research\n  /simplebench <model> --research-live # Add live search integration smoke test\n  /simplebench --all --test-all  # Run complete suite for every Ollama model\n  /simplebench <model> --sequence[=<name>] # Run a configured runSequence profile\n  /simplebench <model> --thinking-max # Request max reasoning\n  /simplebench <model> --llama-server # Capture configured /props and /metrics\n  /simplebench <model> --llamagputop # Capture configured llama.cpp stats\n  /simplebench <model> --tag=coldrun # Label the run: benchmark.tag plus artifact filename prefix\n  /simplebench --help            # Show this help\n  /simplebench --clear-cache     # Clear tool support cache\n\nCoding tasks run in disposable directories and never access the user repository.\n",
   getArgumentCompletions: async (prefix) => {
     try {
       const models = await getOllamaModels();
@@ -73,7 +98,7 @@ pi.registerCommand("simplebench", {
         "  /simplebench [model] --research-live - Add live-search integration smoke test\n" +
         "  /simplebench [model] --tag=<word> - Label the run (single word; added to benchmark.tag and the artifact name)\n" +
         "  /simplebench [model] --3ptest - Run the default baseline suite explicitly\n" +
-        "  /simplebench [model] --sequence - Run the templated multi-iteration sequence from opl-simplebench.json (runSequence; per-entry --tag, llamaMetrics and pauseMs supported; the outer --tag is ignored)\n" +
+        "  /simplebench [model] --sequence[=<name>] - Run a templated multi-iteration sequence profile from opl-simplebench.json (runSequence.sequences; bare --sequence needs exactly one profile; per-entry --tag, llamaMetrics and pauseMs supported, profile values override the block ones; the outer --tag is ignored)\n" +
         "  /simplebench --all --test-all - Run complete suite for all Ollama models\n" +
         "  /simplebench --clear-cache - Clear tool support cache\n",
         "info"
@@ -97,9 +122,10 @@ pi.registerCommand("simplebench", {
     }
 
     if (parsedArgs.sequence) {
+      const requested = typeof parsedArgs.sequence === "string" ? parsedArgs.sequence : undefined;
       let resolved: ResolvedRunSequence;
       try {
-        resolved = resolveRunSequence(readTestConfig());
+        resolved = resolveRunSequence(readTestConfig(), requested);
       } catch (e: any) {
         ctx.ui.notify(e?.message || String(e), "error");
         return;
@@ -109,7 +135,7 @@ pi.registerCommand("simplebench", {
         ctx.ui.notify("No model specified and no model currently selected", "error");
         return;
       }
-      ctx.ui.notify(`Running ${resolved.runs.length}-iteration sequence (${resolved.runs.map(r => r.entry).join(" | ")})...`, "info");
+      ctx.ui.notify(`Running ${resolved.runs.length}-iteration sequence${resolved.profile ? ` "${resolved.profile}"` : ""} (${resolved.runs.map(r => r.entry).join(" | ")})...`, "info");
       let completed = 0;
       for (let i = 0; i < resolved.runs.length; i++) {
         if (i > 0 && resolved.pauseMs > 0) {

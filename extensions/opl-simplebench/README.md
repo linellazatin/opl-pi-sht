@@ -15,7 +15,7 @@ Auditable Pi model benchmark for closed-answer contracts, JSON instruction follo
 /simplebench <model> --llama-server
 /simplebench <model> --llamagputop
 /simplebench <model> --tag=<word>
-/simplebench <model> --sequence
+/simplebench <model> --sequence[=<name>]
 /simplebench --all [--no-artifact]
 /simplebench --all --test-all
 /simplebench --help
@@ -42,7 +42,7 @@ simplebench({ model: "global.openai.gpt-5.6-terra", test_all: true })
 - Six opt-in execution-backed coding tasks in disposable directories (`--coding-lite`).
 - `--test-all` runs baseline, coding-lite, and deterministic grounded research; `--research-live` adds the configured live research-artifact integration smoke test. `--all` still selects every Ollama model.
 - `--3ptest` is the explicit form of the default baseline suite (reasoning, instruction following, tool calls). It changes nothing about the run; artifacts already name the baseline suite `3ptest`.
-- `--sequence` runs the templated multi-iteration benchmark stored in `opl-simplebench.json` (`runSequence`): sequential iterations, per-entry flags and `--tag`, optional `llamaMetrics` and `pauseMs` cooldown. See "Run a templated sequence" below.
+- `--sequence[=<name>]` runs a named templated multi-iteration profile stored in `opl-simplebench.json` (`runSequence.sequences`): sequential iterations, per-entry flags and `--tag`, `llamaMetrics` and `pauseMs` cooldown with block-level defaults a profile can override. See "Run a templated sequence" below.
 - `--llama-server` (`llama_server: true`) captures configured direct llama-server `/props` and `/metrics` without changing inference routing, so it works with a LiteLLM proxy.
 - `--llamagputop` (`llamagputop: true`) captures configured llama.cpp `/stats` metadata independently of the inference provider; its served model ID is authoritative.
 - `--tag=<word>` (`tag: "<word>"`) labels a run: stored as `benchmark.tag` and prefixed onto the artifact file or bundle name, for example `simplebench-coldrun-coding-lite-<model>-...`. The tag must be a single word (letters, digits, dot, dash, underscore).
@@ -87,10 +87,10 @@ Use this in sensitive environments. The terminal summary still reports category 
 ### Run a templated sequence
 
 ```text
-/simplebench --sequence
+/simplebench --sequence=<name>
 ```
 
-Repeating a warm-up protocol (first-run-after-boot coding check, then baseline, then the full suite) means re-typing the same flags every session. `--sequence` reads the `runSequence` block from `~/.pi/agent/configs/opl-simplebench.json` and runs each entry as its own iteration against the current model (or the model passed with `--sequence`):
+Repeating a warm-up protocol (first-run-after-boot coding check, then baseline, then the full suite) means re-typing the same flags every session. `--sequence` reads a named `runSequence` profile from `~/.pi/agent/configs/opl-simplebench.json` and runs each entry as its own iteration against the current model (or the model passed with `--sequence`):
 
 ```json
 {
@@ -98,22 +98,36 @@ Repeating a warm-up protocol (first-run-after-boot coding check, then baseline, 
     "enabled": true,
     "llamaMetrics": true,
     "pauseMs": 5000,
-    "sequence": [
-      "--coding-lite --tag=coldest",
-      "--3ptest --tag=colder",
-      "--coding-lite --tag=semiwarm",
-      "--test-all --research-live --tag=warm"
+    "sequences": [
+      {
+        "name": "warmup",
+        "iterations": [
+          "--coding-lite --tag=coldest",
+          "--3ptest --tag=colder",
+          "--coding-lite --tag=semiwarm",
+          "--test-all --research-live --tag=warm"
+        ]
+      },
+      {
+        "name": "coding-only",
+        "llamaMetrics": false,
+        "pauseMs": 3000,
+        "iterations": ["--coding-lite --tag=coldest", "--coding-lite --tag=warmer"]
+      }
     ]
   }
 }
 ```
 
 - `enabled` gates the flag: `/simplebench --sequence` errors when it is missing or `false`. A bare `/simplebench` is unaffected.
-- Each `sequence` entry is the same flag string you would type after `/simplebench`, including its own `--tag`.
+- Profile names are single words (letters, digits, dot, dash, underscore) and must be unique. `/simplebench --sequence` without a name runs the only defined profile; with several profiles it errors and lists the available names.
+- Block-level `llamaMetrics` and `pauseMs` are defaults; a profile may override either, so a coding-only curve can skip server stats or use a different cooldown.
+- Each `iterations` entry is the same flag string you would type after `/simplebench`, including its own `--tag`.
 - `llamaMetrics: true` appends `--llama-server --llamagputop` to every entry, so local server stats are captured per iteration without repeating the flags.
 - `pauseMs` sleeps between iterations (never after the last one), including after a failed iteration, so thermal/KV-cache cooldown stays consistent across the warm-up curve.
 - Iterations run sequentially and each writes its normal artifact/bundle; a failed iteration is reported and the sequence continues. A final summary line counts completed iterations.
-- Entries containing `--all` or `--sequence` are rejected before anything runs, as are invalid configurations (empty sequence, negative `pauseMs`) and invalid per-entry tags. The outer `--tag` is ignored; each entry carries its own.
+- Entries containing `--all` or `--sequence` are rejected before anything runs, as are invalid configurations (no profiles, empty `iterations`, negative `pauseMs`) and invalid per-entry tags. The outer `--tag` is ignored; each entry carries its own.
+- The legacy flat `runSequence.sequence` array still works as an anonymous profile, so existing configs need no change. Selecting it by name is not possible; migrate to `sequences` when you need more than one protocol.
 
 ### Grounded research in `--test-all`
 

@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to ~/.pi/agent/configs/opl-simplebench.json. Endpoints are optional and only used by their corresponding Simplebench flags. runSequence powers /simplebench --sequence: each entry is a flag string; llamaMetrics appends --llama-server --llamagputop to every entry; pauseMs sleeps between iterations.",
+  "_comment": "Copy to ~/.pi/agent/configs/opl-simplebench.json. Endpoints are optional and only used by their corresponding Simplebench flags. runSequence powers /simplebench --sequence[=<name>]: each profile has a single-word name and an iterations list of flag strings; llamaMetrics appends --llama-server --llamagputop to every entry and pauseMs sleeps between iterations. Block-level llamaMetrics/pauseMs are the defaults; a profile may override either. A bare --sequence runs the only defined profile and otherwise lists the names. The legacy flat runSequence.sequence array is still accepted as an anonymous profile.",
   "researchSearchProvider": "ddgs",
   "researchSearchUrl": "http://127.0.0.1:8000",
   "researchMaxResults": 5,
@@ -9,11 +9,25 @@
     "enabled": false,
     "llamaMetrics": true,
     "pauseMs": 5000,
-    "sequence": [
-      "--coding-lite --tag=coldest",
-      "--3ptest --tag=colder",
-      "--coding-lite --tag=semiwarm",
-      "--test-all --research-live --tag=warm"
+    "sequences": [
+      {
+        "name": "warmup",
+        "iterations": [
+          "--coding-lite --tag=coldest",
+          "--3ptest --tag=colder",
+          "--coding-lite --tag=semiwarm",
+          "--test-all --research-live --tag=warm"
+        ]
+      },
+      {
+        "name": "coding-only",
+        "llamaMetrics": false,
+        "pauseMs": 3000,
+        "iterations": [
+          "--coding-lite --tag=coldest",
+          "--coding-lite --tag=warmer"
+        ]
+      }
     ]
   }
 }
