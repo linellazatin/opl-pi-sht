@@ -25,7 +25,7 @@ export function parseCommandArgs(args: string): SimplebenchOptions {
   return { model: tokens.find(token => !token.startsWith("--")), allModels: tokens.includes("--all"), writeArtifact: !tokens.includes("--no-artifact"), thinkingMax: tokens.includes("--thinking-max"), codingLite: tokens.includes("--coding-lite"), testAll: tokens.includes("--test-all"), researchLive: tokens.includes("--research-live"), llamaServer: tokens.includes("--llama-server"), llamagputop: tokens.includes("--llamagputop"), ...(tag ? { tag } : {}), ...(tokens.includes("--3ptest") ? { threePTest: true } : {}), ...(sequence ? { sequence } : {}) };
 }
 
-export interface ResolvedRunSequence { profile: string; runs: Array<{ entry: string; options: SimplebenchOptions }>; pauseMs: number }
+export interface ResolvedRunSequence { profile: string; runs: Array<{ entry: string; options: SimplebenchOptions }>; pauseMs: number; llamaMetrics: boolean }
 
 const PROFILE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -34,7 +34,7 @@ export function resolveRunSequence(userConfig: ModelTestUserConfig, name?: strin
   const rs = userConfig.runSequence;
   if (!rs?.enabled) throw new Error("runSequence is not enabled in opl-simplebench.json");
   const profiles: RunSequenceProfile[] = [];
-  if (Array.isArray(rs.sequence) && rs.sequence.length > 0) profiles.push({ name: "", iterations: rs.sequence, llamaMetrics: rs.llamaMetrics, pauseMs: rs.pauseMs });
+  if (Array.isArray(rs.sequence) && rs.sequence.length > 0) profiles.push({ name: "", iterations: rs.sequence });
   for (const profile of rs.sequences ?? []) {
     if (typeof profile?.name !== "string" || !PROFILE_NAME_RE.test(profile.name)) throw new Error(`runSequence profile name must be a single word (letters, digits, dot, dash, underscore): got ${JSON.stringify(profile?.name)}`);
     if (!Array.isArray(profile.iterations) || profile.iterations.length === 0) throw new Error(`runSequence profile "${profile.name}" needs a non-empty iterations array`);
@@ -47,16 +47,16 @@ export function resolveRunSequence(userConfig: ModelTestUserConfig, name?: strin
   if (name) chosen = profiles.find(p => p.name === name);
   else if (profiles.length === 1) chosen = profiles[0];
   if (!chosen) throw new Error(name ? `unknown runSequence profile "${name}"; available: ${profiles.map(label).join(", ")}` : `--sequence needs a profile name; available: ${profiles.map(label).join(", ")}`);
-  const pauseMs = chosen.pauseMs ?? 0;
-  if (typeof pauseMs !== "number" || !Number.isFinite(pauseMs) || pauseMs < 0) throw new Error(`runSequence.pauseMs must be a non-negative number: got ${JSON.stringify(chosen.pauseMs)}`);
-  const llamaMetrics = chosen.llamaMetrics ?? rs.llamaMetrics;
+  const pauseMs = chosen.pauseMs ?? rs.pauseMs ?? 0;
+  if (typeof pauseMs !== "number" || !Number.isFinite(pauseMs) || pauseMs < 0) throw new Error(`runSequence.pauseMs must be a non-negative number: got ${JSON.stringify(chosen.pauseMs ?? rs.pauseMs)}`);
+  const llamaMetrics = (chosen.llamaMetrics ?? rs.llamaMetrics) === true;
   const runs = chosen.iterations.map((entry: string) => {
     const tokens = String(entry).trim().split(/\s+/);
     if (tokens.includes("--all")) throw new Error(`runSequence entry cannot contain --all: "${entry}"`);
     if (tokens.some(token => token === "--sequence" || token.startsWith("--sequence="))) throw new Error(`runSequence entry cannot contain --sequence: "${entry}"`);
     return { entry: String(entry), options: parseCommandArgs(`${entry}${llamaMetrics ? " --llama-server --llamagputop" : ""}`) };
   });
-  return { profile: chosen.name, runs, pauseMs };
+  return { profile: chosen.name, runs, pauseMs, llamaMetrics };
 }
 
 export default function (pi: ExtensionAPI) {
@@ -135,7 +135,7 @@ pi.registerCommand("simplebench", {
         ctx.ui.notify("No model specified and no model currently selected", "error");
         return;
       }
-      ctx.ui.notify(`Running ${resolved.runs.length}-iteration sequence${resolved.profile ? ` "${resolved.profile}"` : ""} (${resolved.runs.map(r => r.entry).join(" | ")})...`, "info");
+      ctx.ui.notify(`Running ${resolved.runs.length}-iteration sequence${resolved.profile ? ` "${resolved.profile}"` : ""} (llamaMetrics ${resolved.llamaMetrics ? "on" : "off"}, pause ${resolved.pauseMs / 1000}s): ${resolved.runs.map(r => r.entry).join(" | ")}...`, "info");
       let completed = 0;
       for (let i = 0; i < resolved.runs.length; i++) {
         if (i > 0 && resolved.pauseMs > 0) {

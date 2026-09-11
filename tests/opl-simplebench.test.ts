@@ -64,10 +64,16 @@ test("resolves named runSequence profiles with per-profile overrides", () => {
   ] } };
   assert.equal(resolveRunSequence(config, "warmup").runs[1].options.llamaServer, true);
   assert.equal(resolveRunSequence(config, "warmup").profile, "warmup");
+  assert.equal(resolveRunSequence(config, "warmup").pauseMs, 8000);
+  assert.equal(resolveRunSequence(config, "warmup").llamaMetrics, true);
   const override = resolveRunSequence(config, "cold-only");
   assert.equal(override.runs[0].options.llamaServer, false);
   assert.equal(override.pauseMs, 0);
-  assert.equal(resolveRunSequence({ runSequence: { enabled: true, sequence: ["--3ptest"] } }).profile, "");
+  assert.equal(override.llamaMetrics, false);
+  const legacy = resolveRunSequence({ runSequence: { enabled: true, llamaMetrics: true, pauseMs: 1200, sequence: ["--3ptest"] } });
+  assert.equal(legacy.profile, "");
+  assert.equal(legacy.pauseMs, 1200);
+  assert.equal(legacy.llamaMetrics, true);
 });
 
 test("rejects ambiguous or unknown sequence profile selection", () => {

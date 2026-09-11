@@ -138,6 +138,7 @@ function makeOpenAiChatFn(baseUrl: string, apiKey?: string, thinkingMax = false)
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CONFIG.TOOL_TEST_TIMEOUT_MS);
+    const startedAt = new Date().toISOString();
     const start = Date.now();
     try {
       const res = await fetch(`${baseUrl}/chat/completions`, {
@@ -163,6 +164,8 @@ function makeOpenAiChatFn(baseUrl: string, apiKey?: string, thinkingMax = false)
         toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
         elapsedMs,
         raw: parsed,
+        startedAt,
+        finishedAt: new Date().toISOString(),
       };
     } catch (e: any) {
       clearTimeout(timeoutId);
@@ -265,6 +268,7 @@ function makeBedrockChatFn(providerInfo: { region?: string }): ChatFn {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CONFIG.TOOL_TEST_TIMEOUT_MS);
+    const startedAt = new Date().toISOString();
     const start = Date.now();
     try {
       const res = await fetch(`https://${host}${urlPath}`, {
@@ -284,7 +288,7 @@ function makeBedrockChatFn(providerInfo: { region?: string }): ChatFn {
       const toolCalls = blocks.filter((b: any) => b.toolUse).map((b: any) => ({
         function: { name: b.toolUse.name, arguments: b.toolUse.input ?? {} },
       }));
-      return { content, toolCalls: toolCalls.length > 0 ? toolCalls : undefined, elapsedMs, raw: parsed };
+      return { content, toolCalls: toolCalls.length > 0 ? toolCalls : undefined, elapsedMs, raw: parsed, startedAt, finishedAt: new Date().toISOString() };
     } catch (e: any) {
       clearTimeout(timeoutId);
       if (e.name === "AbortError") throw new Error(`Bedrock API timed out after ${msHuman(CONFIG.TOOL_TEST_TIMEOUT_MS)}`);
@@ -344,6 +348,7 @@ function makeOllamaToolChatFn(): ChatFn {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CONFIG.TOOL_TEST_TIMEOUT_MS);
+    const startedAt = new Date().toISOString();
     const start = Date.now();
     try {
       const res = await fetch(`${ollamaBase()}/api/chat`, {
@@ -370,6 +375,8 @@ function makeOllamaToolChatFn(): ChatFn {
         toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
         elapsedMs,
         raw: parsed,
+        startedAt,
+        finishedAt: new Date().toISOString(),
       };
     } catch (e: any) {
       clearTimeout(timeoutId);
