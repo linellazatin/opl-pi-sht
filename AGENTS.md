@@ -47,4 +47,4 @@ Copy installation overwrites matching destinations; link installation skips exis
 - `extensions/opl-footer/segments/` — individual footer cells.
 - `research/` and `docs/superpowers/plans/` — design notes and implementation plans.
 - `.github/workflows/release.yml` — tag-triggered GitHub Release plus npm Trusted Publishing (OIDC); npm versions are immutable, so every publish requires a `package.json` version bump.
-<!-- opl-init:fp d50ed76f107d8c51 -->
+<!-- opl-init:fp 125ef687d8a28032 -->
