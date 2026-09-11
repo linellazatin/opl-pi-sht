@@ -51,7 +51,39 @@ test("parses --3ptest and --sequence flags", () => {
   assert.equal(parseCommandArgs("qwen --3ptest").threePTest, true);
   assert.equal(parseCommandArgs("qwen").threePTest, undefined);
   assert.equal(parseCommandArgs("--sequence").sequence, true);
+  assert.equal(parseCommandArgs("--sequence=coding-warmup").sequence, "coding-warmup");
   assert.equal(parseCommandArgs("qwen").sequence, undefined);
+  assert.throws(() => parseCommandArgs("--sequence="), /single word/);
+  assert.throws(() => parseCommandArgs("--sequence=bad/name"), /single word/);
+});
+
+test("resolves named runSequence profiles with per-profile overrides", () => {
+  const config = { runSequence: { enabled: true, llamaMetrics: true, pauseMs: 8000, sequences: [
+    { name: "warmup", iterations: ["--coding-lite --tag=coldest", "--3ptest --tag=colder"] },
+    { name: "cold-only", llamaMetrics: false, pauseMs: 0, iterations: ["--coding-lite"] },
+  ] } };
+  assert.equal(resolveRunSequence(config, "warmup").runs[1].options.llamaServer, true);
+  assert.equal(resolveRunSequence(config, "warmup").profile, "warmup");
+  assert.equal(resolveRunSequence(config, "warmup").pauseMs, 8000);
+  assert.equal(resolveRunSequence(config, "warmup").llamaMetrics, true);
+  const override = resolveRunSequence(config, "cold-only");
+  assert.equal(override.runs[0].options.llamaServer, false);
+  assert.equal(override.pauseMs, 0);
+  assert.equal(override.llamaMetrics, false);
+  const legacy = resolveRunSequence({ runSequence: { enabled: true, llamaMetrics: true, pauseMs: 1200, sequence: ["--3ptest"] } });
+  assert.equal(legacy.profile, "");
+  assert.equal(legacy.pauseMs, 1200);
+  assert.equal(legacy.llamaMetrics, true);
+});
+
+test("rejects ambiguous or unknown sequence profile selection", () => {
+  const config = { runSequence: { enabled: true, sequence: ["--3ptest"], sequences: [{ name: "a", iterations: ["--3ptest"] }] } };
+  assert.throws(() => resolveRunSequence(config), /needs a profile name; available: \(legacy\), a/);
+  assert.throws(() => resolveRunSequence(config, "nope"), /unknown runSequence profile "nope"/);
+  assert.throws(() => resolveRunSequence({ runSequence: { enabled: true, sequences: [{ name: "a", iterations: ["--3ptest"] }, { name: "a", iterations: ["--3ptest"] }] } }), /duplicate/);
+  assert.throws(() => resolveRunSequence({ runSequence: { enabled: true, sequences: [{ name: "bad name", iterations: ["--3ptest"] }] } }), /single word/);
+  assert.throws(() => resolveRunSequence({ runSequence: { enabled: true, sequences: [{ name: "a", iterations: [] }] } }), /non-empty iterations/);
+  assert.throws(() => resolveRunSequence({ runSequence: { enabled: true, sequences: [{ name: "a", iterations: ["--sequence=x"] }] } }), /cannot contain --sequence/);
 });
 
 test("resolves runSequence entries with llamaMetrics and pauseMs", () => {

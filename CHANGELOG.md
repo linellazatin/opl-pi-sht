@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.17] - 2026-09-11
+
+### Added
+- **Named `runSequence` profiles**: `sequences: [{ name, iterations, llamaMetrics?, pauseMs? }]`, run via `/simplebench --sequence=<name>`; a bare `--sequence` runs the only profile, otherwise fails listing names. Names are single words and unique; per-profile `llamaMetrics`/`pauseMs` override block defaults. The legacy flat `sequence` array still works as an anonymous `(legacy)` profile, but cannot be selected by name.
+
+### Changed
+- Sequence start notice now reports effective settings (`llamaMetrics on/off`, `pause Ns`), so inherited defaults are visible before the first run.
+
+### Fixed
+- All chat wrappers (OpenAI-compatible, Bedrock Converse, Ollama tool) stamp `startedAt`/`finishedAt`, fixing null timestamps in coding-lite, research, and tool-test records.
+
 ## [0.1.16] - 2026-09-03
 
 ### Added

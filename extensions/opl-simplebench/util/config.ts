@@ -87,7 +87,18 @@ export interface RunSequenceConfig {
   enabled?: boolean;
   llamaMetrics?: boolean;
   pauseMs?: number;
+  /** Legacy anonymous sequence; still resolved when no `sequences` profile matches. */
   sequence?: string[];
+  /** Named sequences selectable with `/simplebench --sequence=<name>`. */
+  sequences?: RunSequenceProfile[];
+}
+
+/** One named sequence profile. `llamaMetrics` and `pauseMs` override the block-level values. */
+export interface RunSequenceProfile {
+  name: string;
+  iterations: string[];
+  llamaMetrics?: boolean;
+  pauseMs?: number;
 }
 
 /**
