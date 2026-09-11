@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.17] - 2026-09-11
+
+### Added
+- **Named `runSequence` profiles**: `runSequence.sequences` holds `{ name, iterations, llamaMetrics?, pauseMs? }` entries, so one config can carry several benchmark protocols. `/simplebench --sequence=<name>` runs one; a bare `/simplebench --sequence` runs the only defined profile and otherwise fails with the available names listed. Names are single words (letters, digits, dot, dash, underscore) and must be unique.
+  - Block-level `llamaMetrics` and `pauseMs` stay the defaults; a profile may override either, e.g. a coding-only curve that skips server stats or cools down differently.
+  - The legacy flat `runSequence.sequence` array is still accepted as an anonymous profile (listed as `(legacy)`), so existing configs need no change. It cannot be selected by name.
+
+### Fixed
+- `--sequence=<name>` previously matched nothing: the flag test was an exact `--sequence` token check, so `/simplebench --sequence=foo` fell through to a normal single benchmark run instead of a sequence. It now parses as a profile selection, and an invalid name is rejected up front.
+- Sequence entries may no longer recurse: the rejection check covers `--sequence` and `--sequence=<name>` (it only matched the bare flag before).
+
 ## [0.1.16] - 2026-09-03
 
 ### Added

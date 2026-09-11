@@ -11,8 +11,8 @@ A portable collection of various Pi coding agent extensions. Repository director
 Install a versioned release from npm or GitHub. Both ship identical content; pick one source per machine, because Pi treats the npm and Git entries as separate packages and installing both loads every extension twice.
 
 ```bash
-pi install npm:@openlines/opl-pi-sht@0.1.15
-pi install git:github.com/linellazatin/opl-pi-sht@v0.1.15
+pi install npm:@openlines/opl-pi-sht@0.1.17
+pi install git:github.com/linellazatin/opl-pi-sht@v0.1.17
 ```
 
 > Omitting the version on the npm source tracks the latest published release; Git refs stay pinned, so move them with `pi install ...@v<new>`.
@@ -34,7 +34,7 @@ npx playwright install chromium
 {
   "packages": [
     {
-      "source": "npm:@openlines/opl-pi-sht@0.1.15",
+      "source": "npm:@openlines/opl-pi-sht@0.1.17",
       "extensions": ["extensions/opl-init/index.ts", "extensions/opl-todo/index.ts"]
     }
   ]
@@ -200,7 +200,7 @@ npx playwright install chromium
 
 A Pi package (npm or Git) still needs the one-time `npx playwright install chromium` command shown above.
 
-`opl-simplebench` writes a full JSON benchmark artifact in Pi's current working directory by default. `--test-all` additionally writes `research.md` and `page.html` beside `result.json` in a result bundle. `/simplebench --sequence` runs a templated multi-run protocol (for example a model warm-up curve) defined in the `runSequence` block, with per-iteration tags, optional llama-server/llamagputop metrics, and a configurable pause between iterations. Copy `configs/opl-simplebench.json.sample` to `~/.pi/agent/configs/opl-simplebench.json` to configure DDGS/SearXNG research, optional llama-server/llamagputop metadata endpoints, and the run sequence. Use `/simplebench --no-artifact` or `simplebench({ no_artifact: true })` when responses must not be written to disk. Provider credentials remain outside tracked configuration; configure them through Pi provider settings, environment variables, or Pi authentication.
+`opl-simplebench` writes a full JSON benchmark artifact in Pi's current working directory by default. `--test-all` additionally writes `research.md` and `page.html` beside `result.json` in a result bundle. `/simplebench --sequence[=<name>]` runs a named templated multi-run protocol (for example a model warm-up curve) defined in the `runSequence.sequences` block, with per-iteration tags, optional llama-server/llamagputop metrics, and a configurable pause between iterations; block-level `llamaMetrics`/`pauseMs` are defaults a profile can override. Copy `configs/opl-simplebench.json.sample` to `~/.pi/agent/configs/opl-simplebench.json` to configure DDGS/SearXNG research, optional llama-server/llamagputop metadata endpoints, and the run sequence. Use `/simplebench --no-artifact` or `simplebench({ no_artifact: true })` when responses must not be written to disk. Provider credentials remain outside tracked configuration; configure them through Pi provider settings, environment variables, or Pi authentication.
 
 ## Tests
 
@@ -208,4 +208,4 @@ A Pi package (npm or Git) still needs the one-time `npx playwright install chrom
 npm test
 ```
 
-Run one extension suite with `npm run test:opl-<name>` for `footer`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, `simplebench`, or `ctxtrim`. Every helper, functional, and selected-entrypoint smoke check uses Bun's named-test reporter; output includes per-test status, timings, and pass/fail totals. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.
+Run one extension suite with `npm run test:opl-<name>` for `browser`, `footer`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, `simplebench`, or `ctxtrim`. Every helper, functional, and selected-entrypoint smoke check uses Bun's named-test reporter; output includes per-test status, timings, and pass/fail totals. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.
