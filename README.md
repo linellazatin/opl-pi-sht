@@ -11,8 +11,8 @@ A portable collection of various Pi coding agent extensions. Repository director
 Install a versioned release from npm or GitHub. Both ship identical content; pick one source per machine, because Pi treats the npm and Git entries as separate packages and installing both loads every extension twice.
 
 ```bash
-pi install npm:@openlines/opl-pi-sht@0.1.17
-pi install git:github.com/linellazatin/opl-pi-sht@v0.1.17
+pi install npm:@openlines/opl-pi-sht@0.1.18
+pi install git:github.com/linellazatin/opl-pi-sht@v0.1.18
 ```
 
 > Omitting the version on the npm source tracks the latest published release; Git refs stay pinned, so move them with `pi install ...@v<new>`.
@@ -34,7 +34,7 @@ npx playwright install chromium
 {
   "packages": [
     {
-      "source": "npm:@openlines/opl-pi-sht@0.1.17",
+      "source": "npm:@openlines/opl-pi-sht@0.1.18",
       "extensions": ["extensions/opl-init/index.ts", "extensions/opl-todo/index.ts"]
     }
   ]
@@ -64,7 +64,7 @@ Copy mode overwrites matching destinations. Link mode skips existing destination
 | [`opl-init`](extensions/opl-init/README.md)                   | Fingerprinted repository-guide generator.                                                                                                                                                                                    | `/init`; no config.                                                                                            |
 | [`opl-simplebench`](extensions/opl-simplebench/README.md)     | Auditable provider-aware model benchmark with JSON artifacts and metrics.                                                                                                                                                    | `/simplebench`, `simplebench`; supports Ollama, OpenAI-compatible providers, and Bedrock; optional `opl-simplebench.json`. |
 | [`opl-webaccess`](extensions/opl-webaccess/README.md)         | Search plus readable URL/PDF retrieval with session recovery.                                                                                                                                                                | `web_search`, `fetch_content`, `get_search_content`; `opl-webaccess.json`.                                     |
-| [`opl-browser`](extensions/opl-browser/README.md)             | Chromium automation via Playwright; single dispatcher tool replacing the chrome-devtools MCP.                                                                                                                                | `browser` (action-based); `opl-browser.json`.                                                                  |
+| [`opl-browser`](extensions/opl-browser/README.md)             | Chromium automation via Playwright with structured extraction of rendered pages; single dispatcher tool replacing the chrome-devtools MCP.                                                                                   | `browser` (action-based); `opl-browser.json`.                                                                  |
 | [`opl-ctxtrim`](extensions/opl-ctxtrim/README.md)             | Trims verbose`ctx_*` tool-schema descriptions on outbound provider requests (~67% smaller schema, ~4,700-6,300 tokens/request). Built specifically for the [context-mode](https://github.com/mksglu/context-mode) extension. | No commands/tools; no config.                                                                                  |
 | [`opl-todo`](extensions/opl-todo/README.md)                   | Branch-aware task tool, overlay, and task list.                                                                                                                                                                              | `todo`, `/todos`; `opl-todo.json`.                                                                             |
 | [`opl-questionnaire`](extensions/opl-questionnaire/README.md) | Interactive structured-choice tool.                                                                                                                                                                                          | `questionnaire`; no config.                                                                                    |
@@ -103,7 +103,7 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 
 - **`opl-init`** writes a fingerprinted `AGENTS.md` so any agent starts already oriented in a repo. It writes a baseline before asking the model to refine the guide, so smaller models cannot leave the update only in chat; it re-runs only when the tree actually changes.
 ![init](images/ss-init.png)
-- **`opl-browser`** gives full Chromium automation (navigate, snapshot, interact, screenshot, console/network capture, evaluate) through a single tool, with handle+preview output for large results.
+- **`opl-browser`** gives full Chromium automation (navigate, snapshot, extract rendered-page markdown, interact, screenshot, console/network capture, evaluate) through a single tool, with handle+preview output for large results.
 - **`opl-webaccess`** adds provider-backed search plus readable URL and PDF extraction, with session recovery of earlier results.
 - **`opl-simplebench`** benchmarks models on deterministic closed-answer contracts, instruction-following, and tool-call generation so you pick a model on evidence, not vibes.
 ![simplebench](images/ss-simplebench.png)
@@ -142,7 +142,7 @@ Installing extensions adds tool schemas (name + description + JSON parameters) t
 
 | Extension | Adds to resting prompt | Est. tokens |
 |---|---|---|
-| `opl-browser` | `browser` tool schema | ~554 |
+| `opl-browser` | `browser` tool schema | ~575 |
 | `opl-questionnaire` | `questionnaire` schema + prompt guidelines | ~532 |
 | `opl-webaccess` | `web_search`, `fetch_content`, `get_search_content` | ~394 |
 | `opl-simplebench` | `simplebench` schema | ~230 |

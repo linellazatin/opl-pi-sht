@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.18] - 2026-09-12
+
+### Added
+- **`opl-browser` structured extraction (`extract` action, extension v1.1.0)**: Readability + Turndown over the *rendered* (post-JS) DOM, optionally scoped to a CSS selector; runs after `click`/`fill`/`wait_for` to read the page in its interacted-with state.
+  - Reuses the existing preview + `responseId` size gate — no new config keys or schema fields.
+  - Selector-scoped extracts use raw turndown, skipping Readability: its whole-document candidate scoring mispicks inside small subtrees (found live on gcash.com `#about-gcash`, where five of six stat cards were dropped).
+  - Complements `opl-webaccess`'s `fetch_content` (raw HTTP HTML only): static pages → `fetch_content`; rendered or interacted-with pages → `browser:extract`.
+  - Pipeline intentionally duplicated from opl-webaccess (~30 lines) for per-extension install independence. Nested deps `@mozilla/readability`, `linkedom`, `turndown` are already root dependencies.
+
 ## [0.1.17] - 2026-09-11
 
 ### Added
