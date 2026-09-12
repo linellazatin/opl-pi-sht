@@ -1,4 +1,5 @@
 import { chromium, type Browser, type BrowserContext, type Page, type ConsoleMessage } from "playwright";
+import { extractMarkdown } from "./extract.js";
 import type { BrowserConfig } from "./config.js";
 
 // ponytail: single module-level Chromium instance reused across tool calls.
@@ -86,6 +87,14 @@ export async function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<B
     case "snapshot": {
       const tree = await page().locator("body").ariaSnapshot();
       return { text: tree || "(empty snapshot)" };
+    }
+    case "extract": {
+      const scoped = Boolean(p.selector);
+      const html = scoped
+        ? await page().locator(p.selector).evaluate((el: Element) => el.outerHTML)
+        : await page().content();
+      const { markdown } = extractMarkdown(html, { raw: scoped });
+      return { text: markdown || "(empty extraction)" };
     }
     case "screenshot": {
       const file = p.path ?? `opl-browser-${Date.now()}.png`;
