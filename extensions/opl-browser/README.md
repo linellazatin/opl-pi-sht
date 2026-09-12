@@ -14,6 +14,8 @@ No slash commands. The extension registers a single tool, `browser`, chosen by a
 ```ts
 browser({ action: "navigate", url: "https://example.com" })
 browser({ action: "snapshot" })
+browser({ action: "extract" })                          // rendered-page markdown
+browser({ action: "extract", selector: "#about-gcash" }) // one element, verbatim
 browser({ action: "click", selector: "button.login" })
 browser({ action: "fill", selector: "#email", text: "a@b.com" })
 browser({ action: "evaluate", script: "document.title" })
@@ -25,9 +27,9 @@ browser({ action: "close" })
 ```
 
 Full action set: `navigate` (url, or `back`/`forward`/`reload`), `snapshot`,
-`screenshot`, `click`, `fill`, `hover`, `press`, `select`, `evaluate`, `console`,
-`network`, `wait_for`, `pages`, `new_page`, `select_page`, `close_page`, `resize`,
-`get`, `close`.
+`extract`, `screenshot`, `click`, `fill`, `hover`, `press`, `select`, `evaluate`,
+`console`, `network`, `wait_for`, `pages`, `new_page`, `select_page`, `close_page`,
+`resize`, `get`, `close`.
 
 ## Extension features
 
@@ -37,6 +39,12 @@ Full action set: `navigate` (url, or `back`/`forward`/`reload`), `snapshot`,
   evaluate output) are kept out of context: the tool returns a truncated preview
   plus a `responseId`; call `action: "get"` with that id for the full text.
   Screenshots are written to a file, never inlined as base64.
+- **Structured extraction.** `extract` runs Readability + Turndown over the
+  *rendered* (post-JS) DOM — the complement to `opl-webaccess`'s `fetch_content`,
+  which only sees raw HTTP HTML. Static pages: `fetch_content`; rendered or
+  interacted-with pages: `browser:extract`. With a `selector`, the matched element
+  is converted verbatim (no article detection): Readability's candidate scoring is
+  a whole-document heuristic and mispicks inside small subtrees.
 - **Real Chromium via Playwright.** Navigation with `domcontentloaded` waits,
   CSS-selector interaction, viewport control, multi-page management.
 - **Per-page capture.** Console messages and network requests are buffered per
@@ -74,6 +82,8 @@ index.ts     Pi wiring: registers the single `browser` tool, TTL result store,
              preview/handle logic, and session_shutdown cleanup.
 browser.ts   Playwright driver: browser/context/page lifecycle, per-page console
              and network buffers, and the action switch.
+extract.ts   Pure rendered-HTML → markdown pipeline (linkedom + Readability +
+             turndown), duplicated from opl-webaccess to keep installs independent.
 config.ts    DEFAULT_CONFIG + loadUserConfig (user overrides win via ??).
 ```
 

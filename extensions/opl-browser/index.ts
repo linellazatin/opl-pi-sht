@@ -19,7 +19,7 @@ function store(action: string, text: string): string {
 }
 
 const ACTIONS =
-  "navigate|snapshot|screenshot|click|fill|hover|press|select|evaluate|console|network|wait_for|pages|new_page|select_page|close_page|resize|get|close";
+  "navigate|snapshot|extract|screenshot|click|fill|hover|press|select|evaluate|console|network|wait_for|pages|new_page|select_page|close_page|resize|get|close";
 
 export default function (pi: ExtensionAPI) {
   const cfg = loadUserConfig();
@@ -33,14 +33,14 @@ export default function (pi: ExtensionAPI) {
     label: "Browser",
     description:
       `Drive a real Chromium browser (Playwright) for web testing and inspection. One dispatcher tool; pick action: ${ACTIONS}. ` +
-      "navigate(url|back|forward|reload); snapshot (accessibility tree); screenshot (saved to file, not inlined); " +
+      "navigate(url|back|forward|reload); snapshot (accessibility tree); extract (rendered-page markdown, optionally scoped to selector); screenshot (saved to file, not inlined); " +
       "click/fill/hover/select by CSS selector; press(key); evaluate(script in page); console/network (captured for active page); " +
       "wait_for(selector|text); pages/new_page/select_page/close_page; resize(width,height); get(responseId) to retrieve a stored large result; close to shut the browser. " +
       "Large outputs return a preview + responseId; call action:get with that id for the full text.",
     parameters: Type.Object({
       action: Type.String({ description: `One of: ${ACTIONS}` }),
       url: Type.Optional(Type.String({ description: "navigate/new_page: URL, or back|forward|reload for navigate" })),
-      selector: Type.Optional(Type.String({ description: "CSS selector for click/fill/hover/select/wait_for" })),
+      selector: Type.Optional(Type.String({ description: "CSS selector for click/fill/hover/select/wait_for/extract" })),
       text: Type.Optional(Type.String({ description: "fill: text to type; wait_for: text to await" })),
       key: Type.Optional(Type.String({ description: "press: key or combo, e.g. Enter, Control+A" })),
       values: Type.Optional(Type.Array(Type.String(), { description: "select: option values" })),
