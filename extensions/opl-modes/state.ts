@@ -88,6 +88,13 @@ function persist(pi: { appendEntry: (type: string, data?: unknown) => void }): v
   } satisfies AgentModeBlob);
 }
 
+/** Reject activePlanFile values that could escape PLAN_DIR via path components or traversal. */
+function normalizePlanFile(file: string | null | undefined): string | null {
+  if (!file) return null;
+  if (file.includes("/") || file.includes("\\") || file.includes("..")) return null;
+  return file;
+}
+
 /**
  * Restore state from the most recent relevant session entry on the current branch.
  * Checks for native mode-switcher entries first; falls back to legacy plan-mode/chat-mode entries
@@ -102,9 +109,11 @@ export function restore(
 
     if (entry.customType === ENTRY_TYPE) {
       const data = entry.data as AgentModeBlob | undefined;
-      if (data?.mode) {
+      // Fail closed: only apply modes the registry actually knows, otherwise a stale or
+      // foreign-branch entry would leave the session unrestricted (no tools, no patterns).
+      if (data?.mode && getModeDefinition(data.mode)) {
         state.mode = data.mode;
-        state.activePlanFile = data.activePlanFile ?? null;
+        state.activePlanFile = normalizePlanFile(data.activePlanFile);
         state.refining = false;
         syncGlobalThis();
         return true;
@@ -121,7 +130,7 @@ export function restore(
       const data = entry.data as { mode?: string; activePlanFile?: string | null } | undefined;
       if (data?.mode === "plan" || data?.mode === "execute") {
         state.mode = data.mode as AgentMode;
-        state.activePlanFile = data.activePlanFile ?? null;
+        state.activePlanFile = normalizePlanFile(data.activePlanFile);
         state.refining = false;
         syncGlobalThis();
         return true;

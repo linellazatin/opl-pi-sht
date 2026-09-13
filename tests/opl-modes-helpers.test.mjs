@@ -11,9 +11,13 @@ import {
   resolveLazyTools,
   applyLazyPolicy,
   lazyToolsToEnable,
+  DEFAULT_SAFE_PATTERNS,
+  DEFAULT_DESTRUCTIVE_PATTERNS,
+  resolveCustomPatterns,
   PROTECTED_TOOLS,
   LOADER_TOOL_NAME,
 } from "../extensions/opl-modes/config.ts";
+import { isDestructive } from "../extensions/opl-modes/utils.ts";
 
 test("lazy-tool policy: resolution, subtraction, loader injection, and mode-bounded activation", () => {
   const lazy = new Set(["subagent", "browser"]);
@@ -112,4 +116,47 @@ const appearance = { prefix: "◎", prefixColor: "#ce93d8", borderColor: "#ce93d
 registerMode("appearance-test", { ...getModeDefinition("chat"), appearance });
 transition("appearance-test", { appendEntry() {} });
 assert.deepEqual(globalThis.__agentMode, { mode: "appearance-test", appearance });
+});
+
+test("shared bash policy blocks destructive primitives and env leaks", () => {
+  const matches = (cmd) => DEFAULT_DESTRUCTIVE_PATTERNS.some((p) => p.test(cmd));
+  assert.ok(matches("find . -delete"), "find -delete is destructive");
+  assert.ok(matches("find . -exec rm {} \\;"), "find -exec is destructive");
+  assert.ok(matches("git clean -fd"), "git clean is destructive");
+  assert.ok(matches("git push origin main"), "git push is destructive");
+  assert.ok(matches("git update-ref refs/heads/x HEAD"), "git update-ref is destructive");
+  assert.ok(matches("truncate -s 0 f"), "truncate is destructive");
+  assert.ok(!DEFAULT_SAFE_PATTERNS.some((p) => p.test("env")), "env is not safe-patterned");
+  assert.ok(!DEFAULT_SAFE_PATTERNS.some((p) => p.test("printenv")), "printenv is not safe-patterned");
+  assert.ok(DEFAULT_SAFE_PATTERNS.some((p) => p.test("cat notes.md")), "cat remains safe");
+});
+
+test("quote-skeleton normalization catches shell obfuscation", () => {
+  assert.equal(isDestructive('r"m" -rf /', DEFAULT_DESTRUCTIVE_PATTERNS), true, 'r"m" == rm');
+  assert.equal(isDestructive("r\\m -rf /", DEFAULT_DESTRUCTIVE_PATTERNS), true, "r\\m == rm");
+  assert.equal(isDestructive("rm -rf /", DEFAULT_DESTRUCTIVE_PATTERNS), true, "plain rm matches");
+  assert.equal(isDestructive("cat notes.md", DEFAULT_DESTRUCTIVE_PATTERNS), false, "read-only command is clean");
+});
+
+test("custom modes inherit the shared bash base unless they override or opt out", () => {
+  // no overrides -> inherits BOTH the safe allowlist and destructive base
+  const inherited = resolveCustomPatterns({});
+  assert.ok(inherited.safe && inherited.safe.length > 0, "inherits safe allowlist");
+  assert.ok(inherited.destructive && inherited.destructive.length > 0, "inherits destructive base");
+  assert.ok(inherited.destructive.some((p) => p.test("git push origin main")), "inherited destructive blocks git push");
+
+  // explicit safe -> own safe list + inherited destructive
+  const safeOnly = resolveCustomPatterns({ safePatterns: ["^git", "^cat"] });
+  assert.ok(safeOnly.destructive && safeOnly.destructive.length > 0, "destructive still inherited");
+  assert.ok(safeOnly.safe.some((p) => p.test("git status")), "explicit safe list used");
+
+  // explicit destructive -> override destructive + inherited safe
+  const destOnly = resolveCustomPatterns({ destructivePatterns: ["\\brm\\b"] });
+  assert.ok(destOnly.destructive.some((p) => p.test("rm x")), "explicit destructive used");
+  assert.ok(destOnly.safe && destOnly.safe.length > 0, "safe still inherited");
+
+  // unrestrictedBash opts out of all gating
+  const open = resolveCustomPatterns({ unrestrictedBash: true });
+  assert.equal(open.safe, undefined, "unrestricted: no safe list");
+  assert.equal(open.destructive, undefined, "unrestricted: no destructive list");
 });

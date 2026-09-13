@@ -1,5 +1,6 @@
 import { chromium, type Browser, type BrowserContext, type Page, type ConsoleMessage } from "playwright";
 import { extractMarkdown } from "./extract.js";
+import { assertHttpUrl, safeScreenshotPath } from "./validate.js";
 import type { BrowserConfig } from "./config.js";
 
 // ponytail: single module-level Chromium instance reused across tool calls.
@@ -80,7 +81,7 @@ export async function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<B
       if (url === "back") { await page().goBack(); }
       else if (url === "forward") { await page().goForward(); }
       else if (url === "reload") { await page().reload(); }
-      else if (url) { await page().goto(url, { waitUntil: "domcontentloaded" }); }
+      else if (url) { await page().goto(assertHttpUrl(url), { waitUntil: "domcontentloaded" }); }
       else throw new Error("navigate requires url (or back|forward|reload)");
       return { text: `${page().url()} — ${await page().title()}` };
     }
@@ -97,7 +98,7 @@ export async function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<B
       return { text: markdown || "(empty extraction)" };
     }
     case "screenshot": {
-      const file = p.path ?? `opl-browser-${Date.now()}.png`;
+      const file = safeScreenshotPath(p.path ?? `opl-browser-${Date.now()}.png`);
       await page().screenshot({ path: file, fullPage: p.fullPage ?? false });
       return { text: `Screenshot saved to ${file}`, file };
     }
@@ -154,7 +155,7 @@ export async function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<B
       const pg = await ctx.newPage();
       track(pg, cfg);
       activeIndex = ctx.pages().length - 1;
-      if (p.url) await pg.goto(p.url, { waitUntil: "domcontentloaded" });
+      if (p.url) await pg.goto(assertHttpUrl(p.url), { waitUntil: "domcontentloaded" });
       return { text: `Opened page [${activeIndex}] ${pg.url()}` };
     }
     case "select_page": {

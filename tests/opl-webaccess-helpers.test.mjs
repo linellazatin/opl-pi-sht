@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { errorMessage, isAbortError, truncate, isPdfUrl, isPdfContentType } from "../extensions/opl-webaccess/utils.ts";
+import { errorMessage, isAbortError, truncate, isPdfUrl, isPdfContentType, assertHttpUrl } from "../extensions/opl-webaccess/utils.ts";
 import { generateId, storeResult, getResult, clearStore } from "../extensions/opl-webaccess/storage.ts";
 
 test("classifies web errors and truncates retrieval content", () => {
@@ -45,4 +45,12 @@ test("generates and expires stored web results", () => {
   assert.equal(getResult("missing"), null, "unknown id returns null");
   clearStore();
   assert.equal(getResult("fresh"), null, "clearStore empties the store");
+});
+
+test("assertHttpUrl allows only http/https", () => {
+  assert.equal(assertHttpUrl("https://example.com/a"), "https://example.com/a");
+  assert.equal(assertHttpUrl("http://example.com"), "http://example.com/");
+  assert.throws(() => assertHttpUrl("file:///etc/passwd"), /http\/https/);
+  assert.throws(() => assertHttpUrl("ftp://example.com"), /http\/https/);
+  assert.throws(() => assertHttpUrl("not a url"), /Invalid URL/);
 });

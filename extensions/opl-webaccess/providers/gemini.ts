@@ -27,9 +27,9 @@ export async function searchGemini(
 
   let response: Response;
   try {
-    response = await fetch(`${base}/models/${model}:generateContent?key=${apiKey}`, {
+    response = await fetch(`${base}/models/${model}:generateContent`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: query }] }],
         tools: [{ google_search: {} }],

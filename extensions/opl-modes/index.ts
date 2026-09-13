@@ -52,6 +52,7 @@ import {
 } from "./config.js";
 import {
   isSafeCommand,
+  isDestructive,
   extractPlanText,
   isPlanLike,
   ensurePlanDir,
@@ -575,10 +576,10 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       }
     }
 
-    // Check destructive patterns (if defined, must not match any)
+    // Check destructive patterns (if defined, must not match any) — also against
+    // a quote/backslash-stripped skeleton so r"m"/r\m obfuscation can't dodge \brm\b.
     if (modeDef.destructivePatterns && modeDef.destructivePatterns.length > 0) {
-      const matchesDestructive = modeDef.destructivePatterns.some((pattern) => pattern.test(command));
-      if (matchesDestructive) {
+      if (isDestructive(command, modeDef.destructivePatterns)) {
         return {
           block: true,
           reason: `[mode-switcher] Command blocked — destructive pattern in ${mode} mode: ${command}`,

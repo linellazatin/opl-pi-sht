@@ -14,6 +14,7 @@ Provides configurable web search and readable URL/PDF retrieval with session-bac
 
 - Searches through `gemini`, `tavily`, `ddgs`, `searxng`, or `exa`; multiple queries run concurrently and results include citations where available.
 - Extracts HTML with Readability and Markdown conversion, falls back to full-document Turndown conversion, passes PDF responses to the PDF extractor, and returns plain text, Markdown, and JSON directly.
+- Restricts `fetch_content` to http/https, caps each response at 10 MB, and applies a 30s timeout; Gemini keys are sent via the `x-goog-api-key` header rather than the query string.
 - Caps initial tool output at 30,000 characters, then keeps it for retrieval for one hour or until the session ends.
 - Honors abort signals and returns provider, HTTP, and per-result failures through the tool boundary rather than throwing.
 
