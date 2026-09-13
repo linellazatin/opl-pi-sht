@@ -47,6 +47,9 @@ Full action set: `navigate` (url, or `back`/`forward`/`reload`), `snapshot`,
   a whole-document heuristic and mispicks inside small subtrees.
 - **Real Chromium via Playwright.** Navigation with `domcontentloaded` waits,
   CSS-selector interaction, viewport control, multi-page management.
+- **Scheme + path guards.** `navigate`/`new_page` accept http(s) only; `file:`,
+  `data:`, and `javascript:` are rejected. Screenshot paths are confined to the
+  project directory, so a bad `path` cannot overwrite arbitrary files.
 - **Per-page capture.** Console messages and network requests are buffered per
   page as they occur; `console` and `network` actions return the active page's
   buffer.
@@ -82,6 +85,8 @@ index.ts     Pi wiring: registers the single `browser` tool, TTL result store,
              preview/handle logic, and session_shutdown cleanup.
 browser.ts   Playwright driver: browser/context/page lifecycle, per-page console
              and network buffers, and the action switch.
+validate.ts  URL/path guards: http/https-only navigation, screenshot path confined
+             to the project directory.
 extract.ts   Pure rendered-HTML → markdown pipeline (linkedom + Readability +
              turndown), duplicated from opl-webaccess to keep installs independent.
 config.ts    DEFAULT_CONFIG + loadUserConfig (user overrides win via ??).

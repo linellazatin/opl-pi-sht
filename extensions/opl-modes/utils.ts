@@ -10,7 +10,14 @@ import type { PlanFileSummary } from "./types.js";
 /** Check if command matches safe patterns and not destructive patterns. */
 export function isSafeCommand(command: string): boolean {
   return SAFE_COMMAND_PATTERNS.some((p) => p.test(command))
-    && !DESTRUCTIVE_PATTERNS.some((p) => p.test(command));
+    && !isDestructive(command, DESTRUCTIVE_PATTERNS);
+}
+
+/** Whether a command, or its quote/backslash-stripped skeleton, matches any destructive
+ *  pattern. Stripping defeats shell expands like `r"m"` -> `rm` that dodge \brm\b. */
+export function isDestructive(command: string, patterns: RegExp[]): boolean {
+  const skeleton = command.replace(/["'\\]/g, "");
+  return patterns.some((p) => p.test(command) || p.test(skeleton));
 }
 
 const PLAN_ACTION_VERB = /^\s*\d+\.\s+(?:\*{1,2})?(?:add|creat|updat|fix|remov|refactor|implement|modif|chang|edit|writ|build|run|install|configur|set\s+up|delet|mov|renam|inject|migrat|replac|extract|test|deploy|integrat|convert)/i;

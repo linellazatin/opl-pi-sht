@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
 import { extractMarkdown } from "../extensions/opl-browser/extract.ts";
+import { assertHttpUrl, safeScreenshotPath } from "../extensions/opl-browser/validate.ts";
 
 const ARTICLE_HTML = `<!DOCTYPE html><html><head><title>My Post — SiteName</title></head><body>
 <nav><a href="/">Home</a><a href="/login">LoginPlaceholder</a><a href="/about">About</a></nav>
@@ -45,4 +46,15 @@ test("raw mode keeps every sibling in a selector-scoped fragment", () => {
   for (const stat of ["94M", "Over 9M Filipinos", "6M merchants", "200+", "3M+", "Over 3M borrowers"]) {
     assert.ok(markdown.includes(stat), `raw mode keeps every stat card: ${stat}`);
   }
+});
+
+test("browser guards reject non-http URLs and escaping screenshot paths", () => {
+  assert.equal(assertHttpUrl("https://example.com"), "https://example.com/");
+  assert.equal(assertHttpUrl("http://example.com/a?b=1"), "http://example.com/a?b=1");
+  assert.throws(() => assertHttpUrl("file:///etc/passwd"), /http\/https/);
+  assert.throws(() => assertHttpUrl("javascript:alert(1)"), /http\/https/);
+  assert.equal(safeScreenshotPath("shot.png"), "shot.png");
+  assert.equal(safeScreenshotPath("shots/x.png"), "shots/x.png");
+  assert.throws(() => safeScreenshotPath("../x.png"), /project directory/);
+  assert.throws(() => safeScreenshotPath("/tmp/x.png"), /project directory/);
 });

@@ -26,3 +26,17 @@ export function isPdfUrl(url: string): boolean {
 export function isPdfContentType(contentType: string): boolean {
   return contentType.toLowerCase().includes("application/pdf");
 }
+
+/** Normalize a URL, allowing only http/https (file:/data:/etc. are rejected). */
+export function assertHttpUrl(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid URL: ${url}`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`Unsupported protocol "${parsed.protocol}//" — only http/https`);
+  }
+  return parsed.href;
+}

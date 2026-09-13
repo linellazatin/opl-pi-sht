@@ -125,6 +125,8 @@ export interface UserModeDefinition {
   tools?: string[];
   safePatterns?: string[];
   destructivePatterns?: string[];
+  /** Set true to skip Bash gating entirely for this mode (no safe/destructive patterns). */
+  unrestrictedBash?: boolean;
   labels?: ModeLabelConfig;
   appearance?: ModeAppearanceConfig;
   allowPlanComplete?: boolean;

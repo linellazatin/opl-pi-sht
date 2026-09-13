@@ -19,7 +19,9 @@ Plans are Markdown files under `.pi/plans/` with the `plan-` filename prefix. `p
 
 Chat and plan modes replace the active tools with configurable read-only tool lists and restrict Bash to safe inspection patterns. Destructive patterns are checked even when a command matches a safe pattern. User-provided safe and destructive pattern arrays replace the built-in lists, rather than extending them.
 
-Custom modes can add or override modes with prompts, tool lists, Bash patterns, model overrides, visibility, enabled state, `plan_complete` permission, execute-handoff permission, labels, and `appearance`. Appearance is published to `opl-input` and `opl-footer`, so every mode owns its input prefix/border and footer identity color.
+The shared destructive base also blocks file mutation primitives (`rm`, `find -delete`/`-exec`, `truncate`, `git clean`/`update-ref`/`tag -d`, `sudo`, shell spawns, and output redirects). `env` and `printenv` are no longer safe-listed, since they could dump provider API keys into the model context. Destructive matching also runs against a quote/backslash-stripped command skeleton, so `r"m"` cannot dodge `\brm\b`; this is still a heuristic backstop, not a process-isolation boundary.
+
+Custom modes can add or override modes with prompts, tool lists, Bash patterns, model overrides, visibility, enabled state, `plan_complete` permission, execute-handoff permission, labels, and `appearance`. Appearance is published to `opl-input` and `opl-footer`, so every mode owns its input prefix/border and footer identity color. A custom mode that omits its own `safePatterns`/`destructivePatterns` inherits the whole shared base; a mode overrides a component with its own array or disables all gating with `unrestrictedBash: true`. Built-in `off` and `execute` stay unrestricted.
 
 ### Execute handoff
 
@@ -31,7 +33,7 @@ Any mode can start plan execution via the mode picker's `Execute:` entries or `/
 
 A custom mode with no `tools` array inherits **all** tools, including `write` and `edit` — it is write-capable by default. Always specify an explicit read-only tool list for restrictive modes.
 
-Mode state is persisted in session entries and restored on session resume or branch changes. The `mode-switcher` entry type and legacy chat/plan event identifiers are compatibility contracts.
+Mode state is persisted in session entries and restored on session resume or branch changes. The `mode-switcher` entry type and legacy chat/plan event identifiers are compatibility contracts. On resume, an unknown mode name in a session entry is ignored (falling back to normal), and plan filenames containing path separators or `..` are dropped, so a stale or foreign branch cannot leave the session unrestricted or point plan reads outside `.pi/plans/`.
 
 ## Configuration
 
@@ -80,7 +82,8 @@ Create `~/.pi/agent/configs/opl-modes.json` or copy [`configs/opl-modes.json.sam
 | `defaultNotifyTemplate` | Notification template for custom modes; `{Name}` is capitalized mode name. |
 | `modes.chat.tools` / `modes.plan.tools` | Replace the respective built-in read-only tool lists. |
 | `chatAllowedTools` / `planAllowedTools` | **Deprecated compatibility aliases** for the built-in tool lists. They are used only when the corresponding `modes.<name>.tools` is omitted; migrate to `modes.chat.tools` or `modes.plan.tools`. |
-| `bashPatterns.safePatterns` / `bashPatterns.destructivePatterns` | Replace the shared Bash policy for built-in chat and plan. Per-mode pattern fields intentionally override this shared policy when those modes need to differ. |
+| `bashPatterns.safePatterns` / `bashPatterns.destructivePatterns` | Shared Bash policy applied to every mode by default; a mode overrides with its own `modes.<name>.safePatterns`/`destructivePatterns` or disables gating with `modes.<name>.unrestrictedBash: true`. |
+| `modes.<name>.unrestrictedBash` | Set `true` to exempt a custom mode from the Bash policy entirely (no safe/destructive patterns). |
 | `lazyTools` | Tool names withheld from the active set at rest and enabled on demand (see Lazy tool loading below). |
 | `modes.<name>` | Add or override a mode, including `model`, `tools`, patterns, `allowPlanComplete`, `allowExecute`, `visible`, `enabled`, `prompt`, `labels`, and `appearance`. |
 

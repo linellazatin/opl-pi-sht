@@ -150,6 +150,7 @@ else
         base=$(basename "$file")
         dest="$AGENT_DIR/configs/$base"
         cp "$file" "$dest"
+        chmod 600 "$dest"
         echo "  → $dest (copied)"
     done
 

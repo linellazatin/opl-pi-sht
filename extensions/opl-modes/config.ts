@@ -46,13 +46,13 @@ const DEFAULT_CHAT_MODE_TOOLS: string[] = [
 // ─── Bash Safety ─────────────────────────────────────────────────────────────
 
 /** Default safe command patterns — only these are allowed in read-only modes (chat and plan). */
-const DEFAULT_SAFE_PATTERNS: RegExp[] = [
+export const DEFAULT_SAFE_PATTERNS: RegExp[] = [
   /^\s*cat\b/, /^\s*head\b/, /^\s*tail\b/, /^\s*less\b/, /^\s*more\b/,
   /^\s*grep\b/, /^\s*find\b/, /^\s*ls\b/, /^\s*pwd\b/, /^\s*cd\b/,
   /^\s*echo\b/, /^\s*printf\b/, /^\s*wc\b/, /^\s*sort\b/,
   /^\s*diff\b/, /^\s*file\b/, /^\s*stat\b/, /^\s*du\b/, /^\s*df\b/,
   /^\s*tree\b/, /^\s*which\b/, /^\s*whereis\b/, /^\s*type\b/,
-  /^\s*env\b/, /^\s*printenv\b/, /^\s*uname\b/, /^\s*whoami\b/,
+  /^\s*uname\b/, /^\s*whoami\b/,
   /^\s*date\b/, /^\s*uptime\b/, /^\s*ps\b/, /^\s*free\b/,
   /^\s*rg\b/, /^\s*fd\b/, /^\s*bat\b/, /^\s*jq\b/,
   /^\s*git\s+(status|log|diff|show|branch|remote)/i,
@@ -63,15 +63,16 @@ const DEFAULT_SAFE_PATTERNS: RegExp[] = [
 ];
 
 /** Default destructive command patterns — always blocked in read-only modes, even if matching a safe pattern. */
-const DEFAULT_DESTRUCTIVE_PATTERNS: RegExp[] = [
+export const DEFAULT_DESTRUCTIVE_PATTERNS: RegExp[] = [
   /\brm\b/i, /\brmdir\b/i, /\bmv\b/i, /\bcp\b/i,
   /\bmkdir\b/i, /\btouch\b/i, /\bchmod\b/i, /\bchown\b/i,
-  /\btee\b/i, /\bdd\b/i, /\bshred\b/i,
+  /\btee\b/i, /\bdd\b/i, /\bshred\b/i, /\btruncate\b/i,
+  /\s-(delete|exec|execdir)\b/i,
   /(^|[^<])>(?!>|&)/, />>/,
   /\bnpm\s+(install|uninstall|update|ci)/i,
   /\byarn\s+(add|remove|install)/i,
   /\bpip\s+(install|uninstall)/i,
-  /\bgit\s+(add|commit|push|merge|rebase|reset|checkout|branch\s+-)/i,
+  /\bgit\s+(add|commit|push|merge|rebase|reset|checkout|branch\s+-|clean|update-ref|tag\s+-|cherry-pick|revert|am|apply)/i,
   /\bsudo\b/i, /\bsu\b/i, /\bkill\b/i, /\bpkill\b/i,
   /\b(sh|bash|zsh)\b/i,
   /\b(vim?|nano|emacs|code|subl)\b/i,
@@ -362,6 +363,22 @@ function compilePatterns(patterns: string[] | undefined): RegExp[] | undefined {
   return patterns.map((p) => new RegExp(p, "i"));
 }
 
+/** Resolve the Bash pattern pair for a newly registered custom mode from the shared
+ *  base (top-level bashPatterns), with per-mode overrides and an explicit opt-out.
+ *  Omitted components inherit; explicit arrays (even empty) replace; `unrestrictedBash`
+ *  disables Bash gating entirely for that mode. */
+export function resolveCustomPatterns(def: {
+  safePatterns?: string[];
+  destructivePatterns?: string[];
+  unrestrictedBash?: boolean;
+}): { safe?: RegExp[]; destructive?: RegExp[] } {
+  if (def.unrestrictedBash) return { safe: undefined, destructive: undefined };
+  return {
+    safe: def.safePatterns !== undefined ? compilePatterns(def.safePatterns) : SAFE_COMMAND_PATTERNS,
+    destructive: def.destructivePatterns !== undefined ? compilePatterns(def.destructivePatterns) : DESTRUCTIVE_PATTERNS,
+  };
+}
+
 /** Register a mode with the registry. Called by extensions at startup. */
 export function registerMode(name: string, definition: ModeDefinition): void {
   MODE_REGISTRY.set(name, definition);
@@ -447,11 +464,12 @@ function initModeRegistry(): void {
           appearance: def.appearance ?? existing.appearance,
         });
       } else {
+        const patterns = resolveCustomPatterns(def);
         registerMode(name, {
           prompt: def.prompt ?? "",
           tools: def.tools,
-          safePatterns: compilePatterns(def.safePatterns),
-          destructivePatterns: compilePatterns(def.destructivePatterns),
+          safePatterns: patterns.safe,
+          destructivePatterns: patterns.destructive,
           allowPlanComplete: def.allowPlanComplete ?? false,
           allowExecute: def.allowExecute ?? true,
           visible: def.visible ?? true,
