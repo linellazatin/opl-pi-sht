@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.19] - 2026-09-13
+
+### Security hardened
+
+- **`opl-modes`**: destructive base now blocks `find -delete`/`-exec`, `truncate`, and `git clean`/`update-ref`/`tag -d`/`cherry-pick`/`revert`/`am`/`apply`; `env` and `printenv` are no longer safe-listed. Destructive checks run against a quote/backslash-stripped skeleton, so `r"m"` cannot dodge `\brm\b`.
+  - updated config json sample, based from this fix so that defaults will have these for use
+- **`opl-modes`**: `bashPatterns` is now the shared Bash base for every mode — custom modes inherit it by default and opt out with `unrestrictedBash: true`. Session restore fails closed (unknown modes fall back to normal, plan filenames with path separators or `..` are dropped).
+- **`opl-browser`**: `navigate`/`new_page` accept http(s) only; screenshot paths are confined to the project directory.
+- **`opl-webaccess`**: `fetch_content` is http(s)-only with a 10 MB cap and a 30s timeout; Gemini keys now travel in the `x-goog-api-key` header.
+- `install.sh` copy mode sets `chmod 600` on installed configs.
+
 ## [0.1.18] - 2026-09-12
 
 ### Added

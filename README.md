@@ -1,5 +1,11 @@
 # opl-pi-sht
 
+[![gh stars](https://img.shields.io/github/stars/linellazatin/opl-pi-sht?logo=github&color=ffffe0)](https://github.com/linellazatin/opl-pi-sht)
+[![gh release](https://img.shields.io/github/v/release/linellazatin/opl-pi-sht?display_name=release&logo=github&color=ffffe0)](https://github.com/linellazatin/opl-pi-sht)
+[![npm version](https://img.shields.io/npm/v/%40openlines%2Fopl-pi-sht?logo=npm&color=cb3837)](https://www.npmjs.com/package/@openlines/opl-pi-sht)
+[![npm downloads](https://img.shields.io/npm/dm/@openlines/opl-pi-sht?logo=npm&color=cb3837)](https://www.npmjs.com/package/@openlines/opl-pi-sht)
+[![license](https://img.shields.io/npm/l/@openlines/opl-pi-sht)](./LICENSE)
+
 **Cut token cost, run the agent safely, and drop your MCP servers.**
 
 A portable collection of various Pi coding agent extensions. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
@@ -94,7 +100,7 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 
 ### Run the agent without babysitting it
 
-- **`opl-modes`** chat and plan modes swap the active toolset for read-only lists and gate Bash to safe inspection patterns, with destructive-pattern checks that fire even inside otherwise-safe commands. The plan to execute lifecycle keeps exploration and mutation cleanly separated. Add custom modes (like below) for your workflow needs.
+- **`opl-modes`** chat and plan modes swap the active toolset for read-only lists and gate Bash to safe inspection patterns, with destructive-pattern checks that fire even inside otherwise-safe commands (also `find -delete`, `git clean`, `truncate`, `sudo`, and quote-obfuscated `r"m"`; `env`/`printenv` no longer safe-listed). The plan to execute lifecycle keeps exploration and mutation cleanly separated. Add custom modes (like below) for your workflow needs.
 ![custom mode sample](images/ss-mode-custom.png)
 - `load_tools` activation is bounded by the current mode, so a read-only mode cannot be tricked into enabling a write-capable tool.
 
@@ -103,8 +109,8 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 
 - **`opl-init`** writes a fingerprinted `AGENTS.md` so any agent starts already oriented in a repo. It writes a baseline before asking the model to refine the guide, so smaller models cannot leave the update only in chat; it re-runs only when the tree actually changes.
 ![init](images/ss-init.png)
-- **`opl-browser`** gives full Chromium automation (navigate, snapshot, extract rendered-page markdown, interact, screenshot, console/network capture, evaluate) through a single tool, with handle+preview output for large results.
-- **`opl-webaccess`** adds provider-backed search plus readable URL and PDF extraction, with session recovery of earlier results.
+- **`opl-browser`** gives full Chromium automation (navigate, snapshot, extract rendered-page markdown, interact, screenshot, console/network capture, evaluate) through a single tool, with handle+preview output for large results — navigation is http(s)-only and screenshots stay in the project directory.
+- **`opl-webaccess`** adds provider-backed search plus readable URL and PDF extraction, with session recovery of earlier results, an http(s)-only fetch, a 10 MB response cap, and a 30s timeout.
 - **`opl-simplebench`** benchmarks models on deterministic closed-answer contracts, instruction-following, and tool-call generation so you pick a model on evidence, not vibes.
 ![simplebench](images/ss-simplebench.png)
 - **`opl-todo`** tracks branch-aware tasks that persist across a session and reconstruct from history.
@@ -180,7 +186,7 @@ Copy applicable files from [`configs/`](configs/) to `~/.pi/agent/configs/`. For
 - `opl-init` and `opl-questionnaire` have no external configuration.
 - Config files must be valid JSON, with no comments or trailing commas beyond deliberate `_comment` keys.
 - `opl-modes` owns active-mode appearance. Each mode's `appearance.prefix`, `prefixColor`, and `borderColor` style `opl-input`; `appearance.modeColor` styles `opl-footer`'s unified mode label. Renderers retain hardcoded fallbacks.
-  - `opl-modes.bashPatterns` is the shared read-only Bash policy for chat and plan. Use per-mode pattern fields only when those modes intentionally need different policies.
+  - `opl-modes.bashPatterns` is the shared read-only Bash policy now applied to every mode by default; a mode overrides it with its own `safePatterns`/`destructivePatterns` or disables it with `unrestrictedBash: true`.
   - `opl-modes.lazyTools` withholds heavy tool schemas (e.g. `subagent`, `browser`, `simplebench`) from the resting prefix and enables them on demand via `load_tools`, shrinking the per-session prompt-cache write.
 
 See each extension README for commands, behavior, configuration fields, runtime constraints, and architecture.
