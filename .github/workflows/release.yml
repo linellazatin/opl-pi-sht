@@ -23,6 +23,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: npm install
       - run: npm test
+      - name: Audit nested extension deps
+        run: |
+          cd extensions/opl-browser && npm audit --omit=dev --audit-level=high
+          cd ../opl-webaccess && npm audit --omit=dev --audit-level=high
       - name: Extract changelog for this version
         id: changelog
         run: |
