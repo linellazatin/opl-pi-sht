@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.20] - 2026-09-14
+
+### Added
+- `cacheReadSegment` (cache_read) & `cacheWriteSegment` (cache_write) text labels (e.g. *Read* 27.09M / *Write* 1.40M)
+
 ## [0.1.19] - 2026-09-13
 
 ### Security hardened
