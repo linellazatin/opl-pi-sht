@@ -52,7 +52,7 @@ export const cacheReadSegment = {
   render(ctx: SegmentContext): RenderedSegment {
     const { cacheRead } = ctx.usageStats;
     if (!cacheRead) return { content: "", visible: false };
-    return { content: val(ctx, formatTokens(cacheRead)), visible: true };
+    return { content: lbl(ctx, "Read ") + val(ctx, formatTokens(cacheRead)), visible: true };
   },
 };
 
@@ -61,6 +61,6 @@ export const cacheWriteSegment = {
   render(ctx: SegmentContext): RenderedSegment {
     const { cacheWrite } = ctx.usageStats;
     if (!cacheWrite) return { content: "", visible: false };
-    return { content: val(ctx, formatTokens(cacheWrite)), visible: true };
+    return { content: lbl(ctx, "Write ") + val(ctx, formatTokens(cacheWrite)), visible: true };
   },
 };
