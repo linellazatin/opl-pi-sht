@@ -186,7 +186,7 @@ Copy applicable files from [`configs/`](configs/) to `~/.pi/agent/configs/`. For
 - `opl-init` and `opl-questionnaire` have no external configuration.
 - Config files must be valid JSON, with no comments or trailing commas beyond deliberate `_comment` keys.
 - `opl-modes` owns active-mode appearance. Each mode's `appearance.prefix`, `prefixColor`, and `borderColor` style `opl-input`; `appearance.modeColor` styles `opl-footer`'s unified mode label. Renderers retain hardcoded fallbacks.
-  - `opl-modes.bashPatterns` is the shared read-only Bash policy now applied to every mode by default; a mode overrides it with its own `safePatterns`/`destructivePatterns` or disables it with `unrestrictedBash: true`.
+  - `opl-modes.bashPatterns` is the shared read-only Bash policy now applied to every mode by default; a mode overrides it with its own valid `safePatterns`/`destructivePatterns` array, an empty array explicitly removes that policy, or `unrestrictedBash: true` disables both gates. Malformed per-mode arrays retain the existing policy.
   - `opl-modes.lazyTools` withholds heavy tool schemas (e.g. `subagent`, `browser`, `simplebench`) from the resting prefix and enables them on demand via `load_tools`, shrinking the per-session prompt-cache write.
 
 See each extension README for commands, behavior, configuration fields, runtime constraints, and architecture.
