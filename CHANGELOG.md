@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.20] - 2026-09-14
+
+### Added
+- `cacheReadSegment` (cache_read) & `cacheWriteSegment` (cache_write) text labels (e.g. *Read* 27.09M / *Write* 1.40M)
+- **`/configure-opl`**: six-tab footer segment, separator, and reorder configurator with immediate apply.
+- **`status` footer segment**: `Working`, `Waiting` during Pi tool execution, and `Ready` when the agent settles.
+
+### Fixed
+- **`opl-modes`**: serialize mode-model changes, fail safe on malformed per-mode Bash patterns, and honor explicit empty pattern overrides.
+- **`opl-input`**: cleanup companion animation timers on editor replacement and session shutdown.
+
 ## [0.1.19] - 2026-09-13
 
 ### Security hardened

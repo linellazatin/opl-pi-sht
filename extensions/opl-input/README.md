@@ -80,4 +80,4 @@ Invalid theme tokens fall back to the theme's `border` token; invalid hex render
 
 ## Architecture
 
-`index.ts` installs the editor integration; `mode-style.ts` resolves Bash > published mode appearance > compiled fallback; `config.ts` loads editor and companion settings; and `utils.ts` handles color and rendering helpers. `opl-modes` is the sole publisher of active mode appearance through `globalThis.__agentMode`.
+`index.ts` installs the editor integration and disposes companion render timers on editor replacement or session shutdown; `mode-style.ts` resolves Bash > published mode appearance > compiled fallback; `config.ts` loads editor and companion settings; and `utils.ts` handles color and rendering helpers. `opl-modes` is the sole publisher of active mode appearance through `globalThis.__agentMode`.

@@ -56,6 +56,11 @@ function hexToAnsi(hex: string): string {
 	return `\x1b[38;2;${r};${g};${b}m`;
 }
 
+export function startRenderTimer(render: () => void): () => void {
+	const timer = setInterval(render, 100);
+	return () => clearInterval(timer);
+}
+
 export function applyColor(theme: Theme, color: string, text: string): string {
 	if (isHexColor(color)) {
 		return `${hexToAnsi(color)}${text}\x1b[0m`;

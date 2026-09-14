@@ -4,7 +4,7 @@ import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { CONFIG, COMPANION_PADDING, MIN_WIDTH_FOR_COMPANION } from "./config.js";
 import { resolveModeStyle, type ModeAppearance } from "./mode-style.js";
-import { applyColor, CompanionAnimator } from "./utils.js";
+import { applyColor, CompanionAnimator, startRenderTimer } from "./utils.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 const ANSI_RE = /\x1b\[[0-9;]*m|\x1b\[0?m/g;
@@ -28,7 +28,7 @@ class ChatInput extends CustomEditor {
 	private uiTheme: Theme;
 	private inputTheme: EditorTheme;
 	private animator = new CompanionAnimator();
-	private companionTimer: ReturnType<typeof setInterval> | null = null;
+	private stopCompanionTimer: (() => void) | null = null;
 
 	constructor(
 		tui: TUI,
@@ -43,10 +43,15 @@ class ChatInput extends CustomEditor {
 		this.inputTheme = theme;
 
 		// Animate companion even when idle — tick drives state machine
-		this.companionTimer = setInterval(() => {
+		this.stopCompanionTimer = startRenderTimer(() => {
 			this.animator.tick(Date.now());
 			this.tui.requestRender();
-		}, 100);
+		});
+	}
+
+	dispose(): void {
+		this.stopCompanionTimer?.();
+		this.stopCompanionTimer = null;
 	}
 
 	private isBashMode(): boolean {
@@ -275,10 +280,21 @@ class ChatInput extends CustomEditor {
 
 // ─── Extension entry ──────────────────────────────────────────────────────
 export default function (pi: ExtensionAPI) {
+	let activeEditor: ChatInput | null = null;
+
 	pi.on("session_start", async (_event, ctx) => {
+		activeEditor?.dispose();
+		activeEditor = null;
 		ctx.ui.setEditorComponent((tui: TUI, theme: EditorTheme, kb: KeybindingsManager) => {
+			activeEditor?.dispose();
 			const companionColorFn = (s: string) => applyColor(ctx.ui.theme, CONFIG.COMPANION_COLOR, s);
-			return new ChatInput(tui, theme, kb, companionColorFn, ctx.ui.theme);
+			activeEditor = new ChatInput(tui, theme, kb, companionColorFn, ctx.ui.theme);
+			return activeEditor;
 		});
+	});
+
+	pi.on("session_shutdown", async () => {
+		activeEditor?.dispose();
+		activeEditor = null;
 	});
 }

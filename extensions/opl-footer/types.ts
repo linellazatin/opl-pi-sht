@@ -53,6 +53,7 @@ export type StatusLineSegmentId =
   | "mode_switcher"
   | "session_stats"
   | "perf_stats"
+  | "status"
   | "separator"
   | `text:${string}`;
 
@@ -109,6 +110,8 @@ export interface SessionStats {
 }
 
 // Context passed to segment render functions
+export type AgentStatus = "working" | "waiting" | "ready";
+
 export interface SegmentContext {
   model: { id: string; name?: string; reasoning?: boolean; contextWindow?: number; provider?: string; baseUrl?: string } | undefined;
   isLocalModel: boolean;
@@ -126,6 +129,7 @@ export interface SegmentContext {
   colors: ColorScheme;
   icons: IconSet;
   sessionStats: SessionStats;
+  agentStatus: AgentStatus;
 }
 
 // Minimal event shapes used by the opl-footer handlers

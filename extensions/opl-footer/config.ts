@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { FooterUserConfig, StatusLineSegmentId, ColorScheme, StatusLineSegmentOptions } from "./types.js";
 import { getDefaultColors } from "./theme.js";
 import type { IconSet } from "./icons.js";
@@ -11,6 +11,33 @@ const DEFAULT_ROW2_LEFT: StatusLineSegmentId[] = ["thinking", "separator", "cave
 const DEFAULT_ROW2_RIGHT: StatusLineSegmentId[] = ["token_total", "separator", "cost"];
 const DEFAULT_ROW3_LEFT: StatusLineSegmentId[] = ["session_stats"];
 const DEFAULT_ROW3_RIGHT: StatusLineSegmentId[] = ["perf_stats"];
+
+export type FooterLayoutKey =
+  | "row1LeftSegments" | "row1RightSegments"
+  | "row2LeftSegments" | "row2RightSegments"
+  | "row3LeftSegments" | "row3RightSegments";
+
+export const FOOTER_LAYOUT_KEYS: FooterLayoutKey[] = [
+  "row1LeftSegments", "row1RightSegments",
+  "row2LeftSegments", "row2RightSegments",
+  "row3LeftSegments", "row3RightSegments",
+];
+
+export const CONFIGURABLE_SEGMENTS: StatusLineSegmentId[] = [
+  "pi", "model", "path", "git", "thinking", "caveman", "plan_mode",
+  "chat_mode", "mode_switcher", "token_in", "token_out", "token_total",
+  "cache_read", "cache_write", "cost", "context_pct", "context_total",
+  "session_stats", "perf_stats", "status",
+];
+
+const DEFAULT_LAYOUTS: Record<FooterLayoutKey, StatusLineSegmentId[]> = {
+  row1LeftSegments: DEFAULT_ROW1_LEFT,
+  row1RightSegments: DEFAULT_ROW1_RIGHT,
+  row2LeftSegments: DEFAULT_ROW2_LEFT,
+  row2RightSegments: DEFAULT_ROW2_RIGHT,
+  row3LeftSegments: DEFAULT_ROW3_LEFT,
+  row3RightSegments: DEFAULT_ROW3_RIGHT,
+};
 
 const DEFAULT_SEGMENT_OPTIONS: StatusLineSegmentOptions = {
   path: { mode: "full" },
@@ -61,6 +88,102 @@ export function clearUserConfigCache(): void {
   userConfigCacheTime = 0;
 }
 
+export function getLayoutSegments(config: FooterUserConfig, key: FooterLayoutKey): StatusLineSegmentId[] {
+  const segments = config[key];
+  return Array.isArray(segments) && segments.every((segment) => typeof segment === "string")
+    ? segments
+    : DEFAULT_LAYOUTS[key];
+}
+
+export function hasSegmentSeparator(
+  config: FooterUserConfig,
+  key: FooterLayoutKey,
+  segment: StatusLineSegmentId,
+): boolean {
+  const layout = getLayoutSegments(config, key);
+  const index = layout.indexOf(segment);
+  return index !== -1 && layout[index + 1] === "separator";
+}
+
+export function setLayoutSegment(
+  config: FooterUserConfig,
+  key: FooterLayoutKey,
+  segment: StatusLineSegmentId,
+  shown: boolean,
+): FooterUserConfig {
+  const current = getLayoutSegments(config, key);
+  const index = current.indexOf(segment);
+  if (shown && index !== -1) return config;
+
+  const next = [...current];
+  if (!shown) {
+    if (index === -1) return config;
+    next.splice(index, 1);
+    if (next[index] === "separator") next.splice(index, 1);
+    return { ...config, [key]: next };
+  }
+
+  const order = CONFIGURABLE_SEGMENTS.indexOf(segment);
+  const insertAt = next.findIndex((item) => CONFIGURABLE_SEGMENTS.indexOf(item) > order);
+  next.splice(insertAt === -1 ? next.length : insertAt, 0, segment);
+  return { ...config, [key]: next };
+}
+
+export function moveLayoutSegment(
+  config: FooterUserConfig,
+  key: FooterLayoutKey,
+  segment: StatusLineSegmentId,
+  direction: "up" | "down",
+): FooterUserConfig {
+  const current = getLayoutSegments(config, key);
+  const start = current.indexOf(segment);
+  if (start === -1) return config;
+
+  const end = start + (current[start + 1] === "separator" ? 2 : 1);
+  if (direction === "up") {
+    let previousStart = start - 1;
+    if (current[previousStart] === "separator") previousStart--;
+    if (previousStart < 0 || !CONFIGURABLE_SEGMENTS.includes(current[previousStart]!)) return config;
+    return {
+      ...config,
+      [key]: [...current.slice(0, previousStart), ...current.slice(start, end), ...current.slice(previousStart, start), ...current.slice(end)],
+    };
+  }
+
+  const nextStart = end;
+  if (!CONFIGURABLE_SEGMENTS.includes(current[nextStart]!)) return config;
+  const nextEnd = nextStart + (current[nextStart + 1] === "separator" ? 2 : 1);
+  return {
+    ...config,
+    [key]: [...current.slice(0, start), ...current.slice(nextStart, nextEnd), ...current.slice(start, end), ...current.slice(nextEnd)],
+  };
+}
+
+export function setSegmentSeparator(
+  config: FooterUserConfig,
+  key: FooterLayoutKey,
+  segment: StatusLineSegmentId,
+  shown: boolean,
+): FooterUserConfig {
+  const current = getLayoutSegments(config, key);
+  const index = current.indexOf(segment);
+  if (index === -1) return config;
+  const hasSeparator = current[index + 1] === "separator";
+  if (shown === hasSeparator) return config;
+
+  const next = [...current];
+  if (shown) next.splice(index + 1, 0, "separator");
+  else next.splice(index + 1, 1);
+  return { ...config, [key]: next };
+}
+
+export function saveUserConfig(config: FooterUserConfig): void {
+  const configPath = getConfigPath();
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  clearUserConfigCache();
+}
+
 export function getEffectiveConfig(): {
   row1LeftSegments: StatusLineSegmentId[];
   row1RightSegments: StatusLineSegmentId[];
@@ -75,12 +198,12 @@ export function getEffectiveConfig(): {
   const userConfig = loadUserConfig();
 
   return {
-    row1LeftSegments: userConfig?.row1LeftSegments ?? DEFAULT_ROW1_LEFT,
-    row1RightSegments: userConfig?.row1RightSegments ?? DEFAULT_ROW1_RIGHT,
-    row2LeftSegments: userConfig?.row2LeftSegments ?? DEFAULT_ROW2_LEFT,
-    row2RightSegments: userConfig?.row2RightSegments ?? DEFAULT_ROW2_RIGHT,
-    row3LeftSegments: userConfig?.row3LeftSegments ?? DEFAULT_ROW3_LEFT,
-    row3RightSegments: userConfig?.row3RightSegments ?? DEFAULT_ROW3_RIGHT,
+    row1LeftSegments: getLayoutSegments(userConfig ?? {}, "row1LeftSegments"),
+    row1RightSegments: getLayoutSegments(userConfig ?? {}, "row1RightSegments"),
+    row2LeftSegments: getLayoutSegments(userConfig ?? {}, "row2LeftSegments"),
+    row2RightSegments: getLayoutSegments(userConfig ?? {}, "row2RightSegments"),
+    row3LeftSegments: getLayoutSegments(userConfig ?? {}, "row3LeftSegments"),
+    row3RightSegments: getLayoutSegments(userConfig ?? {}, "row3RightSegments"),
     colors: userConfig?.colors ?? getDefaultColors(),
     segmentOptions: {
       ...DEFAULT_SEGMENT_OPTIONS,

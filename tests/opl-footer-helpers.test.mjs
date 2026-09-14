@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "bun:test";
 import { formatTokens, withIcon } from "../extensions/opl-footer/segments/helpers.ts";
 import { formatMs, sessionStatsSegment } from "../extensions/opl-footer/segments/session-stats.ts";
+import { renderSegment } from "../extensions/opl-footer/segments/index.ts";
+import * as statusSegmentModule from "../extensions/opl-footer/segments/status.ts";
 import { lerp } from "../extensions/opl-footer/segments/context.ts";
 import { modeSwitcherSegment } from "../extensions/opl-footer/segments/mode-switcher.ts";
+import { nextTabIndex, restoreSelectedItem } from "../extensions/opl-footer/configure-navigation.ts";
+import { getLayoutSegments, hasSegmentSeparator, moveLayoutSegment, setLayoutSegment, setSegmentSeparator } from "../extensions/opl-footer/config.ts";
 
 test("session_stats renders prompts, api calls, and tool calls", () => {
   const ctx = { theme: { fg: (_c, s) => s }, sessionStats: { prompts: 2, apiCalls: 31, toolCalls: 48, llmMs: 0, toolMs: 0, ttftSamples: [], lastTurnaroundMs: 0 } };
@@ -11,6 +15,31 @@ test("session_stats renders prompts, api calls, and tool calls", () => {
   assert.equal(seg.visible, true);
   assert.match(seg.content, /2 prompts.*31 api calls.*48 tool calls/s);
   assert.equal(sessionStatsSegment.render({ ...ctx, sessionStats: { ...ctx.sessionStats, prompts: 0 } }).visible, false);
+});
+
+test("renders each agent status with its theme color", () => {
+  const ctx = { theme: { fg: (color, text) => `[${color}]${text}` } };
+  assert.deepEqual(renderSegment("status", { ...ctx, agentStatus: "working" }), { content: "[accent]Working", visible: true });
+  assert.deepEqual(renderSegment("status", { ...ctx, agentStatus: "waiting" }), { content: "[warning]Waiting", visible: true });
+  assert.deepEqual(renderSegment("status", { ...ctx, agentStatus: "ready" }), { content: "[success]Ready", visible: true });
+});
+
+test("derives footer status from agent and parallel Pi tool lifecycles", () => {
+  const tracker = statusSegmentModule.createAgentStatusTracker();
+  assert.equal(tracker.status(), "ready");
+  tracker.agentStarted();
+  assert.equal(tracker.status(), "working");
+  tracker.toolStarted("one");
+  tracker.toolStarted("two");
+  assert.equal(tracker.status(), "waiting");
+  tracker.toolEnded("one");
+  assert.equal(tracker.status(), "waiting");
+  tracker.toolEnded("two");
+  assert.equal(tracker.status(), "working");
+  tracker.agentSettled();
+  assert.equal(tracker.status(), "ready");
+  tracker.toolEnded("late");
+  assert.equal(tracker.status(), "ready", "a late tool-end event cannot regress the settled state");
 });
 
 test("formats footer token and duration values at display boundaries", () => {
@@ -27,6 +56,94 @@ test("formats footer token and duration values at display boundaries", () => {
   assert.equal(formatMs(60_000), "1m 0s", "minute boundary switches format");
   assert.equal(formatMs(90_000), "1m 30s");
   assert.equal(formatMs(3_661_000), "61m 1s");
+});
+
+test("updates one footer layout while preserving retained config entries", () => {
+  const config = {
+    row1LeftSegments: ["model", "text:keep", "path", "mystery"],
+    colors: { model: "#c07898" },
+  };
+
+  const hidden = setLayoutSegment(config, "row1LeftSegments", "path", false);
+  assert.deepEqual(hidden.row1LeftSegments, ["model", "text:keep", "mystery"]);
+  assert.deepEqual(hidden.colors, { model: "#c07898" });
+
+  const shown = setLayoutSegment(hidden, "row1LeftSegments", "pi", true);
+  assert.deepEqual(shown.row1LeftSegments, ["pi", "model", "text:keep", "mystery"]);
+  assert.equal(shown.row1LeftSegments.includes("path"), false);
+});
+
+test("uses default layouts and keeps shown segments unique", () => {
+  assert.deepEqual(getLayoutSegments({}, "row2RightSegments"), ["token_total", "separator", "cost"]);
+  const once = setLayoutSegment({ row2RightSegments: [] }, "row2RightSegments", "cost", true);
+  const twice = setLayoutSegment(once, "row2RightSegments", "cost", true);
+  assert.equal(twice.row2RightSegments.filter((segment) => segment === "cost").length, 1);
+});
+
+test("pairs a separator with its preceding visible segment", () => {
+  const config = { row1LeftSegments: ["pi", "separator", "model", "separator", "path", "git"] };
+  assert.deepEqual(
+    setLayoutSegment(config, "row1LeftSegments", "model", false).row1LeftSegments,
+    ["pi", "separator", "path", "git"],
+  );
+  assert.deepEqual(
+    setSegmentSeparator(config, "row1LeftSegments", "pi", false).row1LeftSegments,
+    ["pi", "model", "separator", "path", "git"],
+  );
+  assert.deepEqual(
+    setSegmentSeparator(config, "row1LeftSegments", "pi", true).row1LeftSegments,
+    config.row1LeftSegments,
+  );
+});
+
+test("normalizes malformed footer layout values", () => {
+  const malformed = { row1LeftSegments: "model" };
+  assert.deepEqual(getLayoutSegments(malformed, "row1LeftSegments"), ["pi", "separator", "model", "separator", "path", "git"]);
+  assert.deepEqual(
+    setLayoutSegment(malformed, "row1LeftSegments", "path", false).row1LeftSegments,
+    ["pi", "separator", "model", "separator", "git"],
+  );
+  assert.deepEqual(
+    getLayoutSegments({ row1LeftSegments: [1, "model"] }, "row1LeftSegments"),
+    ["pi", "separator", "model", "separator", "path", "git"],
+  );
+});
+
+test("does not attribute a leading separator to an absent segment", () => {
+  const config = { row1LeftSegments: ["separator", "model"] };
+  assert.equal(hasSegmentSeparator(config, "row1LeftSegments", "path"), false);
+  assert.deepEqual(
+    setSegmentSeparator(config, "row1LeftSegments", "path", false).row1LeftSegments,
+    config.row1LeftSegments,
+  );
+});
+
+test("moves a segment with its trailing separator", () => {
+  const config = { row1LeftSegments: ["pi", "separator", "model", "separator", "path"] };
+  assert.deepEqual(
+    moveLayoutSegment(config, "row1LeftSegments", "model", "up").row1LeftSegments,
+    ["model", "separator", "pi", "separator", "path"],
+  );
+  assert.deepEqual(
+    moveLayoutSegment(config, "row1LeftSegments", "model", "down").row1LeftSegments,
+    ["pi", "separator", "path", "model", "separator"],
+  );
+  assert.deepEqual(
+    moveLayoutSegment({ row1LeftSegments: ["pi", "text:fixed", "model"] }, "row1LeftSegments", "model", "up").row1LeftSegments,
+    ["pi", "text:fixed", "model"],
+  );
+});
+
+test("wraps footer configuration tabs in both directions", () => {
+  assert.equal(nextTabIndex(0, "left", 6), 5);
+  assert.equal(nextTabIndex(5, "right", 6), 0);
+  assert.equal(nextTabIndex(2, "right", 6), 3);
+});
+
+test("restores the active configurator selection after updates", () => {
+  let selected = "";
+  restoreSelectedItem([{ selectItem: (id) => { selected = id; } }], 0, "row1LeftSegments:model:segment");
+  assert.equal(selected, "row1LeftSegments:model:segment");
 });
 
 test("renders footer helpers and mode color precedence", () => {

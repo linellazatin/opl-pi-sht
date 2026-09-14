@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ModeSwitcherUserConfig, ModeDefinition } from "./types.js";
+import type { ModeSwitcherUserConfig, ModeDefinition, PartialModeDefinition } from "./types.js";
 
 // ─── Plan File Constants ────────────────────────────────────────────────────
 
@@ -208,10 +208,14 @@ const DEFAULT_CONFIG = {
 
 const CONFIG_PATH = join(homedir(), ".pi", "agent", "configs", "opl-modes.json");
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export function loadUserConfig(path = CONFIG_PATH): ModeSwitcherUserConfig {
   try {
-    const raw = readFileSync(path, "utf8");
-    return JSON.parse(raw) as ModeSwitcherUserConfig;
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    return isRecord(parsed) ? parsed as ModeSwitcherUserConfig : {};
   } catch {
     return {};
   }
@@ -357,10 +361,21 @@ export const USER_CONFIG = {
 /** Mode Registry — stores all registered mode definitions. */
 export const MODE_REGISTRY = new Map<string, ModeDefinition>();
 
-/** Helper to convert string patterns to RegExp. */
-function compilePatterns(patterns: string[] | undefined): RegExp[] | undefined {
-  if (!patterns) return undefined;
-  return patterns.map((p) => new RegExp(p, "i"));
+/** Compile a valid pattern array. Undefined means malformed input or no usable patterns. */
+export function compilePatterns(patterns: unknown): RegExp[] | undefined {
+  if (!Array.isArray(patterns)) return undefined;
+  if (patterns.length === 0) return [];
+  const compiled: RegExp[] = [];
+  for (const pattern of patterns) {
+    if (typeof pattern !== "string") return undefined;
+    try {
+      compiled.push(new RegExp(pattern, "i"));
+    } catch {
+      console.warn(`[opl-modes] Invalid pattern: "${pattern}" — ignoring the override`);
+      return undefined;
+    }
+  }
+  return compiled;
 }
 
 /** Resolve the Bash pattern pair for a newly registered custom mode from the shared
@@ -368,14 +383,26 @@ function compilePatterns(patterns: string[] | undefined): RegExp[] | undefined {
  *  Omitted components inherit; explicit arrays (even empty) replace; `unrestrictedBash`
  *  disables Bash gating entirely for that mode. */
 export function resolveCustomPatterns(def: {
-  safePatterns?: string[];
-  destructivePatterns?: string[];
+  safePatterns?: unknown;
+  destructivePatterns?: unknown;
   unrestrictedBash?: boolean;
 }): { safe?: RegExp[]; destructive?: RegExp[] } {
   if (def.unrestrictedBash) return { safe: undefined, destructive: undefined };
   return {
-    safe: def.safePatterns !== undefined ? compilePatterns(def.safePatterns) : SAFE_COMMAND_PATTERNS,
-    destructive: def.destructivePatterns !== undefined ? compilePatterns(def.destructivePatterns) : DESTRUCTIVE_PATTERNS,
+    safe: compilePatterns(def.safePatterns) ?? SAFE_COMMAND_PATTERNS,
+    destructive: compilePatterns(def.destructivePatterns) ?? DESTRUCTIVE_PATTERNS,
+  };
+}
+
+export function mergeModeDefinition(existing: ModeDefinition, def: PartialModeDefinition): ModeDefinition {
+  return {
+    ...existing,
+    ...def,
+    tools: def.tools ?? existing.tools,
+    safePatterns: compilePatterns(def.safePatterns) ?? existing.safePatterns,
+    destructivePatterns: compilePatterns(def.destructivePatterns) ?? existing.destructivePatterns,
+    labels: { ...existing.labels, ...def.labels },
+    appearance: def.appearance ?? existing.appearance,
   };
 }
 
@@ -450,19 +477,13 @@ function initModeRegistry(): void {
   });
 
   // Merge user-defined modes from config (can override built-ins or add new ones).
-  if (userConfig.modes) {
-    for (const [name, def] of Object.entries(userConfig.modes)) {
+  if (isRecord(userConfig.modes)) {
+    for (const [name, rawDefinition] of Object.entries(userConfig.modes)) {
+      if (!isRecord(rawDefinition)) continue;
+      const def = rawDefinition as PartialModeDefinition;
       const existing = MODE_REGISTRY.get(name);
       if (existing) {
-        registerMode(name, {
-          ...existing,
-          ...def,
-          tools: def.tools ?? existing.tools,
-          safePatterns: def.safePatterns ? compilePatterns(def.safePatterns) : existing.safePatterns,
-          destructivePatterns: def.destructivePatterns ? compilePatterns(def.destructivePatterns) : existing.destructivePatterns,
-          labels: { ...existing.labels, ...def.labels },
-          appearance: def.appearance ?? existing.appearance,
-        });
+        registerMode(name, mergeModeDefinition(existing, def));
       } else {
         const patterns = resolveCustomPatterns(def);
         registerMode(name, {

@@ -5,10 +5,12 @@ import type { TUI } from "@earendil-works/pi-tui";
 
 import type { SegmentContext, StatusLineSegmentId, UsageStats, SessionStats, SessionEvent, ThinkingLevelEvent, AssistantMessageEvent, ToolResultEvent, UserBashEvent } from "./types.js";
 import { renderSegment } from "./segments/index.js";
+import { createAgentStatusTracker } from "./segments/status.js";
 import { getGitStatus, invalidateGitStatus, invalidateGitBranch } from "./git-status.js";
 import { getEffectiveConfig } from "./config.js";
 import { getIcons } from "./icons.js";
 import { getDefaultColors, fg } from "./theme.js";
+import { showFooterConfigurator } from "./configure.js";
 
 const GIT_BRANCH_PATTERNS: RegExp[] = [
   /\bgit\s+(checkout|switch|branch\s+-[dDmM]|merge|rebase|pull|reset|worktree)/,
@@ -112,7 +114,15 @@ export default function footer(pi: ExtensionAPI) {
   let ttftRecordedThisTurn = false;
   let agentStartMs = 0;
   let lastTurnaroundMs = 0;
+  let statusTracker = createAgentStatusTracker();
   const toolStartTimes = new Map<string, number>();
+
+  pi.registerCommand("configure-opl", {
+    description: "Interactively configure the OPL footer layout",
+    handler: async (_args, ctx) => {
+      await showFooterConfigurator(ctx, () => tuiRef?.requestRender());
+    },
+  });
 
   // Track session start
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
@@ -128,6 +138,7 @@ export default function footer(pi: ExtensionAPI) {
     ttftRecordedThisTurn = false;
     agentStartMs = 0;
     lastTurnaroundMs = 0;
+    statusTracker = createAgentStatusTracker();
     toolStartTimes.clear();
 
     if (ctx.hasUI) {
@@ -141,6 +152,8 @@ export default function footer(pi: ExtensionAPI) {
   // authoritative "fully done, no auto-continuation" signal.
   pi.on("agent_start", async (_event: unknown, _ctx: ExtensionContext) => {
     if (agentStartMs === 0) agentStartMs = Date.now();
+    statusTracker.agentStarted();
+    tuiRef?.requestRender();
   });
 
   pi.on("agent_settled", async (_event: unknown, _ctx: ExtensionContext) => {
@@ -148,6 +161,8 @@ export default function footer(pi: ExtensionAPI) {
       lastTurnaroundMs = Date.now() - agentStartMs;
       agentStartMs = 0;
     }
+    statusTracker.agentSettled();
+    tuiRef?.requestRender();
   });
 
   pi.on("turn_start", async (_event: unknown, _ctx: ExtensionContext) => {
@@ -163,6 +178,8 @@ export default function footer(pi: ExtensionAPI) {
 
   pi.on("tool_execution_start", async (event: { toolCallId: string }, _ctx: ExtensionContext) => {
     toolStartTimes.set(event.toolCallId, Date.now());
+    statusTracker.toolStarted(event.toolCallId);
+    tuiRef?.requestRender();
   });
 
   pi.on("tool_execution_end", async (event: { toolCallId: string }, _ctx: ExtensionContext) => {
@@ -173,6 +190,8 @@ export default function footer(pi: ExtensionAPI) {
       toolMsThisTurn += elapsed;
       toolStartTimes.delete(event.toolCallId);
     }
+    statusTracker.toolEnded(event.toolCallId);
+    tuiRef?.requestRender();
   });
 
   pi.on("message_update", async (_event: unknown, _ctx: ExtensionContext) => {
@@ -298,6 +317,7 @@ export default function footer(pi: ExtensionAPI) {
       colors,
       icons: getIcons(effectiveConfig.icons),
       sessionStats: { prompts: branchPrompts, apiCalls: branchApiCalls, toolCalls: branchToolCalls, llmMs, toolMs, ttftSamples, lastTurnaroundMs },
+      agentStatus: statusTracker.status(),
     };
   }
 
