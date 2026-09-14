@@ -5,7 +5,7 @@ import { formatMs, sessionStatsSegment } from "../extensions/opl-footer/segments
 import { lerp } from "../extensions/opl-footer/segments/context.ts";
 import { modeSwitcherSegment } from "../extensions/opl-footer/segments/mode-switcher.ts";
 import { nextTabIndex } from "../extensions/opl-footer/configure-navigation.ts";
-import { getLayoutSegments, hasSegmentSeparator, setLayoutSegment, setSegmentSeparator } from "../extensions/opl-footer/config.ts";
+import { getLayoutSegments, hasSegmentSeparator, moveLayoutSegment, setLayoutSegment, setSegmentSeparator } from "../extensions/opl-footer/config.ts";
 
 test("session_stats renders prompts, api calls, and tool calls", () => {
   const ctx = { theme: { fg: (_c, s) => s }, sessionStats: { prompts: 2, apiCalls: 31, toolCalls: 48, llmMs: 0, toolMs: 0, ttftSamples: [], lastTurnaroundMs: 0 } };
@@ -88,6 +88,22 @@ test("does not attribute a leading separator to an absent segment", () => {
   assert.deepEqual(
     setSegmentSeparator(config, "row1LeftSegments", "path", false).row1LeftSegments,
     config.row1LeftSegments,
+  );
+});
+
+test("moves a segment with its trailing separator", () => {
+  const config = { row1LeftSegments: ["pi", "separator", "model", "separator", "path"] };
+  assert.deepEqual(
+    moveLayoutSegment(config, "row1LeftSegments", "model", "up").row1LeftSegments,
+    ["model", "separator", "pi", "separator", "path"],
+  );
+  assert.deepEqual(
+    moveLayoutSegment(config, "row1LeftSegments", "model", "down").row1LeftSegments,
+    ["pi", "separator", "path", "model", "separator"],
+  );
+  assert.deepEqual(
+    moveLayoutSegment({ row1LeftSegments: ["pi", "text:fixed", "model"] }, "row1LeftSegments", "model", "up").row1LeftSegments,
+    ["pi", "text:fixed", "model"],
   );
 });
 

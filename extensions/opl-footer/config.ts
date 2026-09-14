@@ -129,6 +129,36 @@ export function setLayoutSegment(
   return { ...config, [key]: next };
 }
 
+export function moveLayoutSegment(
+  config: FooterUserConfig,
+  key: FooterLayoutKey,
+  segment: StatusLineSegmentId,
+  direction: "up" | "down",
+): FooterUserConfig {
+  const current = getLayoutSegments(config, key);
+  const start = current.indexOf(segment);
+  if (start === -1) return config;
+
+  const end = start + (current[start + 1] === "separator" ? 2 : 1);
+  if (direction === "up") {
+    let previousStart = start - 1;
+    if (current[previousStart] === "separator") previousStart--;
+    if (previousStart < 0 || !CONFIGURABLE_SEGMENTS.includes(current[previousStart]!)) return config;
+    return {
+      ...config,
+      [key]: [...current.slice(0, previousStart), ...current.slice(start, end), ...current.slice(previousStart, start), ...current.slice(end)],
+    };
+  }
+
+  const nextStart = end;
+  if (!CONFIGURABLE_SEGMENTS.includes(current[nextStart]!)) return config;
+  const nextEnd = nextStart + (current[nextStart + 1] === "separator" ? 2 : 1);
+  return {
+    ...config,
+    [key]: [...current.slice(0, start), ...current.slice(nextStart, nextEnd), ...current.slice(start, end), ...current.slice(nextEnd)],
+  };
+}
+
 export function setSegmentSeparator(
   config: FooterUserConfig,
   key: FooterLayoutKey,

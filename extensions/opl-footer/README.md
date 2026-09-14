@@ -4,7 +4,7 @@ A customizable three-row footer for the Pi coding agent. It shows model, path, G
 
 ## Commands, flags, and shortcuts
 
-`/configure-opl` provides six row/side tabs to toggle standard segments and their trailing separators, applying changes immediately. Colors, icons, literal text, and other options remain JSON-only. Nerd Font detection can be overridden with `FOOTER_NERD_FONTS=1` or `FOOTER_NERD_FONTS=0`.
+`/configure-opl` provides six row/side tabs to toggle or reorder standard segments and their trailing separators, applying changes immediately. Press `r` for reorder view, then `,`/`.` to move the selected segment. Colors, icons, literal text, and other options remain JSON-only. Nerd Font detection can be overridden with `FOOTER_NERD_FONTS=1` or `FOOTER_NERD_FONTS=0`.
 
 ## Extension features
 
