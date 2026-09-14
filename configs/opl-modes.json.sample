@@ -91,6 +91,7 @@
   "_comment_tools": "Set modes.chat.tools or modes.plan.tools to replace their default tools. The legacy top-level chatAllowedTools and planAllowedTools keys remain supported but are deprecated.",
   "_comment_widgetColor": "available colors - accent, border, borderAccent, borderMuted, success, error, warning, muted, dim, text, thinkingText, searchMatchText, userMessageText, customMessageText, customMessageLabel, toolTitle, toolOutput, mdHeading, mdLink, mdLinkUrl, mdCode, mdCodeBlock, mdCodeBlockBorder, mdQuote, mdQuoteBorder, mdHr, mdListBullet, toolDiffAdded, toolDiffRemoved, toolDiffContext, syntaxComment, syntaxKeyword, syntaxFunction, syntaxVariable, syntaxString, syntaxNumber, syntaxType, syntaxOperator, syntaxPunctuation, thinkingOff, thinkingMinimal, thinkingLow, thinkingMedium, thinkingHigh, thinkingXhigh, thinkingMax, bashMode",
   "_comment_appearance": "Every mode owns appearance here. prefix/prefixColor/borderColor style opl-input; modeColor styles opl-footer's Mode value. All color values accept Pi theme tokens or #RRGGBB.",
+  "_comment_modePatterns": "Per-mode safePatterns/destructivePatterns must be arrays of valid regex strings. [] explicitly removes that policy; any malformed non-empty override is ignored and inherits the existing policy.",
   "modes": {
     "off": {
       "_comment": "Built-in mode — no restrictions, normal agent behavior.",

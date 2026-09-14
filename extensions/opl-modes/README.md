@@ -17,7 +17,7 @@ Plans are Markdown files under `.pi/plans/` with the `plan-` filename prefix. `p
 
 ### Mode behavior
 
-Chat and plan modes replace the active tools with configurable read-only tool lists and restrict Bash to safe inspection patterns. Destructive patterns are checked even when a command matches a safe pattern. User-provided safe and destructive pattern arrays replace the built-in lists, rather than extending them.
+Chat and plan modes replace the active tools with configurable read-only tool lists and restrict Bash to safe inspection patterns. Destructive patterns are checked even when a command matches a safe pattern. Valid user-provided safe and destructive pattern arrays replace the built-in lists, rather than extending them. An explicit empty per-mode array replaces that policy with none; a malformed non-empty per-mode array is ignored and inherits the existing policy.
 
 The shared destructive base also blocks file mutation primitives (`rm`, `find -delete`/`-exec`, `truncate`, `git clean`/`update-ref`/`tag -d`, `sudo`, shell spawns, and output redirects). `env` and `printenv` are no longer safe-listed, since they could dump provider API keys into the model context. Destructive matching also runs against a quote/backslash-stripped command skeleton, so `r"m"` cannot dodge `\brm\b`; this is still a heuristic backstop, not a process-isolation boundary.
 
@@ -108,7 +108,7 @@ Use `modes.<name>.appearance` to keep any mode's visual identity with its defini
 
 `prefix`, `prefixColor`, and `borderColor` style `opl-input`; omitted fields use its compiled mode defaults. `modeColor` styles the value in `opl-footer`'s `mode_switcher` segment; if omitted, the footer uses hardcoded `muted`. Colors accept Pi theme tokens or six-digit hex strings.
 
-Model overrides are resolved through Pi's model registry when entering a mode and the previously active model is restored on exit when applicable. Use Pi theme color tokens for widget label colors.
+Model overrides are resolved through Pi's model registry when entering a mode and the previously active model is restored on exit when applicable. Changes are serialized, so a rapid mode exit cannot leave a superseded mode model active. Use Pi theme color tokens for widget label colors.
 
 ### Lazy tool loading
 

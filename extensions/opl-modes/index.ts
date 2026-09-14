@@ -61,6 +61,7 @@ import {
   sanitizePlanName,
   extractTextFromMessage,
   applyLabelColor,
+  createLatestModelQueue,
 } from "./utils.js";
 import {
   getMode,
@@ -118,6 +119,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   let savedToolNames: string[] | null = null;
   // ─── Saved model for restoring ─────────────────────────────────────────────
   let savedModel: Model<any> | null = null;
+  const queueModelChange = createLatestModelQueue();
   const MAX_REFINE_CYCLES = 5;
 
   function saveAndSetActiveTools(toolNames: string[]): void {
@@ -127,22 +129,22 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     pi.setActiveTools(applyLazyPolicy(toolNames));
   }
 
-  /**
-   * Resolve and switch to a specific model, notifying on failure, then refresh
-   * the footer via updateStatus. No savedModel bookkeeping — callers that need
-   * restore semantics use applyModeModel instead.
-   */
+  /** Queue model changes so a superseded async switch cannot finish after its restore. */
+  function setQueuedModel(ctx: ExtensionContext, model: Model<any>, label: string): Promise<void> {
+    return queueModelChange(async () => {
+      const success = await pi.setModel(model);
+      if (!success && ctx.hasUI) ctx.ui.notify(`[mode-switcher] No API key for model ${label}`, "error");
+      updateStatus(ctx);
+    }).then(() => undefined);
+  }
+
   async function switchToModel(ctx: ExtensionContext, modelRef: { provider: string; id: string }): Promise<void> {
     const resolved = ctx.modelRegistry.find(modelRef.provider, modelRef.id);
     if (!resolved) {
       if (ctx.hasUI) ctx.ui.notify(`[mode-switcher] Model not found: ${modelRef.provider}/${modelRef.id}`, "warning");
       return;
     }
-    const success = await pi.setModel(resolved);
-    if (!success && ctx.hasUI) {
-      ctx.ui.notify(`[mode-switcher] No API key for model ${modelRef.provider}/${modelRef.id}`, "error");
-    }
-    updateStatus(ctx);
+    await setQueuedModel(ctx, resolved, `${modelRef.provider}/${modelRef.id}`);
   }
 
   /**
@@ -167,9 +169,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     if (savedModel === null) return;
     const toRestore = savedModel;
     savedModel = null;
-    pi.setModel(toRestore).then(() => {
-      updateStatus(ctx);
-    });
+    void setQueuedModel(ctx, toRestore, `${toRestore.provider}/${toRestore.id}`);
   }
 
   /**

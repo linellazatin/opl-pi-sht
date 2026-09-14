@@ -17,7 +17,9 @@ import {
   PROTECTED_TOOLS,
   LOADER_TOOL_NAME,
 } from "../extensions/opl-modes/config.ts";
+import * as modeUtils from "../extensions/opl-modes/utils.ts";
 import { isDestructive } from "../extensions/opl-modes/utils.ts";
+import * as modeConfig from "../extensions/opl-modes/config.ts";
 
 test("lazy-tool policy: resolution, subtraction, loader injection, and mode-bounded activation", () => {
   const lazy = new Set(["subagent", "browser"]);
@@ -116,6 +118,43 @@ const appearance = { prefix: "◎", prefixColor: "#ce93d8", borderColor: "#ce93d
 registerMode("appearance-test", { ...getModeDefinition("chat"), appearance });
 transition("appearance-test", { appendEntry() {} });
 assert.deepEqual(globalThis.__agentMode, { mode: "appearance-test", appearance });
+});
+
+test("serializes model changes so only the latest request can finish last", async () => {
+  const queue = modeUtils.createLatestModelQueue();
+  const calls = [];
+  let releaseFirst;
+  let markFirstStarted;
+  const firstStarted = new Promise((resolve) => { markFirstStarted = resolve; });
+  const first = queue(async () => {
+    calls.push("mode");
+    markFirstStarted();
+    await new Promise((resolve) => { releaseFirst = resolve; });
+  });
+  await firstStarted;
+  const second = queue(async () => { calls.push("original"); });
+
+  releaseFirst();
+  await Promise.all([first, second]);
+  assert.deepEqual(calls, ["mode", "original"]);
+});
+
+test("mode pattern overrides reject malformed values and preserve explicit empty arrays", () => {
+  const chat = getModeDefinition("chat");
+  const invalid = modeConfig.mergeModeDefinition(chat, { safePatterns: ["["] });
+  assert.equal(invalid.safePatterns, chat.safePatterns, "invalid regex retains the built-in policy");
+  assert.equal(
+    modeConfig.resolveCustomPatterns({ safePatterns: "not-an-array" }).safe,
+    modeConfig.SAFE_COMMAND_PATTERNS,
+    "non-array patterns inherit the shared policy",
+  );
+  const mixed = modeConfig.mergeModeDefinition(chat, {
+    safePatterns: ["^git", "["],
+    destructivePatterns: ["\\brm\\b", "["],
+  });
+  assert.equal(mixed.safePatterns, chat.safePatterns, "mixed safe patterns retain the built-in policy");
+  assert.equal(mixed.destructivePatterns, chat.destructivePatterns, "mixed destructive patterns retain the built-in policy");
+  assert.deepEqual(modeConfig.mergeModeDefinition(chat, { safePatterns: [] }).safePatterns, []);
 });
 
 test("shared bash policy blocks destructive primitives and env leaks", () => {

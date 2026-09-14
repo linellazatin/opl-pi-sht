@@ -7,6 +7,18 @@ import { join } from "node:path";
 import { SAFE_COMMAND_PATTERNS, DESTRUCTIVE_PATTERNS, PLAN_DIR, PLAN_FILE_PREFIX } from "./config.js";
 import type { PlanFileSummary } from "./types.js";
 
+/** Serialize async model changes so the final requested model wins. */
+export function createLatestModelQueue() {
+  let latest = 0;
+  let tail = Promise.resolve();
+
+  return <T>(change: () => Promise<T>): Promise<T | undefined> => {
+    const request = ++latest;
+    tail = tail.catch(() => undefined).then(() => request === latest ? change() : undefined);
+    return tail as Promise<T | undefined>;
+  };
+}
+
 /** Check if command matches safe patterns and not destructive patterns. */
 export function isSafeCommand(command: string): boolean {
   return SAFE_COMMAND_PATTERNS.some((p) => p.test(command))
