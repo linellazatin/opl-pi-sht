@@ -17,8 +17,8 @@ A portable collection of various Pi coding agent extensions. Repository director
 Install a versioned release from npm or GitHub. Both ship identical content; pick one source per machine, because Pi treats the npm and Git entries as separate packages and installing both loads every extension twice.
 
 ```bash
-pi install npm:@openlines/opl-pi-sht@0.1.18
-pi install git:github.com/linellazatin/opl-pi-sht@v0.1.18
+pi install npm:@openlines/opl-pi-sht@<version>
+pi install git:github.com/linellazatin/opl-pi-sht@<version.tag>
 ```
 
 > Omitting the version on the npm source tracks the latest published release; Git refs stay pinned, so move them with `pi install ...@v<new>`.

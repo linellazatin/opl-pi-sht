@@ -64,7 +64,7 @@ See the tracked [`configs/opl-footer.json.sample`](../../configs/opl-footer.json
 
 | Segment | Description | Notes |
 |---------|-------------|-------|
-| `pi` | π symbol in accent blue | — |
+| `pi` | π symbol in accent blue | `pi` icon can be modified in config file |
 | `model` | Model name in pink + `(provider)` in dim | No icon; provider omitted if unavailable |
 | `path` | Current working directory | `segmentOptions.path.mode`: `"full"` (default) · `"abbreviated"` · `"basename"` |
 | `git` | Git branch and dirty indicators | `showBranch`, `showStaged`, `showUnstaged`, `showUntracked` (all bool) |
@@ -81,6 +81,9 @@ See the tracked [`configs/opl-footer.json.sample`](../../configs/opl-footer.json
 | `cache_read` | Cache read tokens (hidden if zero) | — |
 | `cache_write` | Cache write tokens (hidden if zero) | — |
 | `context_total` | Total context window size | — |
+| `session_stats` | Prompt, API-call, and tool-call counts | Hidden until the first prompt |
+| `perf_stats` | LLM/tool timing, TTFT, output rate, and cache-hit percentage | Hidden until the first prompt |
+| `status` | `Working`, `Waiting`, or `Ready` | `accent`, `warning`, and `success` theme colors respectively; optional and hidden by default |
 | `separator` | `\|` divider | Coloured via `separator` in `colors` |
 | `text:...` | Literal text, e.g. `text:⚡` | — |
 
