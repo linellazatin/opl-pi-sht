@@ -4,6 +4,7 @@ import { formatTokens, withIcon } from "../extensions/opl-footer/segments/helper
 import { formatMs, sessionStatsSegment } from "../extensions/opl-footer/segments/session-stats.ts";
 import { lerp } from "../extensions/opl-footer/segments/context.ts";
 import { modeSwitcherSegment } from "../extensions/opl-footer/segments/mode-switcher.ts";
+import { getLayoutSegments, setLayoutSegment } from "../extensions/opl-footer/config.ts";
 
 test("session_stats renders prompts, api calls, and tool calls", () => {
   const ctx = { theme: { fg: (_c, s) => s }, sessionStats: { prompts: 2, apiCalls: 31, toolCalls: 48, llmMs: 0, toolMs: 0, ttftSamples: [], lastTurnaroundMs: 0 } };
@@ -27,6 +28,28 @@ test("formats footer token and duration values at display boundaries", () => {
   assert.equal(formatMs(60_000), "1m 0s", "minute boundary switches format");
   assert.equal(formatMs(90_000), "1m 30s");
   assert.equal(formatMs(3_661_000), "61m 1s");
+});
+
+test("updates one footer layout while preserving retained config entries", () => {
+  const config = {
+    row1LeftSegments: ["model", "text:keep", "path", "mystery"],
+    colors: { model: "#c07898" },
+  };
+
+  const hidden = setLayoutSegment(config, "row1LeftSegments", "path", false);
+  assert.deepEqual(hidden.row1LeftSegments, ["model", "text:keep", "mystery"]);
+  assert.deepEqual(hidden.colors, { model: "#c07898" });
+
+  const shown = setLayoutSegment(hidden, "row1LeftSegments", "pi", true);
+  assert.deepEqual(shown.row1LeftSegments, ["pi", "model", "text:keep", "mystery"]);
+  assert.equal(shown.row1LeftSegments.includes("path"), false);
+});
+
+test("uses default layouts and keeps shown segments unique", () => {
+  assert.deepEqual(getLayoutSegments({}, "row2RightSegments"), ["token_total", "separator", "cost"]);
+  const once = setLayoutSegment({ row2RightSegments: [] }, "row2RightSegments", "cost", true);
+  const twice = setLayoutSegment(once, "row2RightSegments", "cost", true);
+  assert.equal(twice.row2RightSegments.filter((segment) => segment === "cost").length, 1);
 });
 
 test("renders footer helpers and mode color precedence", () => {

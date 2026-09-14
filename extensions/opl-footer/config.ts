@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { FooterUserConfig, StatusLineSegmentId, ColorScheme, StatusLineSegmentOptions } from "./types.js";
 import { getDefaultColors } from "./theme.js";
 import type { IconSet } from "./icons.js";
@@ -11,6 +11,33 @@ const DEFAULT_ROW2_LEFT: StatusLineSegmentId[] = ["thinking", "separator", "cave
 const DEFAULT_ROW2_RIGHT: StatusLineSegmentId[] = ["token_total", "separator", "cost"];
 const DEFAULT_ROW3_LEFT: StatusLineSegmentId[] = ["session_stats"];
 const DEFAULT_ROW3_RIGHT: StatusLineSegmentId[] = ["perf_stats"];
+
+export type FooterLayoutKey =
+  | "row1LeftSegments" | "row1RightSegments"
+  | "row2LeftSegments" | "row2RightSegments"
+  | "row3LeftSegments" | "row3RightSegments";
+
+export const FOOTER_LAYOUT_KEYS: FooterLayoutKey[] = [
+  "row1LeftSegments", "row1RightSegments",
+  "row2LeftSegments", "row2RightSegments",
+  "row3LeftSegments", "row3RightSegments",
+];
+
+export const CONFIGURABLE_SEGMENTS: StatusLineSegmentId[] = [
+  "pi", "model", "path", "git", "thinking", "caveman", "plan_mode",
+  "chat_mode", "mode_switcher", "token_in", "token_out", "token_total",
+  "cache_read", "cache_write", "cost", "context_pct", "context_total",
+  "session_stats", "perf_stats", "separator",
+];
+
+const DEFAULT_LAYOUTS: Record<FooterLayoutKey, StatusLineSegmentId[]> = {
+  row1LeftSegments: DEFAULT_ROW1_LEFT,
+  row1RightSegments: DEFAULT_ROW1_RIGHT,
+  row2LeftSegments: DEFAULT_ROW2_LEFT,
+  row2RightSegments: DEFAULT_ROW2_RIGHT,
+  row3LeftSegments: DEFAULT_ROW3_LEFT,
+  row3RightSegments: DEFAULT_ROW3_RIGHT,
+};
 
 const DEFAULT_SEGMENT_OPTIONS: StatusLineSegmentOptions = {
   path: { mode: "full" },
@@ -59,6 +86,35 @@ export function loadUserConfig(): FooterUserConfig | null {
 export function clearUserConfigCache(): void {
   userConfigCache = null;
   userConfigCacheTime = 0;
+}
+
+export function getLayoutSegments(config: FooterUserConfig, key: FooterLayoutKey): StatusLineSegmentId[] {
+  return config[key] ?? DEFAULT_LAYOUTS[key];
+}
+
+export function setLayoutSegment(
+  config: FooterUserConfig,
+  key: FooterLayoutKey,
+  segment: StatusLineSegmentId,
+  shown: boolean,
+): FooterUserConfig {
+  const current = getLayoutSegments(config, key);
+  if (shown && current.includes(segment)) return config;
+
+  const next = current.filter((item) => item !== segment);
+  if (shown) {
+    const order = CONFIGURABLE_SEGMENTS.indexOf(segment);
+    const insertAt = next.findIndex((item) => CONFIGURABLE_SEGMENTS.indexOf(item) > order);
+    next.splice(insertAt === -1 ? next.length : insertAt, 0, segment);
+  }
+  return { ...config, [key]: next };
+}
+
+export function saveUserConfig(config: FooterUserConfig): void {
+  const configPath = getConfigPath();
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  clearUserConfigCache();
 }
 
 export function getEffectiveConfig(): {
