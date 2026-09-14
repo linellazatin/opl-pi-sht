@@ -89,7 +89,8 @@ export function clearUserConfigCache(): void {
 }
 
 export function getLayoutSegments(config: FooterUserConfig, key: FooterLayoutKey): StatusLineSegmentId[] {
-  return config[key] ?? DEFAULT_LAYOUTS[key];
+  const segments = config[key];
+  return Array.isArray(segments) ? segments : DEFAULT_LAYOUTS[key];
 }
 
 export function setLayoutSegment(
@@ -131,12 +132,12 @@ export function getEffectiveConfig(): {
   const userConfig = loadUserConfig();
 
   return {
-    row1LeftSegments: userConfig?.row1LeftSegments ?? DEFAULT_ROW1_LEFT,
-    row1RightSegments: userConfig?.row1RightSegments ?? DEFAULT_ROW1_RIGHT,
-    row2LeftSegments: userConfig?.row2LeftSegments ?? DEFAULT_ROW2_LEFT,
-    row2RightSegments: userConfig?.row2RightSegments ?? DEFAULT_ROW2_RIGHT,
-    row3LeftSegments: userConfig?.row3LeftSegments ?? DEFAULT_ROW3_LEFT,
-    row3RightSegments: userConfig?.row3RightSegments ?? DEFAULT_ROW3_RIGHT,
+    row1LeftSegments: getLayoutSegments(userConfig ?? {}, "row1LeftSegments"),
+    row1RightSegments: getLayoutSegments(userConfig ?? {}, "row1RightSegments"),
+    row2LeftSegments: getLayoutSegments(userConfig ?? {}, "row2LeftSegments"),
+    row2RightSegments: getLayoutSegments(userConfig ?? {}, "row2RightSegments"),
+    row3LeftSegments: getLayoutSegments(userConfig ?? {}, "row3LeftSegments"),
+    row3RightSegments: getLayoutSegments(userConfig ?? {}, "row3RightSegments"),
     colors: userConfig?.colors ?? getDefaultColors(),
     segmentOptions: {
       ...DEFAULT_SEGMENT_OPTIONS,

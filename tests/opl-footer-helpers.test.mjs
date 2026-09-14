@@ -52,6 +52,15 @@ test("uses default layouts and keeps shown segments unique", () => {
   assert.equal(twice.row2RightSegments.filter((segment) => segment === "cost").length, 1);
 });
 
+test("normalizes malformed footer layout values", () => {
+  const malformed = { row1LeftSegments: "model" };
+  assert.deepEqual(getLayoutSegments(malformed, "row1LeftSegments"), ["pi", "separator", "model", "separator", "path", "git"]);
+  assert.deepEqual(
+    setLayoutSegment(malformed, "row1LeftSegments", "path", false).row1LeftSegments,
+    ["pi", "separator", "model", "separator", "git"],
+  );
+});
+
 test("renders footer helpers and mode color precedence", () => {
   assert.equal(withIcon("*", "text"), "* text");
   assert.equal(withIcon("", "text"), "text", "empty icon omits the space");
