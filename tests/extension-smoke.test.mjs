@@ -21,6 +21,11 @@ test(`bundles ${extension} extension entrypoint`, () => {
     assert.match(source, /tree truncated at/);
   }
 
+  if (extension === "opl-footer") {
+    const source = readFileSync(`extensions/${extension}/index.ts`, "utf8");
+    assert.match(source, /registerCommand\("configure-opl"/);
+  }
+
   if (extension === "opl-modes") {
     const source = readFileSync(`extensions/${extension}/index.ts`, "utf8");
     assert.match(source, /executeHandoffAllowed/);

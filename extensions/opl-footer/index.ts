@@ -9,6 +9,7 @@ import { getGitStatus, invalidateGitStatus, invalidateGitBranch } from "./git-st
 import { getEffectiveConfig } from "./config.js";
 import { getIcons } from "./icons.js";
 import { getDefaultColors, fg } from "./theme.js";
+import { showFooterConfigurator } from "./configure.js";
 
 const GIT_BRANCH_PATTERNS: RegExp[] = [
   /\bgit\s+(checkout|switch|branch\s+-[dDmM]|merge|rebase|pull|reset|worktree)/,
@@ -113,6 +114,13 @@ export default function footer(pi: ExtensionAPI) {
   let agentStartMs = 0;
   let lastTurnaroundMs = 0;
   const toolStartTimes = new Map<string, number>();
+
+  pi.registerCommand("configure-opl", {
+    description: "Interactively configure the OPL footer layout",
+    handler: async (_args, ctx) => {
+      await showFooterConfigurator(ctx, () => tuiRef?.requestRender());
+    },
+  });
 
   // Track session start
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
