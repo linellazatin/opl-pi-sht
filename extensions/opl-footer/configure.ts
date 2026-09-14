@@ -14,7 +14,7 @@ import {
   setSegmentSeparator,
   type FooterLayoutKey,
 } from "./config.js";
-import { nextTabIndex } from "./configure-navigation.js";
+import { nextTabIndex, restoreSelectedItem } from "./configure-navigation.js";
 
 const LAYOUT_LABELS: Record<FooterLayoutKey, string> = {
   row1LeftSegments: "Row 1 left",
@@ -42,11 +42,12 @@ export async function showFooterConfigurator(ctx: ExtensionContext, onSaved: () 
     let reorderIndex = 0;
     let settingsLists: SettingsList[] = [];
 
-    const persist = (next: typeof config): boolean => {
+    const persist = (next: typeof config, selectedId?: string): boolean => {
       try {
         saveUserConfig(next);
         config = next;
         settingsLists = createSettingsLists();
+        if (selectedId) restoreSelectedItem(settingsLists, activeTab, selectedId);
         onSaved();
         return true;
       } catch (error) {
@@ -62,7 +63,7 @@ export async function showFooterConfigurator(ctx: ExtensionContext, onSaved: () 
       const next = kind === "separator"
         ? setSegmentSeparator(config, key, segment, value === "shown")
         : setLayoutSegment(config, key, segment, value === "shown");
-      persist(next);
+      persist(next, id);
     };
 
     const createSettingsLists = (): SettingsList[] => FOOTER_LAYOUT_KEYS.map((key) => {

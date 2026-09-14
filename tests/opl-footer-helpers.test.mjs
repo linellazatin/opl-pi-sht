@@ -4,7 +4,7 @@ import { formatTokens, withIcon } from "../extensions/opl-footer/segments/helper
 import { formatMs, sessionStatsSegment } from "../extensions/opl-footer/segments/session-stats.ts";
 import { lerp } from "../extensions/opl-footer/segments/context.ts";
 import { modeSwitcherSegment } from "../extensions/opl-footer/segments/mode-switcher.ts";
-import { nextTabIndex } from "../extensions/opl-footer/configure-navigation.ts";
+import { nextTabIndex, restoreSelectedItem } from "../extensions/opl-footer/configure-navigation.ts";
 import { getLayoutSegments, hasSegmentSeparator, moveLayoutSegment, setLayoutSegment, setSegmentSeparator } from "../extensions/opl-footer/config.ts";
 
 test("session_stats renders prompts, api calls, and tool calls", () => {
@@ -111,6 +111,12 @@ test("wraps footer configuration tabs in both directions", () => {
   assert.equal(nextTabIndex(0, "left", 6), 5);
   assert.equal(nextTabIndex(5, "right", 6), 0);
   assert.equal(nextTabIndex(2, "right", 6), 3);
+});
+
+test("restores the active configurator selection after updates", () => {
+  let selected = "";
+  restoreSelectedItem([{ selectItem: (id) => { selected = id; } }], 0, "row1LeftSegments:model:segment");
+  assert.equal(selected, "row1LeftSegments:model:segment");
 });
 
 test("renders footer helpers and mode color precedence", () => {
