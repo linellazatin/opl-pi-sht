@@ -4,7 +4,7 @@ import { formatTokens, withIcon } from "../extensions/opl-footer/segments/helper
 import { formatMs, sessionStatsSegment } from "../extensions/opl-footer/segments/session-stats.ts";
 import { lerp } from "../extensions/opl-footer/segments/context.ts";
 import { modeSwitcherSegment } from "../extensions/opl-footer/segments/mode-switcher.ts";
-import { getLayoutSegments, setLayoutSegment } from "../extensions/opl-footer/config.ts";
+import { getLayoutSegments, setLayoutSegment, setSegmentSeparator } from "../extensions/opl-footer/config.ts";
 
 test("session_stats renders prompts, api calls, and tool calls", () => {
   const ctx = { theme: { fg: (_c, s) => s }, sessionStats: { prompts: 2, apiCalls: 31, toolCalls: 48, llmMs: 0, toolMs: 0, ttftSamples: [], lastTurnaroundMs: 0 } };
@@ -50,6 +50,22 @@ test("uses default layouts and keeps shown segments unique", () => {
   const once = setLayoutSegment({ row2RightSegments: [] }, "row2RightSegments", "cost", true);
   const twice = setLayoutSegment(once, "row2RightSegments", "cost", true);
   assert.equal(twice.row2RightSegments.filter((segment) => segment === "cost").length, 1);
+});
+
+test("pairs a separator with its preceding visible segment", () => {
+  const config = { row1LeftSegments: ["pi", "separator", "model", "separator", "path", "git"] };
+  assert.deepEqual(
+    setLayoutSegment(config, "row1LeftSegments", "model", false).row1LeftSegments,
+    ["pi", "separator", "path", "git"],
+  );
+  assert.deepEqual(
+    setSegmentSeparator(config, "row1LeftSegments", "pi", false).row1LeftSegments,
+    ["pi", "model", "separator", "path", "git"],
+  );
+  assert.deepEqual(
+    setSegmentSeparator(config, "row1LeftSegments", "pi", true).row1LeftSegments,
+    config.row1LeftSegments,
+  );
 });
 
 test("normalizes malformed footer layout values", () => {

@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
-import { Container, SettingsList, Text, type SettingItem } from "@earendil-works/pi-tui";
+import { Key, matchesKey, SettingsList, truncateToWidth, type SettingItem } from "@earendil-works/pi-tui";
 
 import {
   CONFIGURABLE_SEGMENTS,
@@ -9,6 +9,7 @@ import {
   loadUserConfig,
   saveUserConfig,
   setLayoutSegment,
+  setSegmentSeparator,
   type FooterLayoutKey,
 } from "./config.js";
 
@@ -33,50 +34,67 @@ export async function showFooterConfigurator(ctx: ExtensionContext, onSaved: () 
 
   let config = loadUserConfig() ?? {};
   await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
-    const items: SettingItem[] = FOOTER_LAYOUT_KEYS.flatMap((key) =>
-      CONFIGURABLE_SEGMENTS.map((segment) => ({
-        id: `${key}:${segment}`,
-        label: `${LAYOUT_LABELS[key]}: ${segmentLabel(segment)}`,
-        currentValue: getLayoutSegments(config, key).includes(segment) ? "shown" : "hidden",
-        values: ["shown", "hidden"],
-      })),
-    );
+    let activeTab = 0;
+    let settingsLists: SettingsList[] = [];
 
-    const settingsList = new SettingsList(
-      items,
-      15,
-      getSettingsListTheme(),
-      (id, value) => {
-        const [key, segment] = id.split(":") as [FooterLayoutKey, typeof CONFIGURABLE_SEGMENTS[number]];
-        const next = setLayoutSegment(config, key, segment, value === "shown");
-        try {
-          saveUserConfig(next);
-          config = next;
-          onSaved();
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          ctx.ui.notify(`Could not save footer config: ${message}`, "error");
-          done(undefined);
-        }
-      },
-      () => done(undefined),
-      { enableSearch: true },
-    );
+    const save = (id: string, value: string) => {
+      const [key, segment, kind] = id.split(":") as [FooterLayoutKey, typeof CONFIGURABLE_SEGMENTS[number], string];
+      const next = kind === "separator"
+        ? setSegmentSeparator(config, key, segment, value === "shown")
+        : setLayoutSegment(config, key, segment, value === "shown");
+      try {
+        saveUserConfig(next);
+        config = next;
+        settingsLists = createSettingsLists();
+        onSaved();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        ctx.ui.notify(`Could not save footer config: ${message}`, "error");
+        done(undefined);
+      }
+    };
 
-    const container = new Container();
-    container.addChild(new Text(
-      theme.fg("accent", theme.bold("Configure OPL Footer")) + "\n" +
-        theme.fg("dim", "Changes apply immediately. Colors, icons, and text stay in JSON."),
-      1,
-      1,
-    ));
-    container.addChild(settingsList);
+    const createSettingsLists = (): SettingsList[] => FOOTER_LAYOUT_KEYS.map((key) => {
+      const layout = getLayoutSegments(config, key);
+      const items: SettingItem[] = CONFIGURABLE_SEGMENTS.flatMap((segment) => {
+        const index = layout.indexOf(segment);
+        return [
+          {
+            id: `${key}:${segment}:segment`,
+            label: segmentLabel(segment),
+            currentValue: index === -1 ? "hidden" : "shown",
+            values: ["shown", "hidden"],
+          },
+          {
+            id: `${key}:${segment}:separator`,
+            label: `${segmentLabel(segment)} separator`,
+            currentValue: layout[index + 1] === "separator" ? "shown" : "hidden",
+            values: ["shown", "hidden"],
+          },
+        ];
+      });
+      return new SettingsList(items, 15, getSettingsListTheme(), save, () => done(undefined), { enableSearch: true });
+    });
+
+    settingsLists = createSettingsLists();
 
     return {
-      render(width: number) { return container.render(width); },
-      invalidate() { container.invalidate(); },
+      render(width: number) {
+        const tabs = FOOTER_LAYOUT_KEYS.map((key, index) =>
+          theme.fg(index === activeTab ? "accent" : "dim", `[${LAYOUT_LABELS[key]}]`),
+        ).join(" ");
+        return [
+          truncateToWidth(theme.bold("Configure OPL Footer"), width),
+          truncateToWidth(tabs, width),
+          truncateToWidth(theme.fg("dim", "←/→ switch layout · Changes apply immediately"), width),
+          ...settingsLists[activeTab]!.render(width),
+        ];
+      },
+      invalidate() { settingsLists.forEach((list) => list.invalidate()); },
       handleInput(data: string) {
-        settingsList.handleInput?.(data);
+        if (matchesKey(data, Key.left)) activeTab = (activeTab + FOOTER_LAYOUT_KEYS.length - 1) % FOOTER_LAYOUT_KEYS.length;
+        else if (matchesKey(data, Key.right)) activeTab = (activeTab + 1) % FOOTER_LAYOUT_KEYS.length;
+        else settingsLists[activeTab]!.handleInput?.(data);
         tui.requestRender();
       },
     };

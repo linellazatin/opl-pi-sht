@@ -27,7 +27,7 @@ export const CONFIGURABLE_SEGMENTS: StatusLineSegmentId[] = [
   "pi", "model", "path", "git", "thinking", "caveman", "plan_mode",
   "chat_mode", "mode_switcher", "token_in", "token_out", "token_total",
   "cache_read", "cache_write", "cost", "context_pct", "context_total",
-  "session_stats", "perf_stats", "separator",
+  "session_stats", "perf_stats",
 ];
 
 const DEFAULT_LAYOUTS: Record<FooterLayoutKey, StatusLineSegmentId[]> = {
@@ -100,14 +100,37 @@ export function setLayoutSegment(
   shown: boolean,
 ): FooterUserConfig {
   const current = getLayoutSegments(config, key);
-  if (shown && current.includes(segment)) return config;
+  const index = current.indexOf(segment);
+  if (shown && index !== -1) return config;
 
-  const next = current.filter((item) => item !== segment);
-  if (shown) {
-    const order = CONFIGURABLE_SEGMENTS.indexOf(segment);
-    const insertAt = next.findIndex((item) => CONFIGURABLE_SEGMENTS.indexOf(item) > order);
-    next.splice(insertAt === -1 ? next.length : insertAt, 0, segment);
+  const next = [...current];
+  if (!shown) {
+    if (index === -1) return config;
+    next.splice(index, 1);
+    if (next[index] === "separator") next.splice(index, 1);
+    return { ...config, [key]: next };
   }
+
+  const order = CONFIGURABLE_SEGMENTS.indexOf(segment);
+  const insertAt = next.findIndex((item) => CONFIGURABLE_SEGMENTS.indexOf(item) > order);
+  next.splice(insertAt === -1 ? next.length : insertAt, 0, segment);
+  return { ...config, [key]: next };
+}
+
+export function setSegmentSeparator(
+  config: FooterUserConfig,
+  key: FooterLayoutKey,
+  segment: StatusLineSegmentId,
+  shown: boolean,
+): FooterUserConfig {
+  const current = getLayoutSegments(config, key);
+  const index = current.indexOf(segment);
+  const hasSeparator = current[index + 1] === "separator";
+  if (index === -1 || shown === hasSeparator) return config;
+
+  const next = [...current];
+  if (shown) next.splice(index + 1, 0, "separator");
+  else next.splice(index + 1, 1);
   return { ...config, [key]: next };
 }
 
