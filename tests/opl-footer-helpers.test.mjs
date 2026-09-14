@@ -4,7 +4,8 @@ import { formatTokens, withIcon } from "../extensions/opl-footer/segments/helper
 import { formatMs, sessionStatsSegment } from "../extensions/opl-footer/segments/session-stats.ts";
 import { lerp } from "../extensions/opl-footer/segments/context.ts";
 import { modeSwitcherSegment } from "../extensions/opl-footer/segments/mode-switcher.ts";
-import { getLayoutSegments, setLayoutSegment, setSegmentSeparator } from "../extensions/opl-footer/config.ts";
+import { nextTabIndex } from "../extensions/opl-footer/configure-navigation.ts";
+import { getLayoutSegments, hasSegmentSeparator, setLayoutSegment, setSegmentSeparator } from "../extensions/opl-footer/config.ts";
 
 test("session_stats renders prompts, api calls, and tool calls", () => {
   const ctx = { theme: { fg: (_c, s) => s }, sessionStats: { prompts: 2, apiCalls: 31, toolCalls: 48, llmMs: 0, toolMs: 0, ttftSamples: [], lastTurnaroundMs: 0 } };
@@ -75,6 +76,25 @@ test("normalizes malformed footer layout values", () => {
     setLayoutSegment(malformed, "row1LeftSegments", "path", false).row1LeftSegments,
     ["pi", "separator", "model", "separator", "git"],
   );
+  assert.deepEqual(
+    getLayoutSegments({ row1LeftSegments: [1, "model"] }, "row1LeftSegments"),
+    ["pi", "separator", "model", "separator", "path", "git"],
+  );
+});
+
+test("does not attribute a leading separator to an absent segment", () => {
+  const config = { row1LeftSegments: ["separator", "model"] };
+  assert.equal(hasSegmentSeparator(config, "row1LeftSegments", "path"), false);
+  assert.deepEqual(
+    setSegmentSeparator(config, "row1LeftSegments", "path", false).row1LeftSegments,
+    config.row1LeftSegments,
+  );
+});
+
+test("wraps footer configuration tabs in both directions", () => {
+  assert.equal(nextTabIndex(0, "left", 6), 5);
+  assert.equal(nextTabIndex(5, "right", 6), 0);
+  assert.equal(nextTabIndex(2, "right", 6), 3);
 });
 
 test("renders footer helpers and mode color precedence", () => {

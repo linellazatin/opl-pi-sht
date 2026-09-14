@@ -6,12 +6,14 @@ import {
   CONFIGURABLE_SEGMENTS,
   FOOTER_LAYOUT_KEYS,
   getLayoutSegments,
+  hasSegmentSeparator,
   loadUserConfig,
   saveUserConfig,
   setLayoutSegment,
   setSegmentSeparator,
   type FooterLayoutKey,
 } from "./config.js";
+import { nextTabIndex } from "./configure-navigation.js";
 
 const LAYOUT_LABELS: Record<FooterLayoutKey, string> = {
   row1LeftSegments: "Row 1 left",
@@ -68,7 +70,7 @@ export async function showFooterConfigurator(ctx: ExtensionContext, onSaved: () 
           {
             id: `${key}:${segment}:separator`,
             label: `${segmentLabel(segment)} separator`,
-            currentValue: layout[index + 1] === "separator" ? "shown" : "hidden",
+            currentValue: hasSegmentSeparator(config, key, segment) ? "shown" : "hidden",
             values: ["shown", "hidden"],
           },
         ];
@@ -92,8 +94,8 @@ export async function showFooterConfigurator(ctx: ExtensionContext, onSaved: () 
       },
       invalidate() { settingsLists.forEach((list) => list.invalidate()); },
       handleInput(data: string) {
-        if (matchesKey(data, Key.left)) activeTab = (activeTab + FOOTER_LAYOUT_KEYS.length - 1) % FOOTER_LAYOUT_KEYS.length;
-        else if (matchesKey(data, Key.right)) activeTab = (activeTab + 1) % FOOTER_LAYOUT_KEYS.length;
+        if (matchesKey(data, Key.left)) activeTab = nextTabIndex(activeTab, "left", FOOTER_LAYOUT_KEYS.length);
+        else if (matchesKey(data, Key.right)) activeTab = nextTabIndex(activeTab, "right", FOOTER_LAYOUT_KEYS.length);
         else settingsLists[activeTab]!.handleInput?.(data);
         tui.requestRender();
       },

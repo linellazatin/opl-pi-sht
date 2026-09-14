@@ -90,7 +90,19 @@ export function clearUserConfigCache(): void {
 
 export function getLayoutSegments(config: FooterUserConfig, key: FooterLayoutKey): StatusLineSegmentId[] {
   const segments = config[key];
-  return Array.isArray(segments) ? segments : DEFAULT_LAYOUTS[key];
+  return Array.isArray(segments) && segments.every((segment) => typeof segment === "string")
+    ? segments
+    : DEFAULT_LAYOUTS[key];
+}
+
+export function hasSegmentSeparator(
+  config: FooterUserConfig,
+  key: FooterLayoutKey,
+  segment: StatusLineSegmentId,
+): boolean {
+  const layout = getLayoutSegments(config, key);
+  const index = layout.indexOf(segment);
+  return index !== -1 && layout[index + 1] === "separator";
 }
 
 export function setLayoutSegment(
@@ -125,8 +137,9 @@ export function setSegmentSeparator(
 ): FooterUserConfig {
   const current = getLayoutSegments(config, key);
   const index = current.indexOf(segment);
+  if (index === -1) return config;
   const hasSeparator = current[index + 1] === "separator";
-  if (index === -1 || shown === hasSeparator) return config;
+  if (shown === hasSeparator) return config;
 
   const next = [...current];
   if (shown) next.splice(index + 1, 0, "separator");
