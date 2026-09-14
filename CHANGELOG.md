@@ -5,6 +5,7 @@
 ### Added
 - `cacheReadSegment` (cache_read) & `cacheWriteSegment` (cache_write) text labels (e.g. *Read* 27.09M / *Write* 1.40M)
 - **`/configure-opl`**: six-tab footer segment, separator, and reorder configurator with immediate apply.
+- **`status` footer segment**: `Working`, `Waiting` during Pi tool execution, and `Ready` when the agent settles.
 
 ## [0.1.19] - 2026-09-13
 

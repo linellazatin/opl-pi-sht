@@ -120,7 +120,7 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 
 ### See what the agent is doing
 
-- **`opl-footer`** surfaces model, cost, token and cache activity, git state, and per-turn timing in a configurable multi-row footer; `/configure-opl` edits and reorders its layout interactively.
+- **`opl-footer`** surfaces model, cost, token and cache activity, git state, agent status, and per-turn timing in a configurable multi-row footer; `/configure-opl` edits and reorders its layout interactively.
 - **`opl-input`** is a configurable editor that reflects the active mode's identity, so you always know which mode you are typing into.
 ![input-footer](images/ss-input-footer.png)
 

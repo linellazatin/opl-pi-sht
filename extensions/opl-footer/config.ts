@@ -27,7 +27,7 @@ export const CONFIGURABLE_SEGMENTS: StatusLineSegmentId[] = [
   "pi", "model", "path", "git", "thinking", "caveman", "plan_mode",
   "chat_mode", "mode_switcher", "token_in", "token_out", "token_total",
   "cache_read", "cache_write", "cost", "context_pct", "context_total",
-  "session_stats", "perf_stats",
+  "session_stats", "perf_stats", "status",
 ];
 
 const DEFAULT_LAYOUTS: Record<FooterLayoutKey, StatusLineSegmentId[]> = {

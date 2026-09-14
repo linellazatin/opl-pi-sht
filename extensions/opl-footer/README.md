@@ -1,10 +1,10 @@
 # opl-footer
 
-A customizable three-row footer for the Pi coding agent. It shows model, path, Git, context, thinking, mode, token, cost, session, and performance information in configurable left/right segments.
+A customizable three-row footer for the Pi coding agent. It shows model, path, Git, context, thinking, mode, token, cost, agent status, session, and performance information in configurable left/right segments.
 
 ## Commands, flags, and shortcuts
 
-`/configure-opl` provides six row/side tabs to toggle or reorder standard segments and their trailing separators, applying changes immediately. Press `r` for reorder view, then `,`/`.` to move the selected segment. Colors, icons, literal text, and other options remain JSON-only. Nerd Font detection can be overridden with `FOOTER_NERD_FONTS=1` or `FOOTER_NERD_FONTS=0`.
+`/configure-opl` provides six row/side tabs to toggle or reorder standard segments and their trailing separators, applying changes immediately. Press `r` for reorder view, then `,`/`.` to move the selected segment. The `status` segment shows `Working` during agent execution, `Waiting` while Pi tools run, and `Ready` when the agent settles. Colors, icons, literal text, and other options remain JSON-only. Nerd Font detection can be overridden with `FOOTER_NERD_FONTS=1` or `FOOTER_NERD_FONTS=0`.
 
 ## Extension features
 
@@ -33,7 +33,7 @@ The third row is populated after the first completed turn. Its session and perfo
 - **Token and cost tracking**: total, cache, input/output, and accumulated cost segments
 - **Session statistics**: prompt, API-call, and model tool-call counts
 - **Performance statistics**: cumulative LLM/tool duration, most recent user-prompt-to-completion turnaround time, average time to first token, output rate, and cache-hit percentage
-- **Thinking and mode indicators**: thinking-level colors plus caveman, plan, chat, or unified mode segments when available
+- **Thinking, mode, and status indicators**: thinking-level colors plus caveman, plan, chat, unified mode, and `Working`/`Waiting`/`Ready` status segments
 - **Nerd Font support**: automatic detection with plain-icon fallbacks
 - **Live updates**: branch changes and session events request footer re-rendering
 
@@ -155,6 +155,8 @@ The `git` segment shows:
 The `session_stats` segment shows prompt, API-call, and model tool-call counts for the current branch, reconstructed from session history so they survive quit/resume. `prompts` counts user messages and `api calls` counts completed assistant responses, so one prompt typically drives many API calls (each tool round trip is one call); `tool calls` counts the tool-call blocks the model emitted.
 
 The `perf_stats` segment shows cumulative session LLM and tool time, average time to first token, output tokens/sec, and cache-hit percentage. The `LLM` figure is followed by the most recent user-prompt-to-completion turnaround time in parentheses, e.g. `LLM 18m 22s (2m 13s)`. This turnaround reflects only fully-settled turns (the `agent_settled` signal, after any retries or compaction), so it stays blank until the first turn completes. All `perf_stats` timing values are ephemeral — they reset each session and are not reconstructed from branch history.
+
+The `status` segment is `Working` while the agent runs, `Waiting` while one or more Pi tools execute, and `Ready` only after `agent_settled`.
 
 ## Icons
 

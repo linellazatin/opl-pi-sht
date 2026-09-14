@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "bun:test";
 import { formatTokens, withIcon } from "../extensions/opl-footer/segments/helpers.ts";
 import { formatMs, sessionStatsSegment } from "../extensions/opl-footer/segments/session-stats.ts";
+import { renderSegment } from "../extensions/opl-footer/segments/index.ts";
 import { lerp } from "../extensions/opl-footer/segments/context.ts";
 import { modeSwitcherSegment } from "../extensions/opl-footer/segments/mode-switcher.ts";
 import { nextTabIndex, restoreSelectedItem } from "../extensions/opl-footer/configure-navigation.ts";
@@ -13,6 +14,13 @@ test("session_stats renders prompts, api calls, and tool calls", () => {
   assert.equal(seg.visible, true);
   assert.match(seg.content, /2 prompts.*31 api calls.*48 tool calls/s);
   assert.equal(sessionStatsSegment.render({ ...ctx, sessionStats: { ...ctx.sessionStats, prompts: 0 } }).visible, false);
+});
+
+test("renders each agent status with its theme color", () => {
+  const ctx = { theme: { fg: (color, text) => `[${color}]${text}` } };
+  assert.deepEqual(renderSegment("status", { ...ctx, agentStatus: "working" }), { content: "[accent]Working", visible: true });
+  assert.deepEqual(renderSegment("status", { ...ctx, agentStatus: "waiting" }), { content: "[warning]Waiting", visible: true });
+  assert.deepEqual(renderSegment("status", { ...ctx, agentStatus: "ready" }), { content: "[success]Ready", visible: true });
 });
 
 test("formats footer token and duration values at display boundaries", () => {
