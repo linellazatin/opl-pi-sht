@@ -3,8 +3,9 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 import type { TUI } from "@earendil-works/pi-tui";
 
-import type { AgentStatus, SegmentContext, StatusLineSegmentId, UsageStats, SessionStats, SessionEvent, ThinkingLevelEvent, AssistantMessageEvent, ToolResultEvent, UserBashEvent } from "./types.js";
+import type { SegmentContext, StatusLineSegmentId, UsageStats, SessionStats, SessionEvent, ThinkingLevelEvent, AssistantMessageEvent, ToolResultEvent, UserBashEvent } from "./types.js";
 import { renderSegment } from "./segments/index.js";
+import { createAgentStatusTracker } from "./segments/status.js";
 import { getGitStatus, invalidateGitStatus, invalidateGitBranch } from "./git-status.js";
 import { getEffectiveConfig } from "./config.js";
 import { getIcons } from "./icons.js";
@@ -113,7 +114,7 @@ export default function footer(pi: ExtensionAPI) {
   let ttftRecordedThisTurn = false;
   let agentStartMs = 0;
   let lastTurnaroundMs = 0;
-  let agentStatus: AgentStatus = "ready";
+  let statusTracker = createAgentStatusTracker();
   const toolStartTimes = new Map<string, number>();
 
   pi.registerCommand("configure-opl", {
@@ -137,7 +138,7 @@ export default function footer(pi: ExtensionAPI) {
     ttftRecordedThisTurn = false;
     agentStartMs = 0;
     lastTurnaroundMs = 0;
-    agentStatus = "ready";
+    statusTracker = createAgentStatusTracker();
     toolStartTimes.clear();
 
     if (ctx.hasUI) {
@@ -151,7 +152,7 @@ export default function footer(pi: ExtensionAPI) {
   // authoritative "fully done, no auto-continuation" signal.
   pi.on("agent_start", async (_event: unknown, _ctx: ExtensionContext) => {
     if (agentStartMs === 0) agentStartMs = Date.now();
-    agentStatus = "working";
+    statusTracker.agentStarted();
     tuiRef?.requestRender();
   });
 
@@ -160,7 +161,7 @@ export default function footer(pi: ExtensionAPI) {
       lastTurnaroundMs = Date.now() - agentStartMs;
       agentStartMs = 0;
     }
-    agentStatus = "ready";
+    statusTracker.agentSettled();
     tuiRef?.requestRender();
   });
 
@@ -177,7 +178,7 @@ export default function footer(pi: ExtensionAPI) {
 
   pi.on("tool_execution_start", async (event: { toolCallId: string }, _ctx: ExtensionContext) => {
     toolStartTimes.set(event.toolCallId, Date.now());
-    agentStatus = "waiting";
+    statusTracker.toolStarted(event.toolCallId);
     tuiRef?.requestRender();
   });
 
@@ -189,7 +190,7 @@ export default function footer(pi: ExtensionAPI) {
       toolMsThisTurn += elapsed;
       toolStartTimes.delete(event.toolCallId);
     }
-    agentStatus = toolStartTimes.size > 0 ? "waiting" : "working";
+    statusTracker.toolEnded(event.toolCallId);
     tuiRef?.requestRender();
   });
 
@@ -316,7 +317,7 @@ export default function footer(pi: ExtensionAPI) {
       colors,
       icons: getIcons(effectiveConfig.icons),
       sessionStats: { prompts: branchPrompts, apiCalls: branchApiCalls, toolCalls: branchToolCalls, llmMs, toolMs, ttftSamples, lastTurnaroundMs },
-      agentStatus,
+      agentStatus: statusTracker.status(),
     };
   }
 

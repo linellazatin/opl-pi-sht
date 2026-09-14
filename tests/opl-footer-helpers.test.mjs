@@ -3,6 +3,7 @@ import { test } from "bun:test";
 import { formatTokens, withIcon } from "../extensions/opl-footer/segments/helpers.ts";
 import { formatMs, sessionStatsSegment } from "../extensions/opl-footer/segments/session-stats.ts";
 import { renderSegment } from "../extensions/opl-footer/segments/index.ts";
+import * as statusSegmentModule from "../extensions/opl-footer/segments/status.ts";
 import { lerp } from "../extensions/opl-footer/segments/context.ts";
 import { modeSwitcherSegment } from "../extensions/opl-footer/segments/mode-switcher.ts";
 import { nextTabIndex, restoreSelectedItem } from "../extensions/opl-footer/configure-navigation.ts";
@@ -21,6 +22,24 @@ test("renders each agent status with its theme color", () => {
   assert.deepEqual(renderSegment("status", { ...ctx, agentStatus: "working" }), { content: "[accent]Working", visible: true });
   assert.deepEqual(renderSegment("status", { ...ctx, agentStatus: "waiting" }), { content: "[warning]Waiting", visible: true });
   assert.deepEqual(renderSegment("status", { ...ctx, agentStatus: "ready" }), { content: "[success]Ready", visible: true });
+});
+
+test("derives footer status from agent and parallel Pi tool lifecycles", () => {
+  const tracker = statusSegmentModule.createAgentStatusTracker();
+  assert.equal(tracker.status(), "ready");
+  tracker.agentStarted();
+  assert.equal(tracker.status(), "working");
+  tracker.toolStarted("one");
+  tracker.toolStarted("two");
+  assert.equal(tracker.status(), "waiting");
+  tracker.toolEnded("one");
+  assert.equal(tracker.status(), "waiting");
+  tracker.toolEnded("two");
+  assert.equal(tracker.status(), "working");
+  tracker.agentSettled();
+  assert.equal(tracker.status(), "ready");
+  tracker.toolEnded("late");
+  assert.equal(tracker.status(), "ready", "a late tool-end event cannot regress the settled state");
 });
 
 test("formats footer token and duration values at display boundaries", () => {
