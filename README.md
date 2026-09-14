@@ -76,7 +76,7 @@ Copy mode overwrites matching destinations. Link mode skips existing destination
 | [`opl-questionnaire`](extensions/opl-questionnaire/README.md) | Interactive structured-choice tool.                                                                                                                                                                                          | `questionnaire`; no config.                                                                                    |
 | [`opl-input`](extensions/opl-input/README.md)                 | Configurable replacement editor - enhanced [pikit chat-input](https://github.com/adrianapan/pikit) (because pet is life, and configurable). ![pet](images/ss-input-pet.png)                                                                                   | No commands/tools;`opl-input.json`.                                                                            |
 | [`opl-modes`](extensions/opl-modes/README.md)                 | Mode, plan, tool-safety, lazy-tool-loading, and active-appearance manager - highly-modified, configrable and enhanced mode-switcher.                                                                                         | `/mode`, `/chat`, `/plan`, `/execute`, `plan_complete`, `load_tools`; `opl-modes.json`.                        |
-| [`opl-footer`](extensions/opl-footer/README.md)               | Configurable multi-row status footer - highly-specialized, and enhanced [pikit footer](https://github.com/adrianapan/pikit).                                                                                                  | No commands/tools;`opl-footer.json`.                                                                           |
+| [`opl-footer`](extensions/opl-footer/README.md)               | Configurable multi-row status footer - highly-specialized, and enhanced [pikit footer](https://github.com/adrianapan/pikit).                                                                                                  | `/configure-opl`; `opl-footer.json`.                                                                           |
 
 ## What you'll gain
 
@@ -120,7 +120,7 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 
 ### See what the agent is doing
 
-- **`opl-footer`** surfaces model, cost, token and cache activity, git state, and per-turn timing in a configurable multi-row footer.
+- **`opl-footer`** surfaces model, cost, token and cache activity, git state, and per-turn timing in a configurable multi-row footer; `/configure-opl` edits its layout interactively.
 - **`opl-input`** is a configurable editor that reflects the active mode's identity, so you always know which mode you are typing into.
 ![input-footer](images/ss-input-footer.png)
 

@@ -4,6 +4,7 @@
 
 ### Added
 - `cacheReadSegment` (cache_read) & `cacheWriteSegment` (cache_write) text labels (e.g. *Read* 27.09M / *Write* 1.40M)
+- **`/configure-opl`**: interactive footer segment layout configurator with immediate apply.
 
 ## [0.1.19] - 2026-09-13
 
