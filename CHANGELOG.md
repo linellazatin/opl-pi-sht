@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.21] - 2026-09-17
+
+### Fixed
+- **`opl-todo`**: a schema-rejected call (`details: {}`) crashed the TUI on every render and made the session unresumable; it also aborted `session_start` before the widget overlay mounted (no widget, dead `ctrl+alt+t`). All render/reconstruct paths now guard malformed results, missing or partial args, and empty lists.
+- Added `tests/opl-todo-render.test.mjs` regression check (wired into `npm run test:opl-todo`).
+
 ## [0.1.20] - 2026-09-14
 
 ### Added
