@@ -10,3 +10,4 @@ docs/
 
 ## annoying
 .DS_Store
+node_modules/

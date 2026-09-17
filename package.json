@@ -1,6 +1,6 @@
 {
   "name": "@openlines/opl-pi-sht",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "description": "opl-pi-sht (shouldHaveThat) Pi coding-agent extension kit: token-efficient context, safe modes, fingerprinted /init, model benchmarking, web access, and browser automation.",
   "repository": {
     "type": "git",
@@ -47,7 +47,7 @@
     "test:opl-input": "bun test tests/opl-input-style.test.mjs && OPL_EXTENSION=opl-input bun test tests/extension-smoke.test.mjs",
     "test:opl-modes": "bun test tests/opl-modes-helpers.test.mjs && OPL_EXTENSION=opl-modes bun test tests/extension-smoke.test.mjs",
     "test:opl-questionnaire": "OPL_EXTENSION=opl-questionnaire bun test tests/extension-smoke.test.mjs",
-    "test:opl-todo": "bun test tests/opl-todo-config.test.mjs && OPL_EXTENSION=opl-todo bun test tests/extension-smoke.test.mjs",
+    "test:opl-todo": "bun test tests/opl-todo-config.test.mjs tests/opl-todo-render.test.mjs && OPL_EXTENSION=opl-todo bun test tests/extension-smoke.test.mjs",
     "test:opl-webaccess": "bun test tests/opl-webaccess-helpers.test.mjs && OPL_EXTENSION=opl-webaccess bun test tests/extension-smoke.test.mjs",
     "test:opl-simplebench": "bun test tests/opl-simplebench.test.ts && OPL_EXTENSION=opl-simplebench bun test tests/extension-smoke.test.mjs",
     "test:opl-ctxtrim": "bun test tests/opl-ctxtrim.test.ts && OPL_EXTENSION=opl-ctxtrim bun test tests/extension-smoke.test.mjs"
