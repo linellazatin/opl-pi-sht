@@ -198,7 +198,8 @@ export default function (pi: ExtensionAPI) {
 			const msg = entry.message;
 			if (msg.role !== "toolResult" || msg.toolName !== "todo") continue;
 			const details = msg.details as TodoDetails | undefined;
-			if (details) {
+			// Malformed results exist in real sessions (e.g. schema-rejected calls leave details: {}).
+			if (details && Array.isArray(details.todos) && typeof details.nextId === "number") {
 				todos.length = 0;
 				todos.push(...details.todos);
 				nextId = details.nextId;
@@ -353,16 +354,17 @@ export default function (pi: ExtensionAPI) {
 		},
 
 		renderCall(args, theme, _context) {
-			let text = theme.fg("toolTitle", theme.bold("todo ")) + theme.fg("muted", args.action);
-			if (args.text) text += ` ${theme.fg("dim", `"${args.text}"`)}`;
-			if (args.id !== undefined) text += ` ${theme.fg("accent", `#${args.id}`)}`;
+			// args can arrive partial (streaming) or malformed (schema-rejected calls still render).
+			let text = theme.fg("toolTitle", theme.bold("todo ")) + theme.fg("muted", String(args?.action ?? ""));
+			if (args?.text) text += ` ${theme.fg("dim", `"${args.text}"`)}`;
+			if (args?.id !== undefined) text += ` ${theme.fg("accent", `#${args.id}`)}`;
 			return new Text(text, 0, 0);
 		},
 
 		renderResult(result, { expanded }, theme, _context) {
 			const details = result.details as TodoDetails | undefined;
-			if (!details) {
-				const text = result.content[0];
+			if (!details || !Array.isArray(details.todos)) {
+				const text = Array.isArray(result.content) ? result.content[0] : undefined;
 				return new Text(text?.type === "text" ? text.text : "", 0, 0);
 			}
 			if (details.error) return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
@@ -383,6 +385,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				case "add": {
 					const added = todoList[todoList.length - 1];
+					if (!added) return new Text(theme.fg("error", "todo add returned an empty list"), 0, 0);
 					return new Text(
 						theme.fg("success", "✓ Added ") + theme.fg("accent", `#${added.id}`) + " " + theme.fg("muted", added.text),
 						0, 0,
@@ -396,6 +399,10 @@ export default function (pi: ExtensionAPI) {
 				case "clear":
 					return new Text(theme.fg("success", "✓ ") + theme.fg("muted", "Cleared all todos"), 0, 0);
 			}
+			// Fallback: switch above must never fall through. Returning undefined here
+			// makes pi wrap it in a MouseRegion with an undefined child and crashes the TUI.
+			const fb = result.content[0];
+			return new Text(theme.fg("error", String(fb?.type === "text" ? fb.text : "Unknown todo result")), 0, 0);
 		},
 	});
 
