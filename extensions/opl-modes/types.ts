@@ -7,6 +7,8 @@ export type AgentMode = string;
 export interface AgentModeBlob {
   mode: AgentMode;
   activePlanFile: string | null;
+  /** Model to restore when the mode ends. Persisted so /reload and /resume keep the restore point. */
+  restoreModel?: ModeModelConfig | null;
 }
 
 export interface PlanFileSummary {

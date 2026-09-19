@@ -51,8 +51,7 @@ import {
   lazyToolsToEnable,
 } from "./config.js";
 import {
-  isSafeCommand,
-  isDestructive,
+  bashBlockReason,
   extractPlanText,
   isPlanLike,
   ensurePlanDir,
@@ -69,6 +68,8 @@ import {
   setRefining,
   getActivePlanFile,
   setActivePlanFile,
+  getRestoringModel,
+  setRestoringModel,
   transition,
   enterPlanWithFile,
   restore,
@@ -124,7 +125,9 @@ export default function modeSwitcher(pi: ExtensionAPI) {
 
   function saveAndSetActiveTools(toolNames: string[]): void {
     if (savedToolNames === null) {
-      savedToolNames = pi.getAllTools().map((t) => t.name);
+      // Snapshot what is actually active, not every registered tool: entering a mode must
+      // never widen the set the user (or Pi settings) narrowed before it.
+      savedToolNames = pi.getActiveTools();
     }
     pi.setActiveTools(applyLazyPolicy(toolNames));
   }
@@ -158,17 +161,29 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   async function applyModeModel(ctx: ExtensionContext, modeDef: { model?: { provider: string; id: string } } | undefined): Promise<void> {
     const modelRef = modeDef?.model;
     if (!modelRef) return;
-    if (savedModel === null) {
-      savedModel = ctx.model ?? null;
+    const current = ctx.model ?? null;
+    const alreadyOnModeModel = current !== null && current.provider === modelRef.provider && current.id === modelRef.id;
+    // Capture the restore point once per mode, and never when the session is already on
+    // the mode's own model (after /reload or /resume inside a mode) or when a restore
+    // point is already persisted — otherwise the real previous model is lost.
+    if (savedModel === null && getRestoringModel() === null && !alreadyOnModeModel) {
+      rememberRestoreModel(current);
     }
     await switchToModel(ctx, modelRef);
   }
 
+  /** Record the model to return to, in memory and in the session blob. */
+  function rememberRestoreModel(model: Model<any> | null): void {
+    savedModel = model;
+    setRestoringModel(model ? { provider: model.provider, id: model.id } : null, pi);
+  }
+
   /** Restore whatever model was active before applyModeModel last changed it. */
   function restoreModelIfSaved(ctx: ExtensionContext): void {
-    if (savedModel === null) return;
-    const toRestore = savedModel;
-    savedModel = null;
+    const ref = savedModel ?? getRestoringModel();
+    const toRestore = ref ? (savedModel ?? ctx.modelRegistry.find(ref.provider, ref.id)) : null;
+    rememberRestoreModel(null);
+    if (!toRestore) return;
     void setQueuedModel(ctx, toRestore, `${toRestore.provider}/${toRestore.id}`);
   }
 
@@ -182,8 +197,8 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   function applyOffModel(ctx: ExtensionContext): void {
     const offModeDef = getModeDefinition("off");
     if (offModeDef?.model) {
-      savedModel = null;
-      switchToModel(ctx, offModeDef.model);
+      rememberRestoreModel(null);
+      void switchToModel(ctx, offModeDef.model);
     } else {
       restoreModelIfSaved(ctx);
     }
@@ -195,12 +210,9 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   }
 
   function restoreAllTools(): void {
-    if (savedToolNames !== null) {
-      pi.setActiveTools(applyLazyPolicy(toolsWithoutPlanComplete(savedToolNames)));
-      savedToolNames = null;
-    } else {
-      pi.setActiveTools(applyLazyPolicy(toolsWithoutPlanComplete(pi.getAllTools().map((t) => t.name))));
-    }
+    const names = savedToolNames ?? pi.getActiveTools();
+    pi.setActiveTools(applyLazyPolicy(toolsWithoutPlanComplete(names)));
+    savedToolNames = null;
   }
 
   // ─── Plan file helpers ─────────────────────────────────────────────────────
@@ -314,7 +326,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
 
   async function enterExecuteMode(ctx: ExtensionContext): Promise<void> {
     transition("execute", pi);
-    const baseNames = savedToolNames ?? pi.getAllTools().map((t) => t.name);
+    const baseNames = savedToolNames ?? pi.getActiveTools();
     pi.setActiveTools(applyLazyPolicy([...toolsWithoutPlanComplete(baseNames), "plan_complete"]));
     savedToolNames = null;
     const modeDef = getModeDefinition("execute");
@@ -337,7 +349,14 @@ export default function modeSwitcher(pi: ExtensionAPI) {
    */
   function enterOffMode(ctx: ExtensionContext, message?: string, silent = false): void {
     transition("off", pi);
-    restoreAllTools();
+    const offModeDef = getModeDefinition("off");
+    // OFF gates tools only when the user declares modes.off.tools; otherwise it restores
+    // whatever was active before the mode.
+    if (offModeDef?.tools) {
+      saveAndSetActiveTools(withPlanComplete("off", offModeDef.tools));
+    } else {
+      restoreAllTools();
+    }
     applyOffModel(ctx);
     updateStatus(ctx);
     if (!silent && ctx.hasUI && !USER_CONFIG.ui.hideNotify) {
@@ -461,11 +480,11 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     if (modeDef?.tools) {
       saveAndSetActiveTools(modeDef.tools);
     } else if (mode === "execute") {
-      const allNames = pi.getAllTools().map((t) => t.name);
+      const allNames = pi.getActiveTools();
       pi.setActiveTools(applyLazyPolicy([...toolsWithoutPlanComplete(allNames), "plan_complete"]));
     } else {
-      // Default: all tools except plan_complete
-      const allNames = pi.getAllTools().map((t) => t.name);
+      // Default: the active set minus plan_complete
+      const allNames = pi.getActiveTools();
       pi.setActiveTools(applyLazyPolicy(toolsWithoutPlanComplete(allNames)));
     }
 
@@ -564,29 +583,11 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     if (!modeDef?.safePatterns && !modeDef?.destructivePatterns) return {};
 
     const command = event.input.command as string;
-    
-    // Check safe patterns (if defined, command must match at least one)
-    if (modeDef.safePatterns && modeDef.safePatterns.length > 0) {
-      const matchesSafe = modeDef.safePatterns.some((pattern) => pattern.test(command));
-      if (!matchesSafe) {
-        return {
-          block: true,
-          reason: `[mode-switcher] Command blocked — not in safe pattern list for ${mode} mode: ${command}`,
-        };
-      }
+    const reason = bashBlockReason(command, modeDef.safePatterns, modeDef.destructivePatterns);
+    if (reason) {
+      return { block: true, reason: `[mode-switcher] Command blocked — ${reason} [${mode} mode]` };
     }
 
-    // Check destructive patterns (if defined, must not match any) — also against
-    // a quote/backslash-stripped skeleton so r"m"/r\m obfuscation can't dodge \brm\b.
-    if (modeDef.destructivePatterns && modeDef.destructivePatterns.length > 0) {
-      if (isDestructive(command, modeDef.destructivePatterns)) {
-        return {
-          block: true,
-          reason: `[mode-switcher] Command blocked — destructive pattern in ${mode} mode: ${command}`,
-        };
-      }
-    }
-    
     return {};
   });
 

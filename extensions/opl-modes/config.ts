@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ModeSwitcherUserConfig, ModeDefinition, PartialModeDefinition } from "./types.js";
+import type { ModeSwitcherUserConfig, ModeDefinition, PartialModeDefinition, ModeModelConfig } from "./types.js";
 
 // ─── Plan File Constants ────────────────────────────────────────────────────
 
@@ -62,20 +62,22 @@ export const DEFAULT_SAFE_PATTERNS: RegExp[] = [
   /^\s*yarn\s+(list|info|why|audit)/i,
 ];
 
-/** Default destructive command patterns — always blocked in read-only modes, even if matching a safe pattern. */
+/** Destructive command patterns — always blocked in read-only modes, even if matching a safe pattern.
+ *  Program names are anchored to command position (`^\s*`) and matched per shell segment, so a
+ *  read-only command that merely mentions `rm`/`cp`/`sh` in an argument (`du -sh`, `ls cp/`,
+ *  `git log --grep=rm`) stays allowed. Flag and redirect patterns stay unanchored on purpose. */
 export const DEFAULT_DESTRUCTIVE_PATTERNS: RegExp[] = [
-  /\brm\b/i, /\brmdir\b/i, /\bmv\b/i, /\bcp\b/i,
-  /\bmkdir\b/i, /\btouch\b/i, /\bchmod\b/i, /\bchown\b/i,
-  /\btee\b/i, /\bdd\b/i, /\bshred\b/i, /\btruncate\b/i,
-  /\s-(delete|exec|execdir)\b/i,
+  /^\s*(rm|rmdir|mv|cp|mkdir|touch|chmod|chown|tee|dd|shred|truncate)\b/i,
+  /\s-{1,2}(delete|exec|execdir|exec-batch)\b/i,
+  /\bsort\s+-o\b/i,
   /(^|[^<])>(?!>|&)/, />>/,
   /\bnpm\s+(install|uninstall|update|ci)/i,
   /\byarn\s+(add|remove|install)/i,
   /\bpip\s+(install|uninstall)/i,
-  /\bgit\s+(add|commit|push|merge|rebase|reset|checkout|branch\s+-|clean|update-ref|tag\s+-|cherry-pick|revert|am|apply)/i,
-  /\bsudo\b/i, /\bsu\b/i, /\bkill\b/i, /\bpkill\b/i,
-  /\b(sh|bash|zsh)\b/i,
-  /\b(vim?|nano|emacs|code|subl)\b/i,
+  /\bgit\s+(add|commit|push|merge|rebase|reset|checkout|clean|update-ref|cherry-pick|revert|am|apply|branch\s+-[dDmM]|tag\s+-)/i,
+  /^\s*(sudo|su|kill|pkill)\b/i,
+  /^\s*(sh|bash|zsh)\b/i,
+  /^\s*(vim?|nano|emacs|code|subl)\b/i,
 ];
 
 // ─── Prompt Templates ────────────────────────────────────────────────────────
@@ -394,13 +396,29 @@ export function resolveCustomPatterns(def: {
   };
 }
 
+/**
+ * Normalize a configured model reference. A blank or partial `{ provider, id }` means
+ * "no override" — Pi's registry cannot resolve empty strings, so passing one through
+ * would only warn "Model not found: /" and leave the model untouched. Treating it as
+ * unset makes the mode keep (and later restore) the current model instead.
+ */
+export function resolveModeModel(model: unknown): ModeModelConfig | undefined {
+  if (!isRecord(model)) return undefined;
+  const provider = typeof model.provider === "string" ? model.provider.trim() : "";
+  const id = typeof model.id === "string" ? model.id.trim() : "";
+  return provider && id ? { provider, id } : undefined;
+}
+
 export function mergeModeDefinition(existing: ModeDefinition, def: PartialModeDefinition): ModeDefinition {
+  // unrestrictedBash is an opt-out for built-in overrides too, not just new modes.
+  const unrestricted = def.unrestrictedBash === true;
   return {
     ...existing,
     ...def,
     tools: def.tools ?? existing.tools,
-    safePatterns: compilePatterns(def.safePatterns) ?? existing.safePatterns,
-    destructivePatterns: compilePatterns(def.destructivePatterns) ?? existing.destructivePatterns,
+    model: "model" in def ? resolveModeModel(def.model) : existing.model,
+    safePatterns: unrestricted ? undefined : (compilePatterns(def.safePatterns) ?? existing.safePatterns),
+    destructivePatterns: unrestricted ? undefined : (compilePatterns(def.destructivePatterns) ?? existing.destructivePatterns),
     labels: { ...existing.labels, ...def.labels },
     appearance: def.appearance ?? existing.appearance,
   };
@@ -495,7 +513,7 @@ function initModeRegistry(): void {
           allowExecute: def.allowExecute ?? true,
           visible: def.visible ?? true,
           enabled: def.enabled ?? true,
-          model: def.model,
+          model: resolveModeModel(def.model),
           labels: {
             notify: def.labels?.notify ?? customNotifyTemplate.replace("{Name}", name.charAt(0).toUpperCase() + name.slice(1)),
             notifyType: def.labels?.notifyType ?? "info",

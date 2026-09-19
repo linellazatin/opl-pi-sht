@@ -1,10 +1,10 @@
-/** Pure utilities: isSafeCommand, extractPlanText, plan file I/O, color helpers */
+/** Pure utilities: read-only Bash gate, plan file I/O, color helpers */
 
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync, readdirSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { SAFE_COMMAND_PATTERNS, DESTRUCTIVE_PATTERNS, PLAN_DIR, PLAN_FILE_PREFIX } from "./config.js";
+import { PLAN_DIR, PLAN_FILE_PREFIX } from "./config.js";
 import type { PlanFileSummary } from "./types.js";
 
 /** Serialize async model changes so the final requested model wins. */
@@ -19,17 +19,57 @@ export function createLatestModelQueue() {
   };
 }
 
-/** Check if command matches safe patterns and not destructive patterns. */
-export function isSafeCommand(command: string): boolean {
-  return SAFE_COMMAND_PATTERNS.some((p) => p.test(command))
-    && !isDestructive(command, DESTRUCTIVE_PATTERNS);
+/** Shell operators that start a new command: chaining, pipes, separators, substitutions. */
+const SEGMENT_SPLIT = /\$\(|`|[<>]\(|&&|\|\||[;|\n]/;
+
+/** Replace quoted runs with empty pairs so operators inside strings are not read as separators. */
+function blankQuotes(command: string): string {
+  return command.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, "''");
 }
 
-/** Whether a command, or its quote/backslash-stripped skeleton, matches any destructive
- *  pattern. Stripping defeats shell expands like `r"m"` -> `rm` that dodge \brm\b. */
+const stripQuotes = (text: string): string => text.replace(/["'\\]/g, "");
+
+/**
+ * Split a command into shell segments (chaining, pipes, `$(...)`, backticks, process
+ * substitution). Segments are trimmed and empty ones dropped. `blankQuoted` hides
+ * quoted string contents from the separator scan — use it for the allowlist check,
+ * never for the blocklist check, because `$(...)` inside double quotes still executes.
+ */
+function commandSegments(command: string, blankQuoted = false): string[] {
+  const source = blankQuoted ? blankQuotes(command) : command;
+  return source.split(SEGMENT_SPLIT).map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+/** Whether a destructive pattern matches the command, any of its segments, or either
+ *  with quotes/backslashes stripped, so `r"m"` and `-del"ete"` cannot dodge the list. */
 export function isDestructive(command: string, patterns: RegExp[]): boolean {
-  const skeleton = command.replace(/["'\\]/g, "");
-  return patterns.some((p) => p.test(command) || p.test(skeleton));
+  const haystacks = [
+    command,
+    stripQuotes(command),
+    ...commandSegments(command).flatMap((s) => [s, stripQuotes(s)]),
+  ];
+  return patterns.some((p) => haystacks.some((h) => p.test(h)));
+}
+
+/**
+ * Why a Bash command must be blocked in a read-only mode, or null when it is allowed.
+ * Every shell segment has to match a safe pattern (so `cat f && node -e '...'` cannot
+ * ride the first command's allowance), and no destructive pattern may match anywhere.
+ * An undefined or empty safe list means "no allowlist gate".
+ */
+export function bashBlockReason(
+  command: string,
+  safePatterns?: RegExp[],
+  destructivePatterns?: RegExp[],
+): string | null {
+  if (safePatterns && safePatterns.length > 0) {
+    const offender = commandSegments(command, true).find((s) => !safePatterns.some((p) => p.test(s)));
+    if (offender !== undefined) return `not in safe pattern list: ${offender}`;
+  }
+  if (destructivePatterns && destructivePatterns.length > 0 && isDestructive(command, destructivePatterns)) {
+    return `destructive pattern in: ${command}`;
+  }
+  return null;
 }
 
 const PLAN_ACTION_VERB = /^\s*\d+\.\s+(?:\*{1,2})?(?:add|creat|updat|fix|remov|refactor|implement|modif|chang|edit|writ|build|run|install|configur|set\s+up|delet|mov|renam|inject|migrat|replac|extract|test|deploy|integrat|convert)/i;

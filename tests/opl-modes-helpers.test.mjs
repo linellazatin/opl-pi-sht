@@ -2,7 +2,7 @@
 // Run: bun tests/opl-modes-helpers.test.mjs
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { transition } from "../extensions/opl-modes/state.ts";
+import { transition, restore, resetState, getRestoringModel, setRestoringModel } from "../extensions/opl-modes/state.ts";
 import {
   getModeDefinition,
   registerMode,
@@ -11,6 +11,7 @@ import {
   resolveLazyTools,
   applyLazyPolicy,
   lazyToolsToEnable,
+  resolveModeModel,
   DEFAULT_SAFE_PATTERNS,
   DEFAULT_DESTRUCTIVE_PATTERNS,
   resolveCustomPatterns,
@@ -18,7 +19,7 @@ import {
   LOADER_TOOL_NAME,
 } from "../extensions/opl-modes/config.ts";
 import * as modeUtils from "../extensions/opl-modes/utils.ts";
-import { isDestructive } from "../extensions/opl-modes/utils.ts";
+import { isDestructive, bashBlockReason } from "../extensions/opl-modes/utils.ts";
 import * as modeConfig from "../extensions/opl-modes/config.ts";
 
 test("lazy-tool policy: resolution, subtraction, loader injection, and mode-bounded activation", () => {
@@ -198,4 +199,107 @@ test("custom modes inherit the shared bash base unless they override or opt out"
   const open = resolveCustomPatterns({ unrestrictedBash: true });
   assert.equal(open.safe, undefined, "unrestricted: no safe list");
   assert.equal(open.destructive, undefined, "unrestricted: no destructive list");
+});
+
+test("bash gate checks every shell segment, not just the command prefix", () => {
+  const blocked = (cmd) => bashBlockReason(cmd, DEFAULT_SAFE_PATTERNS, DEFAULT_DESTRUCTIVE_PATTERNS) !== null;
+  const allowed = (cmd) => !blocked(cmd);
+
+  // State-changing payloads riding on a safe-listed first command.
+  for (const cmd of [
+    `cat x && node -e 'require("fs").writeFileSync("/tmp/p","x")'`,
+    `ls; python -c 'open("/tmp/p","w")'`,
+    `echo hi && sed -i 's/a/b/' important.txt`,
+    "diff a b; :(){ :|:& };:",
+    "echo hi | tee /dev/null",
+    "ls > list.txt",
+    "sort -o out.txt in.txt",
+    "cat f && sudo rm -rf /",
+    'cat "$(rm -rf /tmp/x)"',
+    "cat `rm -rf /tmp/x`",
+    "cat <(node -e 'x')",
+    "find . -exec node -e 'x' ;",
+  ]) {
+    assert.ok(blocked(cmd), `blocked: ${cmd}`);
+  }
+
+  // Obfuscation still caught.
+  assert.ok(blocked('r"m" -rf /tmp/x'), 'r"m" still blocked');
+  assert.ok(blocked('find . -del"ete" x'), '-del"ete" still blocked');
+
+  // Read-only commands that only mention a dangerous word in an argument.
+  for (const cmd of [
+    "du -sh .",
+    "find . -name '*.sh'",
+    "ls -la cp",
+    "cat mv.sh",
+    "git log --grep=rm",
+    "grep -rn 'touch' src",
+    "git branch -a",
+    "git diff | grep '^+.*rm -rf'",
+    `grep -rn "a|b" src`,
+    "echo 'a; b' | wc -l",
+    "ls -R | grep -c sh",
+    "git status && git log --oneline -5",
+    'cat "my dir/file.txt"',
+  ]) {
+    assert.ok(allowed(cmd), `allowed: ${cmd}`);
+  }
+
+  // Explicit empty safe list = no allowlist gate; blocklist still applies per segment.
+  assert.ok(bashBlockReason("cat x && rm y", [], DEFAULT_DESTRUCTIVE_PATTERNS) !== null, "segment blocklist still applies");
+  assert.equal(bashBlockReason("anything goes", [], []), null, "no patterns configured = no gate");
+});
+
+test("unrestrictedBash opts a built-in mode out of bash gating, custom modes do not light up plan state",
+  () => {
+    const merged = modeConfig.mergeModeDefinition(getModeDefinition("chat"), { unrestrictedBash: true });
+    assert.equal(merged.safePatterns, undefined, "override clears the safe list");
+    assert.equal(merged.destructivePatterns, undefined, "override clears the destructive list");
+    assert.notEqual(
+      modeConfig.mergeModeDefinition(getModeDefinition("chat"), { prompt: "x" }).safePatterns,
+      undefined,
+      "without the flag the built-in policy stays armed",
+    );
+
+    registerMode("gatecheck", { prompt: "" });
+    const pi = { appendEntry() {} };
+    transition("gatecheck", pi);
+    assert.equal(globalThis.__planMode.mode, "off", "custom mode is not plan mode");
+    assert.equal(globalThis.__chatMode.mode, "off", "custom mode is not chat mode");
+    transition("execute", pi);
+    assert.equal(globalThis.__planMode.mode, "execute", "execute still reports plan state");
+    transition("off", pi);
+  });
+
+test("blank model means no override and the model restore point survives a reload", () => {
+  // Blank/partial references are normalized to "unset" instead of warning "Model not found: /".
+  assert.equal(resolveModeModel({ provider: "", id: "" }), undefined);
+  assert.equal(resolveModeModel({ provider: "  ", id: "gpt-5.6-terra" }), undefined);
+  assert.equal(resolveModeModel({}), undefined);
+  assert.deepEqual(resolveModeModel({ provider: "litellm-proxy", id: " gpt-5.6-terra " }), {
+    provider: "litellm-proxy",
+    id: "gpt-5.6-terra",
+  });
+  const blanked = modeConfig.mergeModeDefinition(getModeDefinition("chat"), { model: { provider: "", id: "" } });
+  assert.equal(blanked.model, undefined, "blank override clears the mode model");
+
+  // The restore point is persisted with the mode entry, so /reload and /resume keep it.
+  const written = [];
+  const pi = { appendEntry: (_type, data) => written.push(data) };
+  resetState();
+  transition("chat", pi);
+  setRestoringModel({ provider: "litellm-proxy", id: "gpt-5.6-terra" }, pi);
+  assert.deepEqual(getRestoringModel(), { provider: "litellm-proxy", id: "gpt-5.6-terra" });
+
+  resetState();
+  assert.equal(getRestoringModel(), null, "reset clears the restore point");
+  const entries = [{ type: "custom", customType: "mode-switcher", data: written[written.length - 1] }];
+  assert.equal(restore(entries), true);
+  assert.deepEqual(getRestoringModel(), { provider: "litellm-proxy", id: "gpt-5.6-terra" }, "restore brings it back");
+
+  // Malformed restore references degrade to "nothing to restore".
+  assert.equal(restore([{ type: "custom", customType: "mode-switcher", data: { mode: "chat", restoreModel: { provider: "" } } }]), true);
+  assert.equal(getRestoringModel(), null);
+  resetState();
 });
