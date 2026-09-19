@@ -33,6 +33,7 @@
 - **`opl-footer`**: `formatTokens()` lost two dead branches that returned the same string as their neighbours (`n < 10000` and `n < 10000000`); behaviour is unchanged and the boundaries are now asserted.
 - **`opl-footer`**: the thinking-level fallback `thinkingLevelFromSession || pi.getThinkingLevel()` was unreachable because the reduce was seeded with the truthy string `"off"`, so a branch with no `thinking_level_change` entry displayed `off`. Seeding is now `null` and the live Pi level is used in that case.
 - **`opl-footer`, `opl-input`, `opl-modes`**: three-digit hex (`#abc`) is expanded to `#aabbcc` in every color path (footer text, footer context-bar RGB, input borders/prefix, mode labels). Previously it rendered uncolored with a stray `\x1b[0m` reset in footer/input and plain text in modes.
+- **`opl-modes`**: a plan name must contain a letter or digit. `sanitizePlanName()` accepted punctuation-only input (`"."`, `"--"`, `". ."`), which created `plan-.md` with an empty display title; those are now rejected like any other invalid name.
 - **`opl-modes`**: removed the unused `resetRefineCount()` export from `state.ts` (never called; the refine count resets with the state transition itself).
 
 ## [0.1.21] - 2026-09-17
