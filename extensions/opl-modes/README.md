@@ -11,7 +11,7 @@ Unified mode manager for Pi. It provides normal, read-only chat, read-only plann
 - `--chat` and `--plan` start Pi in the corresponding read-only mode.
 - The configured cycle shortcut rotates through enabled visible modes. Execute mode is excluded from cycling because it requires an active plan.
 
-Plans are Markdown files under `.pi/plans/` with the `plan-` filename prefix. `plan_complete` is available only in execute mode. On completion, the plan file is deleted when `cleanup.cleanupOnComplete` is enabled. If execution ends without `plan_complete`, execute mode is exited automatically — unless the turn was aborted (ESC), which keeps execute mode active so the plan can be resumed.
+Plans are Markdown files under `.pi/plans/` with the `plan-` filename prefix. A plan name must contain at least one letter or digit, so `/plan .` or `/plan --` is rejected instead of producing an untitled `plan-.md`. `plan_complete` is available only in execute mode. On completion, the plan file is deleted when `cleanup.cleanupOnComplete` is enabled. If execution ends without `plan_complete`, execute mode is exited automatically — unless the turn was aborted (ESC), which keeps execute mode active so the plan can be resumed.
 
 ## Extension features
 
