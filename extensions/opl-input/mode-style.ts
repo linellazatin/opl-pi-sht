@@ -21,7 +21,7 @@ export interface ResolvedModeStyle {
 
 const MODE_DEFAULTS: Record<string, Required<ModeAppearance>> = {
 	off: { prefix: "❯", prefixColor: "accent", borderColor: "border" },
-	chat: { prefix: "»", prefixColor: "chatModeBorder", borderColor: "chatModeBorder" },
+	chat: { prefix: "»", prefixColor: "borderAccent", borderColor: "borderAccent" },
 	plan: { prefix: "⏸", prefixColor: "customMessageLabel", borderColor: "customMessageLabel" },
 	execute: { prefix: "⏸", prefixColor: "customMessageLabel", borderColor: "customMessageLabel" },
 };

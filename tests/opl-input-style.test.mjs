@@ -5,7 +5,7 @@ import * as inputUtils from "../extensions/opl-input/utils.ts";
 
 test("resolves built-in mode styles", () => {
   assert.deepEqual(resolveModeStyle({ bash: false, mode: "off" }), { borderColor: "border", prefixColor: "accent", prefix: "❯" });
-  assert.deepEqual(resolveModeStyle({ bash: false, mode: "chat" }), { borderColor: "chatModeBorder", prefixColor: "chatModeBorder", prefix: "»" });
+  assert.deepEqual(resolveModeStyle({ bash: false, mode: "chat" }), { borderColor: "borderAccent", prefixColor: "borderAccent", prefix: "»" });
   assert.deepEqual(resolveModeStyle({ bash: false, mode: "plan" }), { borderColor: "customMessageLabel", prefixColor: "customMessageLabel", prefix: "⏸" });
   assert.deepEqual(resolveModeStyle({ bash: false, mode: "execute" }), { borderColor: "customMessageLabel", prefixColor: "customMessageLabel", prefix: "⏸" });
 });
