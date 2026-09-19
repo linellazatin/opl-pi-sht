@@ -22,6 +22,18 @@
 ### Added
 
 - **`opl-modes`**: `modes.off.tools` pins the resting (OFF) tool set, so `load_tools`-escalated lazy tools (`subagent`, `browser`, `simplebench`, ...) can be kept out of normal mode deliberately instead of being available because OFF inherits everything.
+- **`opl-modes`**: `/mode <name>` now accepts any registered mode, so config-defined modes (`/mode review`, `/mode research`) work like the picker entries; `execute` explains that it needs `/execute`, disabled modes report `enabled: false`, and the unknown-mode warning lists the real choices. Command description updated to `… · /mode <custom>`.
+- **`opl-modes`**: a mode listing an unknown tool name now warns once per session (`modes.<name>.tools: unknown tool "x" is ignored by Pi`) instead of Pi silently shrinking the mode's tool set.
+- **`opl-modes`**: the bundled `research` mode prompt tells the model to `load_tools` first when `subagent`/`subagent_wait`/`browser` are withheld by `lazyTools`, so the fan-out instructions are actually executable.
+
+### Fixed
+
+- **`opl-modes`**: ESC during execution no longer drops the session out of execute mode. `agent_end` auto-exit now checks the last assistant message's `stopReason`: an aborted turn keeps execute mode (resumable via `/execute`), while a completed turn that never called `plan_complete` still exits as before.
+- **`opl-modes`**: `allowPlanComplete: true` on a custom mode with **no** `tools` list now activates `plan_complete` (it was allowed by the gate but never active, so the mode could not finish), and `withPlanComplete()` is applied on the session-restore path, so resume keeps the tool.
+- **`opl-footer`**: `formatTokens()` lost two dead branches that returned the same string as their neighbours (`n < 10000` and `n < 10000000`); behaviour is unchanged and the boundaries are now asserted.
+- **`opl-footer`**: the thinking-level fallback `thinkingLevelFromSession || pi.getThinkingLevel()` was unreachable because the reduce was seeded with the truthy string `"off"`, so a branch with no `thinking_level_change` entry displayed `off`. Seeding is now `null` and the live Pi level is used in that case.
+- **`opl-footer`, `opl-input`, `opl-modes`**: three-digit hex (`#abc`) is expanded to `#aabbcc` in every color path (footer text, footer context-bar RGB, input borders/prefix, mode labels). Previously it rendered uncolored with a stray `\x1b[0m` reset in footer/input and plain text in modes.
+- **`opl-modes`**: removed the unused `resetRefineCount()` export from `state.ts` (never called; the refine count resets with the state transition itself).
 
 ## [0.1.21] - 2026-09-17
 
