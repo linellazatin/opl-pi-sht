@@ -47,6 +47,7 @@ test("formats footer token and duration values at display boundaries", () => {
   assert.equal(formatTokens(999), "999", "under 1k is raw");
   assert.equal(formatTokens(1000), "1.00k", "1k boundary");
   assert.equal(formatTokens(1536), "1.54k");
+  assert.equal(formatTokens(12500), "12.50k", "mid-range stays k after collapsing duplicate branches");
   assert.equal(formatTokens(999999), "1000.00k", "just under 1M still k");
   assert.equal(formatTokens(1000000), "1.00M", "1M boundary");
   assert.equal(formatTokens(2500000), "2.50M");

@@ -174,7 +174,9 @@ export function isHexColor(color: string): boolean {
 
 /** Convert hex color string to ANSI truecolor escape. */
 function hexToAnsi(hex: string): string {
-  const h = hex.replace("#", "");
+  // Accept the #abc shorthand so a three-digit value renders the same as #aabbcc.
+  let h = hex.replace("#", "");
+  if (/^[0-9a-fA-F]{3}$/.test(h)) h = h.split("").map((c) => c + c).join("");
   if (!/^[0-9a-fA-F]{6}$/.test(h)) return "";
   const r = parseInt(h.slice(0, 2), 16);
   const g = parseInt(h.slice(2, 4), 16);

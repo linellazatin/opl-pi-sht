@@ -260,9 +260,12 @@ export default function footer(pi: ExtensionAPI) {
 
     const isThinkingEvent = (e: SessionEvent): e is ThinkingLevelEvent =>
       e.type === "thinking_level_change";
-    const thinkingLevelFromSession = branch
-      .filter(isThinkingEvent)
-      .reduce((_, e) => e.thinkingLevel ?? "off", "off");
+    const thinkingEvents = branch.filter(isThinkingEvent);
+    // Seed null, not "off": a truthy seed made the ?? fallback below unreachable, so a
+    // branch with no thinking_level_change entry rendered "off" instead of Pi's real level.
+    const thinkingLevelFromSession = thinkingEvents.length
+      ? thinkingEvents.reduce((_, e) => e.thinkingLevel ?? "off", "off")
+      : null;
 
     const lastAssistant = completedMessages.at(-1);
 
@@ -303,7 +306,7 @@ export default function footer(pi: ExtensionAPI) {
     return {
       model: ctx.model,
       isLocalModel,
-      thinkingLevel: thinkingLevelFromSession || pi.getThinkingLevel(),
+      thinkingLevel: thinkingLevelFromSession ?? pi.getThinkingLevel(),
       sessionId: ctx.sessionManager?.getSessionId?.(),
       usageStats,
       contextPercent,

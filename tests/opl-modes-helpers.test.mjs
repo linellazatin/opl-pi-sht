@@ -303,3 +303,14 @@ test("blank model means no override and the model restore point survives a reloa
   assert.equal(getRestoringModel(), null);
   resetState();
 });
+
+test("three-digit hex renders as truecolor instead of falling through to the theme", () => {
+  // theme.fg would throw for "#abc"; the shorthand must expand to #aabbcc (170,187,204)
+  // so footer, input, and modes all colour it the same way.
+  const throwingTheme = { fg: () => { throw new Error("should not be consulted for hex"); } };
+  assert.equal(
+    modeUtils.applyLabelColor(throwingTheme, "#abc", "x"),
+    "\x1b[38;2;170;187;204mx\x1b[39m",
+  );
+  assert.equal(modeUtils.applyLabelColor(throwingTheme, "#nope", "x"), "x", "bad hex still degrades");
+});
