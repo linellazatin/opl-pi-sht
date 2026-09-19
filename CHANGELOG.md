@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.1.22] - 2026-09-20
+
+### Security hardened
+
+- **`opl-modes`**: the read-only Bash allowlist is now checked **per shell segment** instead of only against the start of the command line. `&&`, `||`, `;`, `|`, newlines, `$(...)`, backticks, and `<(`/`>(` each begin a segment and every segment must be safe-listed, so `cat f && node -e '...'`, `ls; python -c '...'`, `echo x && sed -i ...`, `cat "$(rm -rf /tmp/x)"`, and `sort -o out in` no longer ride the first command's allowance. Quoted string contents are ignored when locating segments, so `grep "a|b"` is still one command.
+- **`opl-modes`**: destructive defaults are anchored to command position and matched per segment, so read-only commands that merely mention a dangerous word in an argument are allowed again (`du -sh`, `find . -name '*.sh'`, `ls cp/`, `cat mv.sh`, `git log --grep=rm`, `grep -rn 'touch' src`, `git branch -a`). `git branch -` tightened to `-[dDmM]`, `--delete`/`--exec`/`--exec-batch` now caught, `sort -o` and `<(`/`>(` substitution added. Obfuscation is still blocked: every pattern is tested against the command and each segment, raw and quote/backslash-stripped (`r"m"`, `-del"ete"`). 25 entries became 12; the `.sample` config and both `_comment` keys were updated to match.
+
+### Fixed
+
+- **`opl-footer`**: `applyColor()` and `resolveColorToRgb()` no longer propagate Pi's `Unknown theme color` throw. A bad token in `opl-footer.json` `colors`, in an `opl-modes` `appearance.modeColor`, or a malformed hex now renders that text uncolored instead of failing every footer render.
+- **`opl-modes`**: only `plan` and `execute` publish a non-off `__planMode`, so entering a custom mode no longer makes the footer's legacy `plan_mode` segment report `Plan mode: ON`.
+- **`opl-modes`**: `unrestrictedBash` is honored when **overriding a built-in mode** (`modes.chat.unrestrictedBash` etc.), not only for new custom modes; it previously merged silently into an unused field.
+- **`opl-modes`**: a blank or partial `model` (`{ "provider": "", "id": "" }`, `{}`) is normalized to "no override" instead of warning `Model not found: /`, leaving the mode model in place, and skipping the restore of the previous model. Blank now behaves like omitting the key, so a blank `modes.off.model` lets `--model` and the configured default stand.
+- **`opl-modes`**: mode entry snapshots the **active** tool set rather than every registered tool, and the restore/execute/session-restore paths use it too, so exiting a mode can no longer widen the set beyond what was active before it.
+- **`opl-modes`**: the model restore point is persisted in the `mode-switcher` session entry, so `/reload` or `/resume` inside a mode restores the real pre-mode model instead of recording the mode's own model as the restore point.
+- **`opl-input`**: the chat fallback style used `chatModeBorder`, which is not a Pi theme token, so chat's border and prefix rendered in the plain `border` color on built-in themes; now `borderAccent`. Configure `modes.chat.appearance` (or add the token to a custom theme) to keep your own color.
+- **`opl-input`**: the mode `prefix` is clamped to one terminal cell; a wide `appearance.prefix` previously pushed the box border one cell past the editor width and misaligned continuation lines.
+- Removed the dead `isSafeCommand()` helper (the handler had its own copy of the logic); `tests/opl-modes-helpers.test.mjs` gained segment, anchor, `unrestrictedBash`, blank-model, and restore-point persistence checks; `tests/opl-input-style.test.mjs` updated for the chat token.
+
+### Added
+
+- **`opl-modes`**: `modes.off.tools` pins the resting (OFF) tool set, so `load_tools`-escalated lazy tools (`subagent`, `browser`, `simplebench`, ...) can be kept out of normal mode deliberately instead of being available because OFF inherits everything.
+
 ## [0.1.21] - 2026-09-17
 
 ### Fixed
