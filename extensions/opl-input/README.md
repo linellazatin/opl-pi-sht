@@ -15,6 +15,7 @@ No commands, flags, or shortcuts. It replaces the standard editor at session sta
 - **Scroll-aware borders**: Editor scroll indicators are embedded in the top or bottom border when the input has more content than fits.
 - **Slash-menu placement**: The slash menu is rendered below the input with configurable gap and indentation.
 - **Responsive rendering**: Narrow terminals fall back to the native editor rendering; the companion is hidden below 40 columns.
+- **Shared idle heartbeat**: this component owns the bundle's only render timer. With the companion disabled it slows to one repaint per second instead of ten, which still advances the footer's elapsed/time-per-second cells while Pi is idle.
 - **Hex and theme colors**: Color settings accept Pi theme tokens or six-digit hex colors.
 
 ## Mode styling precedence
@@ -54,7 +55,7 @@ Create `~/.pi/agent/configs/opl-input.json` or copy [`configs/opl-input.json.sam
 
 | Field | Type | Default | Description |
 |---|---|---:|---|
-| `companion.enabled` | boolean | `false` | Show the animated companion above the input. |
+| `companion.enabled` | boolean | `false` | Show the animated companion above the input. The idle repaint that drives it runs every 100 ms when enabled and every 1 s when disabled (the footer's time-based cells ride the same tick). |
 | `companion.color` | color | `"accent"` | Companion color. |
 | `companion.type` | string | unset | Select a named entry from `companion.types`; built-in `dog` also has a fallback shape (`"cat"` uses the default ears). |
 | `companion.ears` | string | cat ears | Directly override the companion's top line; wins over `type`. |
