@@ -9,12 +9,12 @@ export const costSegment = {
 
     if (cost === 0 && !ctx.isLocalModel) {
       return {
-        content: color(ctx, "cost", "$0.00") + applyColor(ctx.theme, "dim", " (no pricing)"),
+        content: color(ctx, "cost", "$0.0000") + applyColor(ctx.theme, "dim", " (no pricing)"),
         visible: true,
       };
     }
 
-    const content = color(ctx, "cost", `$${cost.toFixed(2)}`);
+    const content = color(ctx, "cost", `$${cost.toFixed(4)}`);
 
     if (ctx.isLocalModel) {
       return { content: content + applyColor(ctx.theme, "dim", " (local model)"), visible: true };
