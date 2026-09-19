@@ -9,7 +9,7 @@ Unified mode manager for Pi. It provides normal, read-only chat, read-only plann
 - `/plan` toggles plan mode, creates or loads a named plan, or accepts `/plan off`.
 - `/execute` selects or executes an existing plan; `/execute <name>` runs a named plan.
 - `--chat` and `--plan` start Pi in the corresponding read-only mode.
-- The configured cycle shortcut rotates through enabled visible modes. Execute mode is excluded from cycling because it requires an active plan.
+- The configured cycle shortcut rotates through enabled visible modes. Execute mode is excluded from cycling because it requires an active plan. The default `shift+tab` is also Pi's built-in `app.thinking.cycle`, so both fire on one press; rebind either action in `~/.pi/agent/keybindings.json` (or pick another `shortcuts.cycleMode`) if you want them separate.
 
 Plans are Markdown files under `.pi/plans/` with the `plan-` filename prefix. A plan name must contain at least one letter or digit, so `/plan .` or `/plan --` is rejected instead of producing an untitled `plan-.md`. `plan_complete` is available only in execute mode. On completion, the plan file is deleted when `cleanup.cleanupOnComplete` is enabled. If execution ends without `plan_complete`, execute mode is exited automatically — unless the turn was aborted (ESC), which keeps execute mode active so the plan can be resumed.
 

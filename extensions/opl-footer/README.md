@@ -43,6 +43,13 @@ Create `~/.pi/agent/configs/opl-footer.json` or copy the tracked example from [`
 
 The config is cached for five seconds. Changes normally appear automatically; use `/reload` or restart Pi if needed.
 
+### Git probing
+
+The `git` segment reads branch (500 ms cache) and dirty counts (1 s cache) so an idle footer never spawns more than a couple of `git` processes per second. Two guards keep that floor honest:
+
+- The probes are skipped entirely when no configured row contains `git`, so a layout without the segment pays nothing for it.
+- In a directory that is not a repository, the first failed probe arms a 30 second back-off instead of re-running `git` every second forever. A mid-session `git init` or `git clone` clears it immediately (matched on tool results), as does any `write`/`edit` invalidation; a probe that fails inside a real repository (for example a locked index) is confirmed with `git rev-parse --is-inside-work-tree` and keeps the normal one-second cadence.
+
 ```json
 {
   "row1LeftSegments": ["pi", "separator", "model", "separator", "path", "git"],
