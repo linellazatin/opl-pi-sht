@@ -164,3 +164,48 @@ test("renders footer helpers and mode color precedence", () => {
   assert.equal(modeSwitcherSegment.render(segmentCtx).content, "[dim]Mode: [muted]Research", "falls back to hardcoded muted");
   delete globalThis.__agentMode;
 });
+
+test("git probes back off outside a repository and recover on invalidation", async () => {
+  const { mkdtempSync, rmSync, writeFileSync, readFileSync, chmodSync, mkdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const dir = mkdtempSync(join(tmpdir(), "opl-norepo-"));
+  const log = join(dir, "calls.log");
+  // Stand-in git that always fails like a non-repository does, and records what it was asked.
+  const bin = join(dir, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "git"), "#!/bin/sh\nprintf '%s\\n' \"$1\" >> \"$OPL_GIT_LOG\"\nexit 128\n");
+  chmodSync(join(bin, "git"), 0o755);
+
+  const prevCwd = process.cwd();
+  const prevPath = process.env.PATH;
+  const prevLog = process.env.OPL_GIT_LOG;
+  process.chdir(dir);
+  process.env.PATH = `${bin}:${prevPath}`;
+  process.env.OPL_GIT_LOG = log;
+  const calls = () => (readFileSync(log, "utf8").match(/\n/g) || []).length;
+
+  try {
+    const git = await import("../extensions/opl-footer/git-status.ts");
+    // Render for long enough that the 1s/500ms TTLs would expire repeatedly without a back-off.
+    for (let i = 0; i < 8; i++) {
+      git.getGitStatus(null);
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    const firstBurst = calls();
+    assert.ok(firstBurst >= 1, "expected at least one git call");
+    assert.ok(firstBurst <= 4, `expected one probe burst, saw ${firstBurst}`);
+
+    git.invalidateGitStatus(); // what `git init` in-session triggers via the tool_result matcher
+    git.getGitStatus(null);
+    await new Promise((r) => setTimeout(r, 150));
+    assert.ok(calls() > firstBurst, "invalidation clears the back-off so a new repo is picked up");
+  } finally {
+    process.chdir(prevCwd);
+    process.env.PATH = prevPath;
+    if (prevLog === undefined) delete process.env.OPL_GIT_LOG;
+    else process.env.OPL_GIT_LOG = prevLog;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
