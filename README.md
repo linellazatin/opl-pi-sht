@@ -100,7 +100,7 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 
 ### Run the agent without babysitting it
 
-- **`opl-modes`** chat and plan modes swap the active toolset for read-only lists and gate Bash to safe inspection patterns, with destructive-pattern checks that fire even inside otherwise-safe commands (also `find -delete`, `git clean`, `truncate`, `sudo`, and quote-obfuscated `r"m"`; `env`/`printenv` no longer safe-listed). The plan to execute lifecycle keeps exploration and mutation cleanly separated. Add custom modes (like below) for your workflow needs.
+- **`opl-modes`** chat and plan modes swap the active toolset for read-only lists and gate Bash to safe inspection patterns **per shell segment**, so `cat f && node -e '...'` can no longer ride the first command's allowance. Destructive checks still fire inside otherwise-safe commands (anchored to command position, so `du -sh` and `find . -name '*.sh'` stay allowed; `find -delete`, `git clean`, `sudo`, and quote-obfuscated `r"m"`/`-del"ete"` are blocked; `env`/`printenv` are not safe-listed). The plan to execute lifecycle keeps exploration and mutation cleanly separated. Add custom modes (like below) for your workflow needs.
 ![custom mode sample](images/ss-mode-custom.png)
 - `load_tools` activation is bounded by the current mode, so a read-only mode cannot be tricked into enabling a write-capable tool.
 

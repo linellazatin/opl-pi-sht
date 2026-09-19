@@ -19,7 +19,7 @@ No commands, flags, or shortcuts. It replaces the standard editor at session sta
 
 ## Mode styling precedence
 
-Exactly one style applies at a time, in this order: Bash (`!` input) > active `opl-modes` appearance > hardcoded mode fallback. The compiled fallbacks are normal: `❯`/`accent`/`border`; chat: `»`/`chatModeBorder`; and plan/execute: `⏸`/`customMessageLabel`.
+Exactly one style applies at a time, in this order: Bash (`!` input) > active `opl-modes` appearance > hardcoded mode fallback. The compiled fallbacks are normal: `❯`/`accent`/`border`; chat: `»`/`borderAccent`; and plan/execute: `⏸`/`customMessageLabel`.
 
 ## Configuration
 
@@ -77,6 +77,7 @@ Every color option accepts either:
 - **A six-digit hex color** — e.g. `"#c07898"` (rendered as ANSI truecolor, downgraded automatically on 256-color terminals).
 
 Invalid theme tokens fall back to the theme's `border` token; invalid hex renders uncolored rather than crashing.
+- A mode `prefix` is clamped to one terminal cell (continuation lines reserve a single space), so a wide or multi-character `appearance.prefix` such as `👀` is truncated to one cell rather than pushing the box border past the editor width.
 
 ## Architecture
 
