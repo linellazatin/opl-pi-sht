@@ -315,6 +315,20 @@ test("three-digit hex renders as truecolor instead of falling through to the the
   assert.equal(modeUtils.applyLabelColor(throwingTheme, "#nope", "x"), "x", "bad hex still degrades");
 });
 
+test("plan_complete is callable from execute mode and from allowPlanComplete modes", () => {
+  const registry = new Map();
+  registry.set("verifier", { allowPlanComplete: true });
+  registry.set("reader", { allowPlanComplete: false });
+  registry.set("nope", {});
+  assert.equal(modeConfig.planCompleteAllowed("execute"), true, "built-in execute");
+  assert.equal(modeConfig.planCompleteAllowed("chat"), false, "chat must not finish a plan");
+  assert.equal(modeConfig.planCompleteAllowed("off"), false, "normal mode must not finish a plan");
+  assert.equal(modeConfig.planCompleteAllowed("verifier", registry), true, "custom mode with the flag");
+  assert.equal(modeConfig.planCompleteAllowed("reader", registry), false, "explicit false");
+  assert.equal(modeConfig.planCompleteAllowed("nope", registry), false, "unset");
+  assert.equal(modeConfig.planCompleteAllowed("ghost", registry), false, "unknown mode");
+});
+
 test("plan names need a letter or digit", () => {
   assert.equal(modeUtils.sanitizePlanName("fix login bug"), "fix-login-bug");
   assert.equal(modeUtils.sanitizePlanName("v1.2"), "v1.2", "dots inside a real name stay");

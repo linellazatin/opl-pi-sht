@@ -447,6 +447,14 @@ export function withPlanComplete(mode: string, tools: string[], registry: Map<st
   return tools;
 }
 
+/**
+ * Whether `plan_complete` may be called while `mode` is active: execute mode and any mode
+ * with allowPlanComplete. Same predicate that decides the tool's presence in the tool list.
+ */
+export function planCompleteAllowed(mode: string, registry: Map<string, ModeDefinition> = MODE_REGISTRY): boolean {
+  return registry.get(mode)?.allowPlanComplete === true;
+}
+
 /** Initialize MODE_REGISTRY with built-in defaults, then merge user-defined modes. */
 function initModeRegistry(): void {
   const customNotifyTemplate = userConfig.defaultNotifyTemplate ?? "✓ {Name} mode ON";

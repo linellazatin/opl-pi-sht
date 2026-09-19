@@ -45,6 +45,7 @@ import {
   getModeDefinition,
   executeHandoffAllowed,
   withPlanComplete,
+  planCompleteAllowed,
   LAZY_TOOLS,
   LOADER_TOOL_NAME,
   applyLazyPolicy,
@@ -121,7 +122,9 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   // ─── Saved model for restoring ─────────────────────────────────────────────
   let savedModel: Model<any> | null = null;
   const queueModelChange = createLatestModelQueue();
-  const MAX_REFINE_CYCLES = 5;
+  // Consecutive restore failures for the same model, so an un-authable restore point is
+  // retried once and then released instead of blocking future captures forever.
+  let restoreAttempts = 0;
 
   function saveAndSetActiveTools(toolNames: string[]): void {
     if (savedToolNames === null) {
@@ -148,12 +151,13 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   }
 
   /** Queue model changes so a superseded async switch cannot finish after its restore. */
-  function setQueuedModel(ctx: ExtensionContext, model: Model<any>, label: string): Promise<void> {
+  function setQueuedModel(ctx: ExtensionContext, model: Model<any>, label: string): Promise<boolean | undefined> {
     return queueModelChange(async () => {
       const success = await pi.setModel(model);
       if (!success && ctx.hasUI) ctx.ui.notify(`[mode-switcher] No API key for model ${label}`, "error");
       updateStatus(ctx);
-    }).then(() => undefined);
+      return success;
+    });
   }
 
   async function switchToModel(ctx: ExtensionContext, modelRef: { provider: string; id: string }): Promise<void> {
@@ -190,6 +194,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   /** Record the model to return to, in memory and in the session blob. */
   function rememberRestoreModel(model: Model<any> | null): void {
     savedModel = model;
+    if (model) restoreAttempts = 0;
     setRestoringModel(model ? { provider: model.provider, id: model.id } : null, pi);
   }
 
@@ -198,8 +203,18 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     const ref = savedModel ?? getRestoringModel();
     const toRestore = ref ? (savedModel ?? ctx.modelRegistry.find(ref.provider, ref.id)) : null;
     rememberRestoreModel(null);
+    // The model left the registry (provider removed): drop the point so the next entry captures a fresh one.
     if (!toRestore) return;
-    void setQueuedModel(ctx, toRestore, `${toRestore.provider}/${toRestore.id}`);
+    void setQueuedModel(ctx, toRestore, `${toRestore.provider}/${toRestore.id}`).then((outcome) => {
+      // false = the model exists but has no auth yet (fixed by /login): keep it for one retry.
+      // undefined = superseded by a newer switch, which now owns the restore.
+      if (outcome === false && ref && restoreAttempts < 1) {
+        restoreAttempts++;
+        setRestoringModel({ provider: ref.provider, id: ref.id }, pi);
+      } else {
+        restoreAttempts = 0;
+      }
+    });
   }
 
   /**
@@ -591,10 +606,10 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     // plan_complete is only callable in execute mode
     const mode = getMode();
     const modeDef = getModeDefinition(mode);
-    if (event.toolName === "plan_complete" && !modeDef?.allowPlanComplete) {
+    if (event.toolName === "plan_complete" && !planCompleteAllowed(mode)) {
       return {
         block: true,
-        reason: `[mode-switcher] plan_complete only available in execute mode. Current mode: ${mode}`,
+        reason: `[mode-switcher] plan_complete is only available in execute mode or a mode with allowPlanComplete. Current mode: ${mode}`,
       };
     }
 
@@ -617,15 +632,18 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     name: "plan_complete",
     label: "Plan Complete",
     description:
-      "Signal that all plan steps have been executed. ONLY callable in EXECUTE mode. Call this once after finishing the final step. This exits execute mode. Do NOT call this outside execute mode.",
+      "Signal that all plan steps have been executed. ONLY callable in EXECUTE mode or in a mode configured with allowPlanComplete. Call this once after finishing the final step. This exits the mode. Do NOT call this outside those modes.",
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      if (getMode() !== "execute") {
-        return { content: [{ type: "text", text: "plan_complete is only available in execute mode." }], details: undefined };
+      if (!planCompleteAllowed(getMode())) {
+        return {
+          content: [{ type: "text", text: "plan_complete is only available in execute mode or a mode with allowPlanComplete." }],
+          details: undefined,
+        };
       }
       cleanupPlanFile();
       enterOffMode(ctx, "Plan implemented. Plan mode OFF.");
-      return { content: [{ type: "text", text: "Execute mode exited." }], details: undefined };
+      return { content: [{ type: "text", text: "Plan mode exited." }], details: undefined };
     },
   });
 
@@ -633,7 +651,9 @@ export default function modeSwitcher(pi: ExtensionAPI) {
 
   pi.on("tool_result", (event: ToolResultEvent, ctx: ExtensionContext) => {
     if (event.toolName !== "plan_complete") return;
-    if (getMode() !== "execute") return;
+    // The tool body has usually already returned to OFF, which makes this a no-op; the check
+    // stays mode-based (not execute-only) so a custom allowPlanComplete mode is handled alike.
+    if (getMode() !== "execute" && !planCompleteAllowed(getMode())) return;
     cleanupPlanFile();
     enterOffMode(ctx, "Plan implemented. Plan mode OFF.");
   });
@@ -645,7 +665,9 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     // (If it was called, mode is already "off" here — this check is a no-op.)
     if (getMode() === "execute") {
       // An aborted turn (ESC) is a pause, not a finished execution: stay in execute mode
-      // so the plan can be resumed instead of silently dropping out mid-plan.
+      // so the plan can be resumed instead of silently dropping out mid-plan. Pi emits an
+      // assistant message with stopReason "aborted" even when the abort lands before the
+      // first token, so there is always a message to read here.
       const lastAssistant = [...event.messages].reverse().find((m) => m.role === "assistant") as
         | { stopReason?: string }
         | undefined;
@@ -760,8 +782,8 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       if (getMode() !== "plan") return;
 
       const refineCount = getRefineCount();
-      const refineLabel = refineCount >= MAX_REFINE_CYCLES
-        ? `Refine  (${refineCount} cycles — consider saving)`
+      const refineLabel = refineCount > 0
+        ? `Refine  (${refineCount} ${refineCount === 1 ? "cycle" : "cycles"} so far)`
         : "Refine";
       const options: SelectItem[] = [
         { value: "execute", label: "Execute" },
