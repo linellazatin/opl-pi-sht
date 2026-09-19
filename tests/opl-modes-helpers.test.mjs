@@ -314,3 +314,11 @@ test("three-digit hex renders as truecolor instead of falling through to the the
   );
   assert.equal(modeUtils.applyLabelColor(throwingTheme, "#nope", "x"), "x", "bad hex still degrades");
 });
+
+test("plan names need a letter or digit", () => {
+  assert.equal(modeUtils.sanitizePlanName("fix login bug"), "fix-login-bug");
+  assert.equal(modeUtils.sanitizePlanName("v1.2"), "v1.2", "dots inside a real name stay");
+  for (const junk of [".", "..", " ", "-", ". .", "../etc/passwd", ""]) {
+    assert.equal(modeUtils.sanitizePlanName(junk), null, `"${junk}" must not create plan-.md`);
+  }
+});

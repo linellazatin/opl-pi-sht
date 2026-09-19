@@ -130,6 +130,8 @@ export function sanitizePlanName(name: string): string | null {
   if (!trimmed) return null;
   if (trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..")) return null;
   if (!/^[\w\s.-]+$/.test(trimmed)) return null;
+  // A name with no letter or digit (".", "--", ". ") would create plan-.md and an empty title.
+  if (!/\w/.test(trimmed)) return null;
   return trimmed.replace(/\s+/g, "-");
 }
 
