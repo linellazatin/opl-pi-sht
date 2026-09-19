@@ -30,3 +30,16 @@ test("honors appearance overrides while bash retains precedence", () => {
   assert.deepEqual(resolveModeStyle({ bash: false, mode: "research", appearance: { prefixColor: "warning" } }), { borderColor: "border", prefixColor: "warning", prefix: "❯" });
   assert.equal(resolveModeStyle({ bash: true, mode: "research", appearance: { prefixColor: "warning" } }).prefixColor, "bashMode");
 });
+
+test("the shared render timer honors its period and stops on dispose", async () => {
+  let ticks = 0;
+  const stop = inputUtils.startRenderTimer(() => { ticks++; }, 40);
+  await new Promise((r) => setTimeout(r, 160));
+  const seen = ticks;
+  stop();
+  await new Promise((r) => setTimeout(r, 120));
+  assert.ok(seen >= 2, `a 40ms period should keep ticking, saw ${seen}`);
+  assert.equal(ticks, seen, "the returned disposer clears the interval");
+  assert.equal(inputUtils.COMPANION_TICK_MS, 100, "companion cadence");
+  assert.equal(inputUtils.IDLE_REPAINT_MS, 1000, "idle cadence is one tenth of it");
+});

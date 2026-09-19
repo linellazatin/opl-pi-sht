@@ -58,8 +58,13 @@ function hexToAnsi(hex: string): string {
 	return `\x1b[38;2;${r};${g};${b}m`;
 }
 
-export function startRenderTimer(render: () => void): () => void {
-	const timer = setInterval(render, 100);
+/** Animation cadence while the companion is visible. */
+export const COMPANION_TICK_MS = 100;
+/** Idle repaint cadence with the companion off: keeps time-based footer cells advancing without 10 repaints/second. */
+export const IDLE_REPAINT_MS = 1000;
+
+export function startRenderTimer(render: () => void, periodMs: number = COMPANION_TICK_MS): () => void {
+	const timer = setInterval(render, periodMs);
 	return () => clearInterval(timer);
 }
 
@@ -88,7 +93,7 @@ export interface CompanionState {
 
 type Phase = "face" | "ears" | "full" | "none";
 
-const TICK_MS = 100; // matches setInterval in ChatInput
+const TICK_MS = COMPANION_TICK_MS; // companion animation frame budget
 const R = (min: number, max: number) => min + Math.random() * (max - min);
 
 export class CompanionAnimator {

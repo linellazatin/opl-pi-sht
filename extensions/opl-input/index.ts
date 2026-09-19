@@ -4,7 +4,7 @@ import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 import { CONFIG, COMPANION_PADDING, MIN_WIDTH_FOR_COMPANION } from "./config.js";
 import { resolveModeStyle, type ModeAppearance } from "./mode-style.js";
-import { applyColor, CompanionAnimator, startRenderTimer } from "./utils.js";
+import { applyColor, CompanionAnimator, COMPANION_TICK_MS, IDLE_REPAINT_MS, startRenderTimer } from "./utils.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 const ANSI_RE = /\x1b\[[0-9;]*m|\x1b\[0?m/g;
@@ -43,10 +43,15 @@ class ChatInput extends CustomEditor {
 		this.inputTheme = theme;
 
 		// Animate companion even when idle — tick drives state machine
-		this.stopCompanionTimer = startRenderTimer(() => {
-			this.animator.tick(Date.now());
-			this.tui.requestRender();
-		});
+		// With the companion hidden this component still owns the only idle repaint in the
+		// bundle (footer time-based cells read it), so the tick slows down instead of stopping.
+		this.stopCompanionTimer = startRenderTimer(
+			() => {
+				this.animator.tick(Date.now());
+				this.tui.requestRender();
+			},
+			CONFIG.COMPANION_ENABLED ? COMPANION_TICK_MS : IDLE_REPAINT_MS,
+		);
 	}
 
 	dispose(): void {
