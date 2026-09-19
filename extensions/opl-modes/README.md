@@ -4,14 +4,14 @@ Unified mode manager for Pi. It provides normal, read-only chat, read-only plann
 
 ## Commands, flags, and shortcuts
 
-- `/mode` opens the picker; `/mode chat`, `/mode plan`, and `/mode normal` select built-in modes.
+- `/mode` opens the picker; `/mode chat`, `/mode plan`, and `/mode normal` select built-in modes, and `/mode <name>` selects any registered custom mode (for example `/mode review`). `execute` is excluded because it needs an active plan; use `/execute`.
 - `/chat` toggles chat mode; `/chat off` exits it.
 - `/plan` toggles plan mode, creates or loads a named plan, or accepts `/plan off`.
 - `/execute` selects or executes an existing plan; `/execute <name>` runs a named plan.
 - `--chat` and `--plan` start Pi in the corresponding read-only mode.
 - The configured cycle shortcut rotates through enabled visible modes. Execute mode is excluded from cycling because it requires an active plan.
 
-Plans are Markdown files under `.pi/plans/` with the `plan-` filename prefix. `plan_complete` is available only in execute mode. On completion, the plan file is deleted when `cleanup.cleanupOnComplete` is enabled. If execution ends without `plan_complete`, execute mode is exited automatically.
+Plans are Markdown files under `.pi/plans/` with the `plan-` filename prefix. `plan_complete` is available only in execute mode. On completion, the plan file is deleted when `cleanup.cleanupOnComplete` is enabled. If execution ends without `plan_complete`, execute mode is exited automatically — unless the turn was aborted (ESC), which keeps execute mode active so the plan can be resumed.
 
 ## Extension features
 
@@ -27,7 +27,7 @@ Custom modes can add or override modes with prompts, tool lists, Bash patterns, 
 
 Any mode can start plan execution via the mode picker's `Execute:` entries or `/execute`, unless it sets `allowExecute: false`. When blocked, the picker hides the `Execute:` entries and `/execute` reports that execution is unavailable from the current mode. The plan-mode action menu (`Execute / Refine / Save & Exit / Discard & Exit`) is the designed plan-to-execute pipeline and is always available in plan mode regardless of this flag.
 
-`allowPlanComplete: true` on a custom mode appends the `plan_complete` tool to that mode's tool list, letting a custom mode finish and exit through the same completion path as execute mode (the `tool_call` gate enforces the flag).
+`allowPlanComplete: true` on a custom mode appends the `plan_complete` tool to that mode's tool list, letting a custom mode finish and exit through the same completion path as execute mode (the `tool_call` gate enforces the flag). It works whether the mode declares its own `tools` or inherits them, and it survives resume.
 
 ### Tool inheritance warning
 
@@ -37,7 +37,7 @@ A custom mode with no `tools` array inherits **all** tools, including `write` an
 
 Model overrides are resolved through Pi's model registry when entering a mode. A blank or partial `model` (for example `{ "provider": "", "id": "" }`) is treated as **no override**, so the mode keeps the current model instead of warning `Model not found: /`. The previously active model is captured once per mode and restored on exit; the restore point is persisted in the mode session entry, so `/reload` and `/resume` inside a mode no longer lose it. `Pi.setModel` is session-scoped: it never rewrites your configured `defaultProvider`/`defaultModel`, but it does append a model change to the session transcript, which is why the restore point is persisted alongside the mode. Changes are serialized, so a rapid mode exit cannot leave a superseded mode model active. Note that setting `modes.off.model` makes OFF a pinned baseline: it is applied on every mode exit *and* at session start, overriding `--model` and the configured default. Use Pi theme color tokens for widget label colors.
 
-Mode state is persisted in session entries and restored on session resume or branch changes. The `mode-switcher` entry type and legacy chat/plan event identifiers are compatibility contracts. On resume, an unknown mode name in a session entry is ignored (falling back to normal), and plan filenames containing path separators or `..` are dropped, so a stale or foreign branch cannot leave the session unrestricted or point plan reads outside `.pi/plans/`.
+Mode state is persisted in session entries and restored on session resume or branch changes. Pi ignores tool names it does not know, so a `tools` list with a typo would silently lose tools: every mode entry checks the list against the registered tools and warns once per unknown name per session. The `mode-switcher` entry type and legacy chat/plan event identifiers are compatibility contracts. On resume, an unknown mode name in a session entry is ignored (falling back to normal), and plan filenames containing path separators or `..` are dropped, so a stale or foreign branch cannot leave the session unrestricted or point plan reads outside `.pi/plans/`.
 
 ## Configuration
 
@@ -111,7 +111,7 @@ Use `modes.<name>.appearance` to keep any mode's visual identity with its defini
 }
 ```
 
-`prefix`, `prefixColor`, and `borderColor` style `opl-input`; omitted fields use its compiled mode defaults. `modeColor` styles the value in `opl-footer`'s `mode_switcher` segment; if omitted, the footer uses hardcoded `muted`. Colors accept Pi theme tokens or six-digit hex strings.
+`prefix`, `prefixColor`, and `borderColor` style `opl-input`; omitted fields use its compiled mode defaults. `modeColor` styles the value in `opl-footer`'s `mode_switcher` segment; if omitted, the footer uses hardcoded `muted`. Colors accept Pi theme tokens, six-digit hex, or the three-digit `#abc` shorthand (expanded to `#aabbcc`).
 
 Model overrides are resolved through Pi's model registry when entering a mode and the previously active model is restored on exit when applicable. Changes are serialized, so a rapid mode exit cannot leave a superseded mode model active. Use Pi theme color tokens for widget label colors.
 
@@ -132,6 +132,7 @@ Behavior:
 - `load_tools` is bounded by the current mode's tool policy: it can only enable a lazy tool the active mode already permits, so a read-only mode cannot enable a write-capable tool.
 - Core built-ins (`read`, `edit`, `write`, `bash`, `powershell`, `grep`, `find`, `ls`), `plan_complete`, and `load_tools` itself are protected and silently ignored if listed in `lazyTools`.
 - Switching modes re-applies the policy, so a lazy tool enabled earlier returns to inactive on the next mode change and must be re-enabled.
+- A mode `prompt` that instructs the model to use a lazy tool must also tell it to call `load_tools` first, otherwise the instruction names a tool the model cannot see. The bundled `research` mode does exactly that.
 
 Caching note: activating a lazy tool mid-session preserves the cached prefix on models with native deferred tool loading (Anthropic 4.5+, OpenAI gpt-5.4+) and otherwise triggers one prompt-cache rewrite from that point. It is most effective for tools you use occasionally (delegation, browser automation, benchmarking).
 

@@ -74,7 +74,7 @@ Every color option accepts either:
   - Syntax: `syntaxComment`, `syntaxKeyword`, `syntaxFunction`, `syntaxVariable`, `syntaxString`, `syntaxNumber`, `syntaxType`, `syntaxOperator`, `syntaxPunctuation`
   - Thinking borders: `thinkingOff`, `thinkingMinimal`, `thinkingLow`, `thinkingMedium`, `thinkingHigh`, `thinkingXhigh`, `thinkingMax`
   - Special: `bashMode`
-- **A six-digit hex color** — e.g. `"#c07898"` (rendered as ANSI truecolor, downgraded automatically on 256-color terminals).
+- **A hex color** — `"#c07898"`, or the three-digit shorthand `"#abc"` (expanded to `#aabbcc`; rendered as ANSI truecolor, downgraded automatically on 256-color terminals).
 
 Invalid theme tokens fall back to the theme's `border` token; invalid hex renders uncolored rather than crashing.
 - A mode `prefix` is clamped to one terminal cell (continuation lines reserve a single space), so a wide or multi-character `appearance.prefix` such as `👀` is truncated to one cell rather than pushing the box border past the editor width.

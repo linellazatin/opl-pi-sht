@@ -54,7 +54,7 @@ The config is cached for five seconds. Changes normally appear automatically; us
 }
 ```
 
-See the tracked [`configs/opl-footer.json.sample`](../../configs/opl-footer.json.sample) for a complete example. Segment IDs, color fields, context-bar options, thinking-level colors, and icon overrides are documented below. Colors accept Pi theme tokens or hex strings. An unknown token or malformed hex renders that text uncolored instead of failing the footer render, so a typo in `colors` or in `opl-modes`' `appearance.modeColor` costs you a color, not the footer.
+See the tracked [`configs/opl-footer.json.sample`](../../configs/opl-footer.json.sample) for a complete example. Segment IDs, color fields, context-bar options, thinking-level colors, and icon overrides are documented below. Colors accept Pi theme tokens, six-digit hex, or the three-digit `#abc` shorthand (expanded to `#aabbcc`); the context bar gradient resolves both forms to RGB. An unknown token or malformed hex renders that text uncolored instead of failing the footer render, so a typo in `colors` or in `opl-modes`' `appearance.modeColor` costs you a color, not the footer.
 
 ## Architecture
 
