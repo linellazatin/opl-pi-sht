@@ -50,7 +50,6 @@ export function setRefining(value: boolean): void {
 
 export function getRefineCount(): number { return state.refineCount; }
 export function incrementRefineCount(): void { state.refineCount++; }
-export function resetRefineCount(): void { state.refineCount = 0; }
 
 /** Model reference to restore when the active mode ends (null = nothing to restore). */
 export function getRestoringModel(): ModeModelConfig | null { return state.restoringModel; }
