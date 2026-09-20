@@ -7,7 +7,21 @@ import * as statusSegmentModule from "../extensions/opl-footer/segments/status.t
 import { lerp } from "../extensions/opl-footer/segments/context.ts";
 import { modeSwitcherSegment } from "../extensions/opl-footer/segments/mode-switcher.ts";
 import { nextTabIndex, restoreSelectedItem } from "../extensions/opl-footer/configure-navigation.ts";
+import { applyColor, resolveColorToRgb } from "../extensions/opl-footer/theme.ts";
 import { getLayoutSegments, hasSegmentSeparator, moveLayoutSegment, setLayoutSegment, setSegmentSeparator } from "../extensions/opl-footer/config.ts";
+
+test("malformed colors render uncolored with no escape sequence at all", () => {
+  const theme = { fg: (color) => { throw new Error(`unknown theme color: ${color}`); } };
+  // A bad hex used to emit an empty color plus a stray reset; a bad token used to throw.
+  for (const bad of ["#nope", "#12345", "#", "notatoken"]) {
+    assert.equal(applyColor(theme, bad, "text"), "text", `no escape for ${bad}`);
+    assert.ok(!applyColor(theme, bad, "text").includes("\x1b"), `silent for ${bad}`);
+    assert.equal(resolveColorToRgb(theme, bad), null, `no rgb for ${bad}`);
+  }
+  // The #abc shorthand expands to the same RGB as #aabbcc.
+  assert.deepEqual(resolveColorToRgb(theme, "#abc"), { r: 0xaa, g: 0xbb, b: 0xcc });
+  assert.equal(applyColor(theme, "#abc", "x"), "\x1b[38;2;170;187;204mx\x1b[0m");
+});
 
 test("session_stats renders prompts, api calls, and tool calls", () => {
   const ctx = { theme: { fg: (_c, s) => s }, sessionStats: { prompts: 2, apiCalls: 31, toolCalls: 48, llmMs: 0, toolMs: 0, ttftSamples: [], lastTurnaroundMs: 0 } };

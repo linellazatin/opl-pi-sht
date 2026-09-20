@@ -135,8 +135,10 @@ export function getCurrentBranch(providerBranch: string | null): string | null {
   if (!pendingBranchFetch) {
     const fetchId = branchInvalidationCounter;
     pendingBranchFetch = fetchGitBranch().then((result) => {
-      if (result === null) noteProbeFailure();
+      // Everything below belongs to the pre-invalidation directory state: a probe that
+      // started before `git init` must not re-arm the back-off or publish a null branch.
       if (fetchId === branchInvalidationCounter) {
+        if (result === null) noteProbeFailure();
         cachedBranch = {
           branch: result,
           timestamp: Date.now(),
@@ -173,8 +175,10 @@ export function getGitStatus(providerBranch: string | null): GitStatus {
   if (!pendingFetch) {
     const fetchId = invalidationCounter;
     pendingFetch = fetchGitStatus().then((result) => {
-      if (result === null) noteProbeFailure();
+      // Same as the branch probe: a failure from before an invalidation is stale, and
+      // arming the 30 s not-a-repo back-off from it would hide a just-created repository.
       if (fetchId === invalidationCounter) {
+        if (result === null) noteProbeFailure();
         cachedStatus = result
           ? { staged: result.staged, unstaged: result.unstaged, untracked: result.untracked, timestamp: Date.now() }
           : { staged: 0, unstaged: 0, untracked: 0, timestamp: Date.now() };

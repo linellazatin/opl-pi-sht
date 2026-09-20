@@ -1,4 +1,4 @@
-import type { RenderedSegment, SegmentContext } from "../types.js";
+import type { ColorValue, RenderedSegment, SegmentContext } from "../types.js";
 import { applyColor } from "../theme.js";
 
 interface AgentModeState {
@@ -18,7 +18,9 @@ export const modeSwitcherSegment = {
 
     const label = applyColor(ctx.theme, "dim", "Mode:");
     const value = mode === "off" ? "Normal" : mode.charAt(0).toUpperCase() + mode.slice(1);
-    const valueStr = applyColor(ctx.theme, state?.appearance?.modeColor ?? "muted", value);
+    // modeColor is authored in opl-modes config (theme token or hex); applyColor() renders an
+    // unknown value uncolored, so the cross-extension string is passed through as-is.
+    const valueStr = applyColor(ctx.theme, (state?.appearance?.modeColor ?? "muted") as ColorValue, value);
     return { content: `${label} ${valueStr}`, visible: true };
   },
 };

@@ -48,7 +48,11 @@ export function applyColor(
   text: string
 ): string {
   if (isHexColor(color)) {
-    return `${hexToAnsi(color)}${text}\x1b[0m`;
+    // hexToAnsi() returns "" for a malformed value: emit no escape at all, not an empty
+    // color plus a stray reset.
+    const ansi = hexToAnsi(color);
+    if (!ansi) return text;
+    return `${ansi}${text}\x1b[0m`;
   }
   // theme.fg() throws on an unknown token; a bad color in opl-footer.json or in an
   // opl-modes appearance must never take down the footer render.

@@ -10,6 +10,19 @@ test("resolves built-in mode styles", () => {
   assert.deepEqual(resolveModeStyle({ bash: false, mode: "execute" }), { borderColor: "customMessageLabel", prefixColor: "customMessageLabel", prefix: "⏸" });
 });
 
+test("input colors: bad hex stays uncolored, bad token falls back to border", () => {
+  const theme = {
+    fg: (color, text) => {
+      if (color !== "border") throw new Error(`unknown theme color: ${color}`);
+      return `[border]${text}`;
+    },
+  };
+  assert.equal(inputUtils.applyColor(theme, "#nope", "x"), "x", "malformed hex emits no escape at all");
+  assert.ok(!inputUtils.applyColor(theme, "#nope", "x").includes("\x1b"));
+  assert.equal(inputUtils.applyColor(theme, "#abc", "x"), "\x1b[38;2;170;187;204mx\x1b[0m", "shorthand expands");
+  assert.equal(inputUtils.applyColor(theme, "nope", "x"), "[border]x", "unknown token falls back to border");
+});
+
 test("stops the input render timer when the editor is disposed", () => {
   const originalSetInterval = globalThis.setInterval;
   const originalClearInterval = globalThis.clearInterval;

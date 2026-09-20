@@ -70,7 +70,11 @@ export function startRenderTimer(render: () => void, periodMs: number = COMPANIO
 
 export function applyColor(theme: Theme, color: string, text: string): string {
 	if (isHexColor(color)) {
-		return `${hexToAnsi(color)}${text}\x1b[0m`;
+		// A malformed hex yields "": render the text with no escape rather than an empty
+		// color plus a stray reset.
+		const ansi = hexToAnsi(color);
+		if (!ansi) return text;
+		return `${ansi}${text}\x1b[0m`;
 	}
 	try {
 		return theme.fg(color as ThemeColor, text);
