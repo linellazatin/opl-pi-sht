@@ -15,12 +15,34 @@ interface CachedBranch {
 
 const CACHE_TTL_MS = 1000;
 const BRANCH_TTL_MS = 500;
+// Outside a repository git exits non-zero on every probe. Arm a long back-off on the first
+// failure so an idle footer stops spawning git once per second, and clear it when
+// `rev-parse --is-inside-work-tree` proves the failure was transient — or when `git init`
+// happens mid-session and a cache invalidation/`git init` match clears it.
+const NOT_A_REPO_TTL_MS = 30_000;
 let cachedStatus: CachedGitStatus | null = null;
 let cachedBranch: CachedBranch | null = null;
 let pendingFetch: Promise<void> | null = null;
 let pendingBranchFetch: Promise<void> | null = null;
 let invalidationCounter = 0;
 let branchInvalidationCounter = 0;
+let repoAbsentUntil = 0;
+let repoCheckInFlight = false;
+
+/** Assume "not a repo" immediately, then confirm asynchronously so a real repo recovers. */
+function noteProbeFailure(): void {
+  repoAbsentUntil = Date.now() + NOT_A_REPO_TTL_MS;
+  if (repoCheckInFlight) return;
+  repoCheckInFlight = true;
+  void runGit(["rev-parse", "--is-inside-work-tree"]).then((out) => {
+    if (out === "true") repoAbsentUntil = 0;
+    repoCheckInFlight = false;
+  });
+}
+
+function repoAbsent(): boolean {
+  return Date.now() < repoAbsentUntil;
+}
 
 function parseGitStatusOutput(output: string): { staged: number; unstaged: number; untracked: number } {
   let staged = 0;
@@ -102,6 +124,10 @@ async function fetchGitStatus(): Promise<{ staged: number; unstaged: number; unt
 export function getCurrentBranch(providerBranch: string | null): string | null {
   const now = Date.now();
 
+  if (now < repoAbsentUntil) {
+    return cachedBranch ? cachedBranch.branch : providerBranch;
+  }
+
   if (cachedBranch && now - cachedBranch.timestamp < BRANCH_TTL_MS) {
     return cachedBranch.branch;
   }
@@ -109,7 +135,10 @@ export function getCurrentBranch(providerBranch: string | null): string | null {
   if (!pendingBranchFetch) {
     const fetchId = branchInvalidationCounter;
     pendingBranchFetch = fetchGitBranch().then((result) => {
+      // Everything below belongs to the pre-invalidation directory state: a probe that
+      // started before `git init` must not re-arm the back-off or publish a null branch.
       if (fetchId === branchInvalidationCounter) {
+        if (result === null) noteProbeFailure();
         cachedBranch = {
           branch: result,
           timestamp: Date.now(),
@@ -124,6 +153,14 @@ export function getCurrentBranch(providerBranch: string | null): string | null {
 
 export function getGitStatus(providerBranch: string | null): GitStatus {
   const now = Date.now();
+
+  if (now < repoAbsentUntil) {
+    const branch = cachedBranch ? cachedBranch.branch : providerBranch;
+    return cachedStatus
+      ? { branch, staged: cachedStatus.staged, unstaged: cachedStatus.unstaged, untracked: cachedStatus.untracked }
+      : { branch, staged: 0, unstaged: 0, untracked: 0 };
+  }
+
   const branch = getCurrentBranch(providerBranch);
 
   if (cachedStatus && now - cachedStatus.timestamp < CACHE_TTL_MS) {
@@ -138,7 +175,10 @@ export function getGitStatus(providerBranch: string | null): GitStatus {
   if (!pendingFetch) {
     const fetchId = invalidationCounter;
     pendingFetch = fetchGitStatus().then((result) => {
+      // Same as the branch probe: a failure from before an invalidation is stale, and
+      // arming the 30 s not-a-repo back-off from it would hide a just-created repository.
       if (fetchId === invalidationCounter) {
+        if (result === null) noteProbeFailure();
         cachedStatus = result
           ? { staged: result.staged, unstaged: result.unstaged, untracked: result.untracked, timestamp: Date.now() }
           : { staged: 0, unstaged: 0, untracked: 0, timestamp: Date.now() };
@@ -162,9 +202,11 @@ export function getGitStatus(providerBranch: string | null): GitStatus {
 export function invalidateGitStatus(): void {
   cachedStatus = null;
   invalidationCounter++;
+  repoAbsentUntil = 0;
 }
 
 export function invalidateGitBranch(): void {
   cachedBranch = null;
   branchInvalidationCounter++;
+  repoAbsentUntil = 0;
 }

@@ -1,10 +1,10 @@
 import { CustomEditor, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
 import type { TUI, EditorTheme } from "@earendil-works/pi-tui";
 import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 import { CONFIG, COMPANION_PADDING, MIN_WIDTH_FOR_COMPANION } from "./config.js";
 import { resolveModeStyle, type ModeAppearance } from "./mode-style.js";
-import { applyColor, CompanionAnimator, startRenderTimer } from "./utils.js";
+import { applyColor, CompanionAnimator, COMPANION_TICK_MS, IDLE_REPAINT_MS, startRenderTimer } from "./utils.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 const ANSI_RE = /\x1b\[[0-9;]*m|\x1b\[0?m/g;
@@ -43,10 +43,15 @@ class ChatInput extends CustomEditor {
 		this.inputTheme = theme;
 
 		// Animate companion even when idle — tick drives state machine
-		this.stopCompanionTimer = startRenderTimer(() => {
-			this.animator.tick(Date.now());
-			this.tui.requestRender();
-		});
+		// With the companion hidden this component still owns the only idle repaint in the
+		// bundle (footer time-based cells read it), so the tick slows down instead of stopping.
+		this.stopCompanionTimer = startRenderTimer(
+			() => {
+				this.animator.tick(Date.now());
+				this.tui.requestRender();
+			},
+			CONFIG.COMPANION_ENABLED ? COMPANION_TICK_MS : IDLE_REPAINT_MS,
+		);
 	}
 
 	dispose(): void {
@@ -74,7 +79,9 @@ class ChatInput extends CustomEditor {
 		const style = resolveModeStyle({ bash: isBash, mode: mode.mode, appearance: mode.appearance });
 		const border = (s: string) => applyColor(this.uiTheme, style.borderColor, s);
 		const accent = (s: string) => applyColor(this.uiTheme, style.prefixColor, s);
-		const prefix = style.prefix;
+		// The layout reserves exactly one cell for the prefix (continuation lines pad with " "),
+		// so a wider configured prefix would push the box border past `width`.
+		const prefix = truncateToWidth(style.prefix, 1);
 
 		if (CONFIG.BOXED_VIEW) {
 			return this.renderBoxed(stock, contentWidth, width, border, accent, prefix);

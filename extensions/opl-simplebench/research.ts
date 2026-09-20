@@ -88,7 +88,10 @@ function normalizeClaim(value: string): string {
 }
 
 export function verifyGroundedResearch(markdown: string, fixture: GroundedResearchFixture): { passed: boolean; missingClaims: string[]; wrongCitations: string[]; unknownCitations: string[] } {
-  const knownSources = new Map(fixture.sources.map(source => [source.id, source]));
+  // Key is string: citation ids arrive from a regex capture, so a "S1"|"S2"|"S3" key would reject them.
+  const knownSources = new Map<string, GroundedResearchFixture["sources"][number]>(
+    fixture.sources.map(source => [source.id, source]),
+  );
   const findings = markdown.match(/##\s+Findings\s*\n([\s\S]*?)(?=\n##\s|$)/i)?.[1] ?? "";
   const sourceSection = markdown.match(/##\s+Sources\s*\n([\s\S]*?)(?=\n##\s|$)/i)?.[1] ?? "";
   const citedClaims = [...findings.matchAll(/^\s*[-*]\s+(.+?)\s+\[([A-Za-z0-9]+)\]\s*$/gm)];

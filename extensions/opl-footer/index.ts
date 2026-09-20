@@ -13,9 +13,20 @@ import { getDefaultColors, fg } from "./theme.js";
 import { showFooterConfigurator } from "./configure.js";
 
 const GIT_BRANCH_PATTERNS: RegExp[] = [
-  /\bgit\s+(checkout|switch|branch\s+-[dDmM]|merge|rebase|pull|reset|worktree)/,
+  // init/clone included: creating a repo mid-session must clear the not-a-repo back-off.
+  /\bgit\s+(init|clone|checkout|switch|branch\s+-[dDmM]|merge|rebase|pull|reset|worktree)/,
   /\bgit\s+stash\s+(pop|apply)/,
 ];
+
+/** Row keys whose configured segments decide whether git must be probed at all. */
+const GIT_LAYOUT_ROWS = [
+  "row1LeftSegments",
+  "row1RightSegments",
+  "row2LeftSegments",
+  "row2RightSegments",
+  "row3LeftSegments",
+  "row3RightSegments",
+] as const;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Status Line Builder
@@ -260,9 +271,12 @@ export default function footer(pi: ExtensionAPI) {
 
     const isThinkingEvent = (e: SessionEvent): e is ThinkingLevelEvent =>
       e.type === "thinking_level_change";
-    const thinkingLevelFromSession = branch
-      .filter(isThinkingEvent)
-      .reduce((_, e) => e.thinkingLevel ?? "off", "off");
+    const thinkingEvents = branch.filter(isThinkingEvent);
+    // Seed null, not "off": a truthy seed made the ?? fallback below unreachable, so a
+    // branch with no thinking_level_change entry rendered "off" instead of Pi's real level.
+    const thinkingLevelFromSession = thinkingEvents.length
+      ? thinkingEvents.reduce((_, e) => e.thinkingLevel ?? "off", "off")
+      : null;
 
     const lastAssistant = completedMessages.at(-1);
 
@@ -274,9 +288,13 @@ export default function footer(pi: ExtensionAPI) {
     const contextWindow = ctx.model?.contextWindow || 0;
     const contextPercent = contextWindow > 0 ? (contextTokens / contextWindow) * 100 : 0;
 
-    // Get git status (cached)
-    const gitBranch = footerDataRef?.getGitBranch() ?? null;
-    const gitStatus = getGitStatus(gitBranch);
+    // Get git status (cached). Skip the probes entirely when no visible row renders the
+    // git segment — otherwise an unused cell keeps spawning git once per second.
+    const usesGit = GIT_LAYOUT_ROWS.some((row) => effectiveConfig[row]?.includes("git"));
+    const gitBranch = usesGit ? footerDataRef?.getGitBranch() ?? null : null;
+    const gitStatus = usesGit
+      ? getGitStatus(gitBranch)
+      : { branch: null, staged: 0, unstaged: 0, untracked: 0 };
 
     // Check if using OAuth subscription
     const usingSubscription = ctx.model
@@ -303,7 +321,7 @@ export default function footer(pi: ExtensionAPI) {
     return {
       model: ctx.model,
       isLocalModel,
-      thinkingLevel: thinkingLevelFromSession || pi.getThinkingLevel(),
+      thinkingLevel: thinkingLevelFromSession ?? pi.getThinkingLevel(),
       sessionId: ctx.sessionManager?.getSessionId?.(),
       usageStats,
       contextPercent,

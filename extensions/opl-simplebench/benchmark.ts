@@ -312,7 +312,9 @@ function makePiBedrockThinkingChatFn(modelConfig: BenchmarkModel): ChatFn {
       ...(systemPrompt ? { systemPrompt } : {}),
       messages: messages.filter(m => m.role !== "system") as any,
       ...(tools?.length ? { tools } : {}),
-    }, { reasoning: "max" });
+      // pi-ai's TranscriptContext carries a private brand, so a literal cannot satisfy it
+      // structurally; the fields above are the shape streamSimple actually reads.
+    } as any, { reasoning: "max" });
     const message: any = await stream.result();
     const content = (message.content || []).filter((block: any) => block.type === "text").map((block: any) => block.text).join("");
     const toolCalls = (message.content || []).filter((block: any) => block.type === "toolCall").map((block: any) => ({
@@ -387,13 +389,22 @@ function makeOllamaToolChatFn(): ChatFn {
 
 // ── Ollama Chat Functions ─────────────────────────────────────────────
 
+/** Both Ollama chat helpers return this shape; the unused fields stay undefined per mode. */
+interface OllamaChatResult {
+  response: any;
+  elapsedMs: number;
+  requestCount?: number;
+  retryCount?: number;
+  timeToFirstTokenMs?: number | null;
+}
+
 async function ollamaChat(
   model: string,
   messages: Array<{ role: string; content: string }>,
   options: Record<string, unknown> = {},
   timeoutMs = CONFIG.DEFAULT_TIMEOUT_MS,
   retries = CONFIG.MAX_RETRIES
-): Promise<{ response: any; elapsedMs: number }> {
+): Promise<OllamaChatResult> {
   const { tools, ...generationOptions } = options as any;
   const body: any = { model, messages, stream: false, ...(tools ? { tools } : {}), ...(Object.keys(generationOptions).length ? { options: generationOptions } : {}) };
   const url = `${ollamaBase()}/api/chat`;
@@ -425,7 +436,9 @@ async function ollamaChat(
         throw new Error(`Empty response from Ollama after ${attempt + 1} attempt(s)`);
       }
       const parsed = JSON.parse(text);
-      return { response: parsed, elapsedMs };
+      // Surface the retry loop so artifacts record real request/retry counts (metricsFromChat
+      // used to receive undefined and silently report 1 request, 0 retries).
+      return { response: parsed, elapsedMs, requestCount: attempt + 1, retryCount: attempt };
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       if (e instanceof Error && e.name === "AbortError") {
@@ -455,7 +468,7 @@ async function ollamaChatStream(
   messages: Array<{ role: string; content: string }>,
   options: Record<string, unknown> = {},
   timeoutMs = CONFIG.DEFAULT_TIMEOUT_MS,
-): Promise<{ response: any; elapsedMs: number }> {
+): Promise<OllamaChatResult> {
   const { tools, ...generationOptions } = options as any;
   const body: any = { model, messages, stream: true, ...(tools ? { tools } : {}), ...(Object.keys(generationOptions).length ? { options: generationOptions } : {}) };
   const url = `${ollamaBase()}/api/chat`;
@@ -484,6 +497,7 @@ async function ollamaChatStream(
     let thinkingContent = "";
     const toolCalls: any[] = [];
     let done = false;
+    let timeToFirstTokenMs: number | null = null;
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -497,6 +511,9 @@ async function ollamaChatStream(
       for (const line of lines) {
         try {
           const parsed = JSON.parse(line);
+          if (timeToFirstTokenMs === null && (parsed.message?.content || parsed.message?.thinking || parsed.message?.tool_calls)) {
+            timeToFirstTokenMs = Date.now() - start;
+          }
           if (parsed.message?.content) messageContent += parsed.message.content;
           if (parsed.message?.thinking) thinkingContent += parsed.message.thinking;
           if (parsed.message?.tool_calls) toolCalls.push(...parsed.message.tool_calls);
@@ -521,7 +538,7 @@ async function ollamaChatStream(
       done: true,
     };
 
-    return { response, elapsedMs };
+    return { response, elapsedMs, timeToFirstTokenMs };
   } catch (e: unknown) {
     if (e instanceof Error && e.name === "AbortError") {
       throw new Error(`Ollama API timed out after ${msHuman(timeoutMs)}`);
@@ -562,7 +579,7 @@ async function testReasoningExtended(chatFn: ChatFn, model: string, onProgress?:
       const msg = result.content.trim();
       const scored = scoreReasoning(msg, test.expectedAnswer);
       const answer = scored.answer;
-      results.push({ name: test.name, category: test.category, prompt: test.prompt, response: msg, elapsedMs: result.elapsedMs, metrics: metricsFromChat({ ...result, startedAt: result.startedAt ?? requestedAt, finishedAt: result.finishedAt ?? new Date().toISOString() }), score: scored.score, answer, expectedAnswer: test.expectedAnswer, pass: scored.pass, details: scored.details });
+      results.push({ name: test.name, category: test.category, prompt: test.prompt, response: msg, elapsedMs: result.elapsedMs, metrics: metricsFromChat({ ...result, startedAt: result.startedAt ?? requestedAt, finishedAt: result.finishedAt ?? new Date().toISOString() }), score: scored.score, answer, expectedAnswer: test.expectedAnswer, pass: scored.pass });
       onProgress?.(`[1/3] Reasoning ${i + 1}/${total}: ${test.name} → ${scored.score}`);
     } catch (e: any) {
       results.push({ name: test.name, category: test.category, prompt: test.prompt, response: null, error: e?.message || String(e), elapsedMs: 0, metrics: emptyMetrics(), score: "ERROR", answer: "?", expectedAnswer: test.expectedAnswer, pass: false });
@@ -683,7 +700,7 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   const providerInfo = ctx ? detectProvider(ctx) : { kind: "ollama" as const, name: "ollama" };
   const resolvedModel = resolveBenchmarkModel(ctx, model);
   const thinking = resolveThinkingMode(providerInfo, resolvedModel.model, options.thinkingMax === true);
-  const suite = options.testAll ? "test-all" : options.codingLite ? "coding-lite" : "baseline";
+  const suite: "baseline" | "coding-lite" | "test-all" = options.testAll ? "test-all" : options.codingLite ? "coding-lite" : "baseline";
 
   // Direct llama-server probes are separate from the provider route. This is
   // intentional: --llamagputop also works when inference goes through LiteLLM.

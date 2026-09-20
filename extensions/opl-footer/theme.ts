@@ -31,7 +31,10 @@ function isHexColor(color: ColorValue): color is `#${string}` {
 }
 
 function hexToAnsi(hex: string): string {
-  const h = hex.replace("#", "");
+  // Accept the #abc shorthand so a three-digit value renders the same as #aabbcc
+  // instead of falling through as an (unknown) theme token.
+  let h = hex.replace("#", "");
+  if (/^[0-9a-fA-F]{3}$/.test(h)) h = h.split("").map((c) => c + c).join("");
   if (!/^[0-9a-fA-F]{6}$/.test(h)) return "";
   const r = parseInt(h.slice(0, 2), 16);
   const g = parseInt(h.slice(2, 4), 16);
@@ -45,9 +48,19 @@ export function applyColor(
   text: string
 ): string {
   if (isHexColor(color)) {
-    return `${hexToAnsi(color)}${text}\x1b[0m`;
+    // hexToAnsi() returns "" for a malformed value: emit no escape at all, not an empty
+    // color plus a stray reset.
+    const ansi = hexToAnsi(color);
+    if (!ansi) return text;
+    return `${ansi}${text}\x1b[0m`;
   }
-  return theme.fg(color as ThemeColor, text);
+  // theme.fg() throws on an unknown token; a bad color in opl-footer.json or in an
+  // opl-modes appearance must never take down the footer render.
+  try {
+    return theme.fg(color as ThemeColor, text);
+  } catch {
+    return text;
+  }
 }
 
 export function fg(
@@ -102,11 +115,17 @@ export function resolveColorToRgb(
   color: ColorValue
 ): { r: number; g: number; b: number } | null {
   if (isHexColor(color)) {
-    const h = color.replace("#", "");
+    let h = color.replace("#", "");
+    if (/^[0-9a-fA-F]{3}$/.test(h)) h = h.split("").map((c) => c + c).join("");
     if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
     return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
   }
-  const probed = theme.fg(color as ThemeColor, "X");
+  let probed: string;
+  try {
+    probed = theme.fg(color as ThemeColor, "X");
+  } catch {
+    return null;
+  }
   const match = probed.match(/\x1b\[38;2;(\d+);(\d+);(\d+)m/);
   if (!match) return null;
   return { r: parseInt(match[1]), g: parseInt(match[2]), b: parseInt(match[3]) };

@@ -11,3 +11,6 @@ docs/
 ## annoying
 .DS_Store
 node_modules/
+
+## test-only extension builds
+tests/.build/

@@ -1,16 +1,16 @@
-/** Pure utilities: isSafeCommand, extractPlanText, plan file I/O, color helpers */
+/** Pure utilities: read-only Bash gate, plan file I/O, color helpers */
 
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync, readdirSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { SAFE_COMMAND_PATTERNS, DESTRUCTIVE_PATTERNS, PLAN_DIR, PLAN_FILE_PREFIX } from "./config.js";
+import { PLAN_DIR, PLAN_FILE_PREFIX } from "./config.js";
 import type { PlanFileSummary } from "./types.js";
 
 /** Serialize async model changes so the final requested model wins. */
 export function createLatestModelQueue() {
   let latest = 0;
-  let tail = Promise.resolve();
+  let tail: Promise<unknown> = Promise.resolve();
 
   return <T>(change: () => Promise<T>): Promise<T | undefined> => {
     const request = ++latest;
@@ -19,17 +19,124 @@ export function createLatestModelQueue() {
   };
 }
 
-/** Check if command matches safe patterns and not destructive patterns. */
-export function isSafeCommand(command: string): boolean {
-  return SAFE_COMMAND_PATTERNS.some((p) => p.test(command))
-    && !isDestructive(command, DESTRUCTIVE_PATTERNS);
+const stripQuotes = (text: string): string => text.replace(/["'\\]/g, "");
+
+/**
+ * Blind split on every operator, quotes ignored — used only for the blocklist scan, where
+ * over-splitting is fail-safe. A lone `&` counts as a separator unless it belongs to `&&`,
+ * `||`, or an `>&`/`<&` descriptor duplication (`echo hi 2>&1` stays one command).
+ */
+const BLIND_SPLIT = /\$\(|`|[<>]\(|&&|\|\||(?<![<>&])&(?![>&])|[;|\n\r]/;
+
+/** Quote/substitution nesting level. `quote` is the string quote open inside this level. */
+interface Frame { kind: "root" | "sub" | "tick"; quote: "" | "'" | '"'; parens: number }
+
+/**
+ * Split a command into the pieces the shell actually executes, so each one can be required
+ * to clear the allowlist: chaining (`&&`, `||`), backgrounding (`&`), pipes, `;`, newlines,
+ * process substitution, and the payload of `$(...)`/backticks. Quote-aware, so `grep "a|b"`
+ * stays one command, while a substitution inside double quotes still expands —
+ * `echo "$(node -e ...)"` yields the `node` payload as its own segment instead of blanking
+ * the whole string away. Quote characters are dropped from the segments (matching is
+ * prefix-anchored, so a leading `"` must not defeat a safe pattern).
+ */
+function commandSegments(command: string): string[] {
+  const out: string[] = [];
+  const stack: Frame[] = [{ kind: "root", quote: "", parens: 0 }];
+  let buf = "";
+  const flush = () => {
+    const s = buf.trim();
+    if (s) out.push(s);
+    buf = "";
+  };
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i];
+    const top = stack[stack.length - 1];
+    // Single quotes are literal: nothing expands, only the closing ' matters.
+    if (top.quote === "'") {
+      if (ch === "'") top.quote = "";
+      else buf += ch;
+      continue;
+    }
+    // Double quotes keep their text literal, except for `$(...)` and backticks, which run.
+    if (top.quote === '"') {
+      if (ch === '"') { top.quote = ""; continue; }
+      if (ch === "\\") { i++; continue; } // \X is a literal X, so `\$(x)` does not expand
+      if (ch === "$" && command[i + 1] === "(") { stack.push({ kind: "sub", quote: "", parens: 0 }); flush(); i++; continue; }
+      if (ch === "`") { stack.push({ kind: "tick", quote: "", parens: 0 }); flush(); continue; }
+      buf += ch;
+      continue;
+    }
+    if (ch === "'") { top.quote = "'"; continue; }
+    if (ch === '"') { top.quote = '"'; continue; }
+    if (ch === "\\") { buf += ch + (command[++i] ?? ""); continue; }
+    if (ch === "$" && command[i + 1] === "(") { stack.push({ kind: "sub", quote: "", parens: 0 }); flush(); i++; continue; }
+    if (ch === "`") {
+      if (top.kind === "tick") stack.pop();
+      else stack.push({ kind: "tick", quote: "", parens: 0 });
+      flush();
+      continue;
+    }
+    if (top.kind === "sub") {
+      if (ch === "(") top.parens++;
+      else if (ch === ")") {
+        if (top.parens === 0) { stack.pop(); flush(); continue; }
+        top.parens--;
+      }
+    } else if ((ch === "<" || ch === ">") && command[i + 1] === "(") {
+      stack.push({ kind: "sub", quote: "", parens: 0 });
+      flush();
+      i++;
+      continue;
+    }
+    if (ch === ";" || ch === "|" || ch === "\n" || ch === "\r") { flush(); continue; }
+    if (ch === "&") {
+      if (command[i + 1] === "&") { i++; flush(); continue; } // &&
+      // A lone & backgrounds the command before it. `>&`/`<&` is descriptor duplication and
+      // `&>` is a redirect, so neither starts a new command here (the blocklist judges those).
+      if (!/[<>&|]/.test(command[i - 1] ?? "") && command[i + 1] !== ">") { flush(); continue; }
+    }
+    buf += ch;
+  }
+  flush();
+  return out;
 }
 
-/** Whether a command, or its quote/backslash-stripped skeleton, matches any destructive
- *  pattern. Stripping defeats shell expands like `r"m"` -> `rm` that dodge \brm\b. */
+/** Quote-blind segments for the blocklist, on the raw text and its quote-stripped skeleton. */
+function blindSegments(text: string): string[] {
+  return text.split(BLIND_SPLIT).map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+/** Whether a destructive pattern matches the command, any of its segments, or either
+ *  with quotes/backslashes stripped, so `r"m"` and `-del"ete"` cannot dodge the list. */
 export function isDestructive(command: string, patterns: RegExp[]): boolean {
-  const skeleton = command.replace(/["'\\]/g, "");
-  return patterns.some((p) => p.test(command) || p.test(skeleton));
+  const haystacks = [
+    command,
+    stripQuotes(command),
+    ...blindSegments(command).flatMap((s) => [s, stripQuotes(s)]),
+  ];
+  return patterns.some((p) => haystacks.some((h) => p.test(h)));
+}
+
+/**
+ * Why a Bash command must be blocked in a read-only mode, or null when it is allowed.
+ * Every shell segment has to match a safe pattern (so `cat f && node -e '...'` cannot
+ * ride the first command's allowance), and no destructive pattern may match anywhere.
+ * An undefined or empty safe list means "no allowlist gate".
+ */
+export function bashBlockReason(
+  command: string,
+  safePatterns?: RegExp[],
+  destructivePatterns?: RegExp[],
+): string | null {
+  if (safePatterns && safePatterns.length > 0) {
+    const offender = commandSegments(command).find((s) => !safePatterns.some((p) => p.test(s)));
+    if (offender !== undefined) return `not in safe pattern list: ${offender}`;
+  }
+  if (destructivePatterns && destructivePatterns.length > 0 && isDestructive(command, destructivePatterns)) {
+    return `destructive pattern in: ${command}`;
+  }
+  return null;
 }
 
 const PLAN_ACTION_VERB = /^\s*\d+\.\s+(?:\*{1,2})?(?:add|creat|updat|fix|remov|refactor|implement|modif|chang|edit|writ|build|run|install|configur|set\s+up|delet|mov|renam|inject|migrat|replac|extract|test|deploy|integrat|convert)/i;
@@ -90,6 +197,8 @@ export function sanitizePlanName(name: string): string | null {
   if (!trimmed) return null;
   if (trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..")) return null;
   if (!/^[\w\s.-]+$/.test(trimmed)) return null;
+  // A name with no letter or digit (".", "--", ". ") would create plan-.md and an empty title.
+  if (!/\w/.test(trimmed)) return null;
   return trimmed.replace(/\s+/g, "-");
 }
 
@@ -134,7 +243,9 @@ export function isHexColor(color: string): boolean {
 
 /** Convert hex color string to ANSI truecolor escape. */
 function hexToAnsi(hex: string): string {
-  const h = hex.replace("#", "");
+  // Accept the #abc shorthand so a three-digit value renders the same as #aabbcc.
+  let h = hex.replace("#", "");
+  if (/^[0-9a-fA-F]{3}$/.test(h)) h = h.split("").map((c) => c + c).join("");
   if (!/^[0-9a-fA-F]{6}$/.test(h)) return "";
   const r = parseInt(h.slice(0, 2), 16);
   const g = parseInt(h.slice(2, 4), 16);

@@ -9,7 +9,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import os from "node:os";
 import { debugLog } from "./debug";
-import type { PiExtensionContext } from "../../../shared/types";
+
+/** Minimal shape of Pi's extension context that provider detection reads. Keeps this module
+ *  standalone instead of importing a Pi type the extension host resolves at load time. */
+interface PiExtensionContext {
+  model?: { provider?: string; id?: string };
+}
 
 // ============================================================================
 // Constants

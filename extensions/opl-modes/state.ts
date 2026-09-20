@@ -1,17 +1,19 @@
 /** OFF/CHAT/PLAN/EXECUTE unified state machine with session persistence via appendEntry blob. */
 
 import { ENTRY_TYPE, getModeDefinition } from "./config.js";
-import type { AgentMode, AgentModeBlob, ModeAppearanceConfig } from "./types.js";
+import type { AgentMode, AgentModeBlob, ModeAppearanceConfig, ModeModelConfig } from "./types.js";
 
 /** Mutable state — shared within the extension module. */
 const state: {
   mode: AgentMode;
   activePlanFile: string | null;
+  restoringModel: ModeModelConfig | null;
   refining: boolean;
   refineCount: number;
 } = {
   mode: "off",
   activePlanFile: null,
+  restoringModel: null,
   refining: false,
   refineCount: 0,
 };
@@ -29,8 +31,9 @@ function syncGlobalThis(): void {
     mode: m,
     appearance: getModeDefinition(m)?.appearance,
   } satisfies { mode: AgentMode; appearance?: ModeAppearanceConfig };
-  // Legacy globals for backward compat with chat-input and footer segments
-  (globalThis as Record<string, unknown>).__planMode = { mode: m === "chat" ? "off" : m };
+  // Legacy globals for backward compat with chat-input and footer segments. Only the
+  // plan-family modes light up __planMode, so a custom mode cannot read as "Plan mode ON".
+  (globalThis as Record<string, unknown>).__planMode = { mode: m === "plan" || m === "execute" ? m : "off" };
   (globalThis as Record<string, unknown>).__chatMode = { mode: m === "chat" ? "chat" : "off" };
   const requestRender = (globalThis as Record<string, unknown>).__footerRequestRender;
   if (typeof requestRender === "function") requestRender();
@@ -47,7 +50,17 @@ export function setRefining(value: boolean): void {
 
 export function getRefineCount(): number { return state.refineCount; }
 export function incrementRefineCount(): void { state.refineCount++; }
-export function resetRefineCount(): void { state.refineCount = 0; }
+
+/** Model reference to restore when the active mode ends (null = nothing to restore). */
+export function getRestoringModel(): ModeModelConfig | null { return state.restoringModel; }
+
+export function setRestoringModel(
+  model: ModeModelConfig | null,
+  pi: { appendEntry: (type: string, data?: unknown) => void },
+): void {
+  state.restoringModel = model;
+  persist(pi);
+}
 
 export function setActivePlanFile(
   file: string | null,
@@ -85,6 +98,7 @@ function persist(pi: { appendEntry: (type: string, data?: unknown) => void }): v
   pi.appendEntry(ENTRY_TYPE, {
     mode: state.mode,
     activePlanFile: state.activePlanFile,
+    restoreModel: state.restoringModel,
   } satisfies AgentModeBlob);
 }
 
@@ -93,6 +107,13 @@ function normalizePlanFile(file: string | null | undefined): string | null {
   if (!file) return null;
   if (file.includes("/") || file.includes("\\") || file.includes("..")) return null;
   return file;
+}
+
+/** Keep only a well-formed `{ provider, id }` pair; anything else means "nothing to restore". */
+function normalizeModelRef(model: unknown): ModeModelConfig | null {
+  if (typeof model !== "object" || model === null) return null;
+  const { provider, id } = model as Partial<ModeModelConfig>;
+  return typeof provider === "string" && provider && typeof id === "string" && id ? { provider, id } : null;
 }
 
 /**
@@ -105,20 +126,20 @@ export function restore(
 ): boolean {
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i];
-    if (entry.type !== "custom") continue;
+    if (entry.type !== "custom" || entry.customType !== ENTRY_TYPE) continue;
 
-    if (entry.customType === ENTRY_TYPE) {
-      const data = entry.data as AgentModeBlob | undefined;
-      // Fail closed: only apply modes the registry actually knows, otherwise a stale or
-      // foreign-branch entry would leave the session unrestricted (no tools, no patterns).
-      if (data?.mode && getModeDefinition(data.mode)) {
-        state.mode = data.mode;
-        state.activePlanFile = normalizePlanFile(data.activePlanFile);
-        state.refining = false;
-        syncGlobalThis();
-        return true;
-      }
-    }
+    const data = entry.data as AgentModeBlob | undefined;
+    if (!data?.mode) continue; // Malformed/incomplete blob: keep looking back.
+    // The newest well-formed entry decides. A mode the registry does not know (a removed
+    // custom mode, a foreign branch) restores nothing at all: falling through to an older
+    // entry could resume a chat/execute mode the user had already left.
+    if (!getModeDefinition(data.mode)) return false;
+    state.mode = data.mode;
+    state.activePlanFile = normalizePlanFile(data.activePlanFile);
+    state.restoringModel = normalizeModelRef(data.restoreModel);
+    state.refining = false;
+    syncGlobalThis();
+    return true;
   }
 
   // Backward compat: restore from legacy entries written by the old extensions.
@@ -155,6 +176,7 @@ export function restore(
 export function resetState(): void {
   state.mode = "off";
   state.activePlanFile = null;
+  state.restoringModel = null;
   state.refining = false;
   state.refineCount = 0;
   syncGlobalThis();

@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ModeSwitcherUserConfig, ModeDefinition, PartialModeDefinition } from "./types.js";
+import type { ModeSwitcherUserConfig, ModeDefinition, PartialModeDefinition, ModeModelConfig } from "./types.js";
 
 // ─── Plan File Constants ────────────────────────────────────────────────────
 
@@ -50,32 +50,56 @@ export const DEFAULT_SAFE_PATTERNS: RegExp[] = [
   /^\s*cat\b/, /^\s*head\b/, /^\s*tail\b/, /^\s*less\b/, /^\s*more\b/,
   /^\s*grep\b/, /^\s*find\b/, /^\s*ls\b/, /^\s*pwd\b/, /^\s*cd\b/,
   /^\s*echo\b/, /^\s*printf\b/, /^\s*wc\b/, /^\s*sort\b/,
+  // Pure stdout filters. uniq can write its second operand, so it is gated in the blocklist.
+  /^\s*uniq\b/, /^\s*tr\b/, /^\s*cut\b/,
   /^\s*diff\b/, /^\s*file\b/, /^\s*stat\b/, /^\s*du\b/, /^\s*df\b/,
   /^\s*tree\b/, /^\s*which\b/, /^\s*whereis\b/, /^\s*type\b/,
   /^\s*uname\b/, /^\s*whoami\b/,
   /^\s*date\b/, /^\s*uptime\b/, /^\s*ps\b/, /^\s*free\b/,
   /^\s*rg\b/, /^\s*fd\b/, /^\s*bat\b/, /^\s*jq\b/,
-  /^\s*git\s+(status|log|diff|show|branch|remote)/i,
+  /^\s*git\s+(status|log|diff|show|branch|remote|rev-parse)/i,
   /^\s*node\s+--version/i, /^\s*python\s+--version/i,
   /^\s*(npx\s+)?tsc\b.*--noEmit/i,
   /^\s*npm\s+(list|ls|view|info|outdated|audit)/i,
   /^\s*yarn\s+(list|info|why|audit)/i,
 ];
 
-/** Default destructive command patterns — always blocked in read-only modes, even if matching a safe pattern. */
+/** Destructive command patterns — always blocked in read-only modes, even if matching a safe pattern.
+ *  Program names are anchored to command position (`^\s*`) and matched per shell segment, so a
+ *  read-only command that merely mentions `rm`/`cp`/`sh` in an argument (`du -sh`, `ls cp/`,
+ *  `git log --grep=rm`) stays allowed. Flag and redirect patterns stay unanchored on purpose. */
 export const DEFAULT_DESTRUCTIVE_PATTERNS: RegExp[] = [
-  /\brm\b/i, /\brmdir\b/i, /\bmv\b/i, /\bcp\b/i,
-  /\bmkdir\b/i, /\btouch\b/i, /\bchmod\b/i, /\bchown\b/i,
-  /\btee\b/i, /\bdd\b/i, /\bshred\b/i, /\btruncate\b/i,
-  /\s-(delete|exec|execdir)\b/i,
-  /(^|[^<])>(?!>|&)/, />>/,
-  /\bnpm\s+(install|uninstall|update|ci)/i,
+  /^\s*(rm|rmdir|mv|cp|mkdir|touch|chmod|chown|tee|dd|shred|truncate)\b/i,
+  // Write flags that ride a safe-listed command: find's file-writing predicates and --output
+  // on sort/git log/git diff/git show. `-print`/`-printf` stay allowed (they go to stdout).
+  /\s-{1,2}(delete|exec|execdir|exec-batch|fprint0?|fprintf|fls|output)\b/i,
+  // `fd -x`/`-X` (also inside a short-flag cluster like `-Hx`) execute a command per match.
+  // The long forms are already caught above; the anchor keeps `grep -x` and `cut -d` legal.
+  /^\s*fd\b[^\n]*\s-[A-Za-z]*[xX]\b/,
+  // `rg --pre CMD` runs CMD on every file before searching.
+  /^\s*rg\b[^\n]*\s--pre\b/,
+  // `sort -o`/`tree -o` write their output operand in any argument position.
+  /^\s*(sort|tree)\b[^\n]*\s-[A-Za-z]*o\b/i,
+  // jq can read the process environment, which is why `env`/`printenv` are not safe-listed.
+  // Over-blocks a JSON key literally named `env`; a leaked API key costs more.
+  /^\s*jq\b[^\n]*(\$ENV|\benv\b)/i,
+  // Any redirect that names a file. `>&<fd>`/`>&-` duplication is not a write, so 2>&1 survives.
+  // The /dev/null exception needs a token boundary: `> /dev/null/../tmp/pwn` and `> /dev/nullfoo`
+  // are writes to real paths that merely start with that prefix.
+  /(^|[^<])>(?!>)(?!&[0-9-])(?! *\/dev\/null(?![^\s;&|)]))/, />>(?! *\/dev\/null(?![^\s;&|)]))/,
+  // uniq writes its second operand (`uniq -c in.txt out.txt`); flags don't count, so
+  // `uniq -c sorted.txt` stays a read.
+  /^\s*uniq\b(?:\s+-\S+)*\s+[^-\s]\S*(?:\s+[^-\s]\S*)+/,
+  /\bnpm\s+(install|uninstall|update|upgrade|ci)/i,
+  /\bnpm\s+audit\b.*\bfix\b/i,
   /\byarn\s+(add|remove|install)/i,
   /\bpip\s+(install|uninstall)/i,
-  /\bgit\s+(add|commit|push|merge|rebase|reset|checkout|branch\s+-|clean|update-ref|tag\s+-|cherry-pick|revert|am|apply)/i,
-  /\bsudo\b/i, /\bsu\b/i, /\bkill\b/i, /\bpkill\b/i,
-  /\b(sh|bash|zsh)\b/i,
-  /\b(vim?|nano|emacs|code|subl)\b/i,
+  /\bgit\s+(add|commit|push|merge|rebase|reset|checkout|clean|update-ref|cherry-pick|revert|am|apply|branch\s+(-{1,2}[dDmMcC]|--(unset-upstream|edit-description))|tag\s+-)/i,
+  // Subcommands that hide behind the safe `git remote` prefix and still write .git.
+  /\bgit\s+remote\s+(add|remove|rename|set-url|set-head|setbranches|prune|update)\b/i,
+  /^\s*(sudo|su|kill|pkill)\b/i,
+  /^\s*(sh|bash|zsh)\b/i,
+  /^\s*(vim?|nano|emacs|code|subl)\b/i,
 ];
 
 // ─── Prompt Templates ────────────────────────────────────────────────────────
@@ -394,13 +418,29 @@ export function resolveCustomPatterns(def: {
   };
 }
 
+/**
+ * Normalize a configured model reference. A blank or partial `{ provider, id }` means
+ * "no override" — Pi's registry cannot resolve empty strings, so passing one through
+ * would only warn "Model not found: /" and leave the model untouched. Treating it as
+ * unset makes the mode keep (and later restore) the current model instead.
+ */
+export function resolveModeModel(model: unknown): ModeModelConfig | undefined {
+  if (!isRecord(model)) return undefined;
+  const provider = typeof model.provider === "string" ? model.provider.trim() : "";
+  const id = typeof model.id === "string" ? model.id.trim() : "";
+  return provider && id ? { provider, id } : undefined;
+}
+
 export function mergeModeDefinition(existing: ModeDefinition, def: PartialModeDefinition): ModeDefinition {
+  // unrestrictedBash is an opt-out for built-in overrides too, not just new modes.
+  const unrestricted = def.unrestrictedBash === true;
   return {
     ...existing,
     ...def,
     tools: def.tools ?? existing.tools,
-    safePatterns: compilePatterns(def.safePatterns) ?? existing.safePatterns,
-    destructivePatterns: compilePatterns(def.destructivePatterns) ?? existing.destructivePatterns,
+    model: "model" in def ? resolveModeModel(def.model) : existing.model,
+    safePatterns: unrestricted ? undefined : (compilePatterns(def.safePatterns) ?? existing.safePatterns),
+    destructivePatterns: unrestricted ? undefined : (compilePatterns(def.destructivePatterns) ?? existing.destructivePatterns),
     labels: { ...existing.labels, ...def.labels },
     appearance: def.appearance ?? existing.appearance,
   };
@@ -427,6 +467,14 @@ export function withPlanComplete(mode: string, tools: string[], registry: Map<st
   const def = registry.get(mode);
   if (def?.allowPlanComplete && !tools.includes("plan_complete")) return [...tools, "plan_complete"];
   return tools;
+}
+
+/**
+ * Whether `plan_complete` may be called while `mode` is active: execute mode and any mode
+ * with allowPlanComplete. Same predicate that decides the tool's presence in the tool list.
+ */
+export function planCompleteAllowed(mode: string, registry: Map<string, ModeDefinition> = MODE_REGISTRY): boolean {
+  return registry.get(mode)?.allowPlanComplete === true;
 }
 
 /** Initialize MODE_REGISTRY with built-in defaults, then merge user-defined modes. */
@@ -495,7 +543,7 @@ function initModeRegistry(): void {
           allowExecute: def.allowExecute ?? true,
           visible: def.visible ?? true,
           enabled: def.enabled ?? true,
-          model: def.model,
+          model: resolveModeModel(def.model),
           labels: {
             notify: def.labels?.notify ?? customNotifyTemplate.replace("{Name}", name.charAt(0).toUpperCase() + name.slice(1)),
             notifyType: def.labels?.notifyType ?? "info",

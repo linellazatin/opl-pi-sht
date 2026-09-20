@@ -45,14 +45,14 @@ import {
   getModeDefinition,
   executeHandoffAllowed,
   withPlanComplete,
+  planCompleteAllowed,
   LAZY_TOOLS,
   LOADER_TOOL_NAME,
   applyLazyPolicy,
   lazyToolsToEnable,
 } from "./config.js";
 import {
-  isSafeCommand,
-  isDestructive,
+  bashBlockReason,
   extractPlanText,
   isPlanLike,
   ensurePlanDir,
@@ -69,6 +69,8 @@ import {
   setRefining,
   getActivePlanFile,
   setActivePlanFile,
+  getRestoringModel,
+  setRestoringModel,
   transition,
   enterPlanWithFile,
   restore,
@@ -120,22 +122,51 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   // ─── Saved model for restoring ─────────────────────────────────────────────
   let savedModel: Model<any> | null = null;
   const queueModelChange = createLatestModelQueue();
-  const MAX_REFINE_CYCLES = 5;
+  // Consecutive restore failures for the same model, so an un-authable restore point is
+  // retried once and then released instead of blocking future captures forever.
+  let restoreAttempts = 0;
 
-  function saveAndSetActiveTools(toolNames: string[]): void {
-    if (savedToolNames === null) {
-      savedToolNames = pi.getAllTools().map((t) => t.name);
+  function saveAndSetActiveTools(toolNames: string[], resting = false): void {
+    if (resting) {
+      // OFF is the resting baseline: drop any snapshot from the mode being exited, otherwise a
+      // later tool-less mode would restore the pre-OFF set and widen past the pinned baseline.
+      savedToolNames = null;
+    } else if (savedToolNames === null) {
+      // Snapshot what is actually active, not every registered tool: entering a mode must
+      // never widen the set the user (or Pi settings) narrowed before it.
+      savedToolNames = pi.getActiveTools();
     }
     pi.setActiveTools(applyLazyPolicy(toolNames));
   }
 
+  /** Plan-mode tool list: honors a modes.plan.tools override, not just the shared default. */
+  function planModeTools(): string[] {
+    return getModeDefinition("plan")?.tools ?? PLAN_MODE_TOOLS;
+  }
+
+  /**
+   * Pi's setActiveTools() silently drops names it does not know, so a typo in
+   * modes.<name>.tools quietly shrinks the mode. Say so once per name per session.
+   */
+  const warnedTools = new Set<string>();
+  function warnUnknownTools(ctx: ExtensionContext, mode: string, tools?: string[]): void {
+    if (!ctx.hasUI || !tools) return;
+    const known = new Set(pi.getAllTools().map((t) => t.name));
+    for (const name of tools) {
+      if (known.has(name) || warnedTools.has(name)) continue;
+      warnedTools.add(name);
+      ctx.ui.notify(`[mode-switcher] modes.${mode}.tools: unknown tool "${name}" is ignored by Pi`, "warning");
+    }
+  }
+
   /** Queue model changes so a superseded async switch cannot finish after its restore. */
-  function setQueuedModel(ctx: ExtensionContext, model: Model<any>, label: string): Promise<void> {
+  function setQueuedModel(ctx: ExtensionContext, model: Model<any>, label: string): Promise<boolean | undefined> {
     return queueModelChange(async () => {
       const success = await pi.setModel(model);
       if (!success && ctx.hasUI) ctx.ui.notify(`[mode-switcher] No API key for model ${label}`, "error");
       updateStatus(ctx);
-    }).then(() => undefined);
+      return success;
+    });
   }
 
   async function switchToModel(ctx: ExtensionContext, modelRef: { provider: string; id: string }): Promise<void> {
@@ -158,18 +189,41 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   async function applyModeModel(ctx: ExtensionContext, modeDef: { model?: { provider: string; id: string } } | undefined): Promise<void> {
     const modelRef = modeDef?.model;
     if (!modelRef) return;
-    if (savedModel === null) {
-      savedModel = ctx.model ?? null;
+    const current = ctx.model ?? null;
+    const alreadyOnModeModel = current !== null && current.provider === modelRef.provider && current.id === modelRef.id;
+    // Capture the restore point once per mode, and never when the session is already on
+    // the mode's own model (after /reload or /resume inside a mode) or when a restore
+    // point is already persisted — otherwise the real previous model is lost.
+    if (savedModel === null && getRestoringModel() === null && !alreadyOnModeModel) {
+      rememberRestoreModel(current);
     }
     await switchToModel(ctx, modelRef);
   }
 
+  /** Record the model to return to, in memory and in the session blob. */
+  function rememberRestoreModel(model: Model<any> | null): void {
+    savedModel = model;
+    if (model) restoreAttempts = 0;
+    setRestoringModel(model ? { provider: model.provider, id: model.id } : null, pi);
+  }
+
   /** Restore whatever model was active before applyModeModel last changed it. */
   function restoreModelIfSaved(ctx: ExtensionContext): void {
-    if (savedModel === null) return;
-    const toRestore = savedModel;
-    savedModel = null;
-    void setQueuedModel(ctx, toRestore, `${toRestore.provider}/${toRestore.id}`);
+    const ref = savedModel ?? getRestoringModel();
+    const toRestore = ref ? (savedModel ?? ctx.modelRegistry.find(ref.provider, ref.id)) : null;
+    rememberRestoreModel(null);
+    // The model left the registry (provider removed): drop the point so the next entry captures a fresh one.
+    if (!toRestore) return;
+    void setQueuedModel(ctx, toRestore, `${toRestore.provider}/${toRestore.id}`).then((outcome) => {
+      // false = the model exists but has no auth yet (fixed by /login): keep it for one retry.
+      // undefined = superseded by a newer switch, which now owns the restore.
+      if (outcome === false && ref && restoreAttempts < 1) {
+        restoreAttempts++;
+        setRestoringModel({ provider: ref.provider, id: ref.id }, pi);
+      } else {
+        restoreAttempts = 0;
+      }
+    });
   }
 
   /**
@@ -182,8 +236,8 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   function applyOffModel(ctx: ExtensionContext): void {
     const offModeDef = getModeDefinition("off");
     if (offModeDef?.model) {
-      savedModel = null;
-      switchToModel(ctx, offModeDef.model);
+      rememberRestoreModel(null);
+      void switchToModel(ctx, offModeDef.model);
     } else {
       restoreModelIfSaved(ctx);
     }
@@ -195,12 +249,9 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   }
 
   function restoreAllTools(): void {
-    if (savedToolNames !== null) {
-      pi.setActiveTools(applyLazyPolicy(toolsWithoutPlanComplete(savedToolNames)));
-      savedToolNames = null;
-    } else {
-      pi.setActiveTools(applyLazyPolicy(toolsWithoutPlanComplete(pi.getAllTools().map((t) => t.name))));
-    }
+    const names = savedToolNames ?? pi.getActiveTools();
+    pi.setActiveTools(applyLazyPolicy(toolsWithoutPlanComplete(names)));
+    savedToolNames = null;
   }
 
   // ─── Plan file helpers ─────────────────────────────────────────────────────
@@ -227,6 +278,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   function updateStatus(ctx: ExtensionContext): void {
     const mode = getMode();
     const modeDef = getModeDefinition(mode);
+    warnUnknownTools(ctx, mode, modeDef?.tools);
 
     if (!ctx.hasUI) return;
 
@@ -302,7 +354,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   function enterPlanMode(ctx: ExtensionContext): void {
     transition("plan", pi);
     const modeDef = getModeDefinition("plan");
-    saveAndSetActiveTools(modeDef?.tools ?? PLAN_MODE_TOOLS);
+    saveAndSetActiveTools(planModeTools());
     applyModeModel(ctx, modeDef);
     updateStatus(ctx);
     if (ctx.hasUI && !USER_CONFIG.ui.hideNotify) {
@@ -314,7 +366,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
 
   async function enterExecuteMode(ctx: ExtensionContext): Promise<void> {
     transition("execute", pi);
-    const baseNames = savedToolNames ?? pi.getAllTools().map((t) => t.name);
+    const baseNames = savedToolNames ?? pi.getActiveTools();
     pi.setActiveTools(applyLazyPolicy([...toolsWithoutPlanComplete(baseNames), "plan_complete"]));
     savedToolNames = null;
     const modeDef = getModeDefinition("execute");
@@ -337,7 +389,14 @@ export default function modeSwitcher(pi: ExtensionAPI) {
    */
   function enterOffMode(ctx: ExtensionContext, message?: string, silent = false): void {
     transition("off", pi);
-    restoreAllTools();
+    const offModeDef = getModeDefinition("off");
+    // OFF gates tools only when the user declares modes.off.tools; otherwise it restores
+    // whatever was active before the mode.
+    if (offModeDef?.tools) {
+      saveAndSetActiveTools(withPlanComplete("off", offModeDef.tools), true);
+    } else {
+      restoreAllTools();
+    }
     applyOffModel(ctx);
     updateStatus(ctx);
     if (!silent && ctx.hasUI && !USER_CONFIG.ui.hideNotify) {
@@ -358,6 +417,9 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       saveAndSetActiveTools(withPlanComplete(name, modeDef.tools));
     } else {
       restoreAllTools();
+      // Inherited (unlisted) tool set: allowPlanComplete still needs the tool active,
+      // otherwise the mode can never finish through the completion path.
+      if (modeDef?.allowPlanComplete) pi.setActiveTools(withPlanComplete(name, pi.getActiveTools()));
     }
     applyModeModel(ctx, modeDef);
     updateStatus(ctx);
@@ -422,7 +484,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       const filename = choice.slice("execute:".length);
       if (current !== "off") enterOffMode(ctx, undefined, true);
       enterPlanWithFile(filename, pi);
-      saveAndSetActiveTools(PLAN_MODE_TOOLS);
+      saveAndSetActiveTools(planModeTools());
       await enterExecuteMode(ctx);
       pi.sendUserMessage("Execute the plan steps now.", { deliverAs: "followUp" });
     } else if (getModeDefinition(choice)) {
@@ -459,14 +521,16 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     const modeDef = getModeDefinition(mode);
 
     if (modeDef?.tools) {
-      saveAndSetActiveTools(modeDef.tools);
+      // Honor allowPlanComplete here too, otherwise a resume drops the tool a mode was given.
+      // OFF's declared list is the resting baseline, so it must not keep a stale snapshot.
+      saveAndSetActiveTools(withPlanComplete(mode, modeDef.tools), mode === "off");
     } else if (mode === "execute") {
-      const allNames = pi.getAllTools().map((t) => t.name);
+      const allNames = pi.getActiveTools();
       pi.setActiveTools(applyLazyPolicy([...toolsWithoutPlanComplete(allNames), "plan_complete"]));
     } else {
-      // Default: all tools except plan_complete
-      const allNames = pi.getAllTools().map((t) => t.name);
-      pi.setActiveTools(applyLazyPolicy(toolsWithoutPlanComplete(allNames)));
+      // Default: the active set minus plan_complete, re-added when the mode allows it.
+      const allNames = pi.getActiveTools();
+      pi.setActiveTools(applyLazyPolicy(withPlanComplete(mode, toolsWithoutPlanComplete(allNames))));
     }
 
     // Apply the mode's model BEFORE sending any resume follow-up message, so
@@ -552,10 +616,10 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     // plan_complete is only callable in execute mode
     const mode = getMode();
     const modeDef = getModeDefinition(mode);
-    if (event.toolName === "plan_complete" && !modeDef?.allowPlanComplete) {
+    if (event.toolName === "plan_complete" && !planCompleteAllowed(mode)) {
       return {
         block: true,
-        reason: `[mode-switcher] plan_complete only available in execute mode. Current mode: ${mode}`,
+        reason: `[mode-switcher] plan_complete is only available in execute mode or a mode with allowPlanComplete. Current mode: ${mode}`,
       };
     }
 
@@ -564,29 +628,11 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     if (!modeDef?.safePatterns && !modeDef?.destructivePatterns) return {};
 
     const command = event.input.command as string;
-    
-    // Check safe patterns (if defined, command must match at least one)
-    if (modeDef.safePatterns && modeDef.safePatterns.length > 0) {
-      const matchesSafe = modeDef.safePatterns.some((pattern) => pattern.test(command));
-      if (!matchesSafe) {
-        return {
-          block: true,
-          reason: `[mode-switcher] Command blocked — not in safe pattern list for ${mode} mode: ${command}`,
-        };
-      }
+    const reason = bashBlockReason(command, modeDef.safePatterns, modeDef.destructivePatterns);
+    if (reason) {
+      return { block: true, reason: `[mode-switcher] Command blocked — ${reason} [${mode} mode]` };
     }
 
-    // Check destructive patterns (if defined, must not match any) — also against
-    // a quote/backslash-stripped skeleton so r"m"/r\m obfuscation can't dodge \brm\b.
-    if (modeDef.destructivePatterns && modeDef.destructivePatterns.length > 0) {
-      if (isDestructive(command, modeDef.destructivePatterns)) {
-        return {
-          block: true,
-          reason: `[mode-switcher] Command blocked — destructive pattern in ${mode} mode: ${command}`,
-        };
-      }
-    }
-    
     return {};
   });
 
@@ -596,15 +642,18 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     name: "plan_complete",
     label: "Plan Complete",
     description:
-      "Signal that all plan steps have been executed. ONLY callable in EXECUTE mode. Call this once after finishing the final step. This exits execute mode. Do NOT call this outside execute mode.",
+      "Signal that all plan steps have been executed. ONLY callable in EXECUTE mode or in a mode configured with allowPlanComplete. Call this once after finishing the final step. This exits the mode. Do NOT call this outside those modes.",
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      if (getMode() !== "execute") {
-        return { content: [{ type: "text", text: "plan_complete is only available in execute mode." }], details: undefined };
+      if (!planCompleteAllowed(getMode())) {
+        return {
+          content: [{ type: "text", text: "plan_complete is only available in execute mode or a mode with allowPlanComplete." }],
+          details: undefined,
+        };
       }
       cleanupPlanFile();
       enterOffMode(ctx, "Plan implemented. Plan mode OFF.");
-      return { content: [{ type: "text", text: "Execute mode exited." }], details: undefined };
+      return { content: [{ type: "text", text: "Plan mode exited." }], details: undefined };
     },
   });
 
@@ -612,7 +661,9 @@ export default function modeSwitcher(pi: ExtensionAPI) {
 
   pi.on("tool_result", (event: ToolResultEvent, ctx: ExtensionContext) => {
     if (event.toolName !== "plan_complete") return;
-    if (getMode() !== "execute") return;
+    // The tool body has usually already returned to OFF, which makes this a no-op; the check
+    // stays mode-based (not execute-only) so a custom allowPlanComplete mode is handled alike.
+    if (getMode() !== "execute" && !planCompleteAllowed(getMode())) return;
     cleanupPlanFile();
     enterOffMode(ctx, "Plan implemented. Plan mode OFF.");
   });
@@ -623,7 +674,17 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     // If plan_complete was never called, exit execute mode automatically.
     // (If it was called, mode is already "off" here — this check is a no-op.)
     if (getMode() === "execute") {
-      enterOffMode(ctx, "Execution complete. Mode OFF.");
+      // An aborted turn (ESC) is a pause, not a finished execution: stay in execute mode
+      // so the plan can be resumed instead of silently dropping out mid-plan. Pi emits an
+      // assistant message with stopReason "aborted" even when the abort lands before the
+      // first token, so there is always a message to read here.
+      const lastAssistant = [...event.messages].reverse().find((m) => m.role === "assistant") as
+        | { stopReason?: string }
+        | undefined;
+      // Only a turn that actually finished counts as done: "aborted"/"error" (and a missing
+      // assistant message) are pauses, so execute mode survives ESC and provider failures.
+      const reason = lastAssistant?.stopReason;
+      if (reason && reason !== "aborted" && reason !== "error") enterOffMode(ctx, "Execution complete. Mode OFF.");
       return;
     }
 
@@ -716,7 +777,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       }
       const filename = `${PLAN_FILE_PREFIX}${sanitized}.md`;
       enterPlanWithFile(filename, pi);
-      saveAndSetActiveTools(PLAN_MODE_TOOLS);
+      saveAndSetActiveTools(planModeTools());
       updateStatus(ctx);
       const createTitle = titleFromFilename(filename);
       if (ctx.hasUI && !USER_CONFIG.ui.hideNotify) {
@@ -734,8 +795,8 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       if (getMode() !== "plan") return;
 
       const refineCount = getRefineCount();
-      const refineLabel = refineCount >= MAX_REFINE_CYCLES
-        ? `Refine  (${refineCount} cycles — consider saving)`
+      const refineLabel = refineCount > 0
+        ? `Refine  (${refineCount} ${refineCount === 1 ? "cycle" : "cycles"} so far)`
         : "Refine";
       const options: SelectItem[] = [
         { value: "execute", label: "Execute" },
@@ -785,7 +846,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   /** Load an existing plan file and show the action menu. */
   function loadPlanAndShowMenu(ctx: ExtensionContext, filename: string, displayName: string): void {
     enterPlanWithFile(filename, pi);
-    saveAndSetActiveTools(PLAN_MODE_TOOLS);
+    saveAndSetActiveTools(planModeTools());
     updateStatus(ctx);
     if (ctx.hasUI && !USER_CONFIG.ui.hideNotify) {
       ctx.ui.notify(USER_CONFIG.labels.plan.notifyLoaded.replace("{title}", displayName), "info");
@@ -819,10 +880,15 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     return container;
   });
 
-  // ─── Command: /mode [chat|plan|off] ────────────────────────────────────────
+  // ─── Command: /mode [chat|plan|off|normal|<custom>] ──────────────────────
+
+  /** Names /mode accepts as an argument: the built-ins plus every registered custom mode. */
+  function modeArgumentNames(): string[] {
+    return ["off", "normal", "chat", "plan", ...Array.from(MODE_REGISTRY.keys()).filter((n) => n !== "off" && n !== "chat" && n !== "plan" && n !== "execute")];
+  }
 
   pi.registerCommand("mode", {
-    description: "Mode switcher: /mode (open picker) · /mode chat · /mode plan · /mode normal",
+    description: "Mode switcher: /mode (open picker) · /mode chat · /mode plan · /mode normal · /mode <custom>",
     handler: async (args: string, ctx) => {
       const input = args.trim().toLowerCase();
 
@@ -860,7 +926,27 @@ export default function modeSwitcher(pi: ExtensionAPI) {
         return;
       }
 
-      if (ctx.hasUI) ctx.ui.notify(`Unknown mode: "${input}". Use: chat, plan, normal`, "warning");
+      // Any other registered mode: config-declared custom modes (modes.<name>) and built-in
+      // overrides, so /mode review works the same as picking it from the picker.
+      if (getModeDefinition(input)) {
+        if (input === "execute") {
+          if (ctx.hasUI) ctx.ui.notify("Execute mode needs an active plan — use /execute", "info");
+          return;
+        }
+        if (getModeDefinition(input)?.enabled === false) {
+          if (ctx.hasUI) ctx.ui.notify(`Mode "${input}" is disabled (modes.${input}.enabled: false)`, "warning");
+          return;
+        }
+        if (getMode() === input) {
+          if (ctx.hasUI) ctx.ui.notify(`Already in ${input} mode`, "info");
+          return;
+        }
+        if (getMode() !== "off") enterOffMode(ctx, undefined, true);
+        enterCustomMode(ctx, input);
+        return;
+      }
+
+      if (ctx.hasUI) ctx.ui.notify(`Unknown mode: "${input}". Use: ${modeArgumentNames().join(", ")}`, "warning");
     },
   });
 
@@ -958,7 +1044,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
         }
         if (getMode() !== "off") enterOffMode(ctx, undefined, true);
         enterPlanWithFile(filename, pi);
-        saveAndSetActiveTools(PLAN_MODE_TOOLS);
+        saveAndSetActiveTools(planModeTools());
         updateStatus(ctx);
         if (ctx.hasUI && !USER_CONFIG.ui.hideNotify) {
           ctx.ui.notify(USER_CONFIG.labels.plan.notifyWithTitle.replace("{title}", titleFromFilename(filename)), USER_CONFIG.labels.plan.notifyType as "info" | "warning" | "error");
@@ -983,7 +1069,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       async function startExecute(filename: string): Promise<void> {
         if (current !== "off") enterOffMode(ctx, undefined, true);
         enterPlanWithFile(filename, pi);
-        saveAndSetActiveTools(PLAN_MODE_TOOLS);
+        saveAndSetActiveTools(planModeTools());
         await enterExecuteMode(ctx);
         pi.sendUserMessage("Execute the plan steps now.", { deliverAs: "followUp" });
       }

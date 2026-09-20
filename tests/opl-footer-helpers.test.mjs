@@ -7,7 +7,21 @@ import * as statusSegmentModule from "../extensions/opl-footer/segments/status.t
 import { lerp } from "../extensions/opl-footer/segments/context.ts";
 import { modeSwitcherSegment } from "../extensions/opl-footer/segments/mode-switcher.ts";
 import { nextTabIndex, restoreSelectedItem } from "../extensions/opl-footer/configure-navigation.ts";
+import { applyColor, resolveColorToRgb } from "../extensions/opl-footer/theme.ts";
 import { getLayoutSegments, hasSegmentSeparator, moveLayoutSegment, setLayoutSegment, setSegmentSeparator } from "../extensions/opl-footer/config.ts";
+
+test("malformed colors render uncolored with no escape sequence at all", () => {
+  const theme = { fg: (color) => { throw new Error(`unknown theme color: ${color}`); } };
+  // A bad hex used to emit an empty color plus a stray reset; a bad token used to throw.
+  for (const bad of ["#nope", "#12345", "#", "notatoken"]) {
+    assert.equal(applyColor(theme, bad, "text"), "text", `no escape for ${bad}`);
+    assert.ok(!applyColor(theme, bad, "text").includes("\x1b"), `silent for ${bad}`);
+    assert.equal(resolveColorToRgb(theme, bad), null, `no rgb for ${bad}`);
+  }
+  // The #abc shorthand expands to the same RGB as #aabbcc.
+  assert.deepEqual(resolveColorToRgb(theme, "#abc"), { r: 0xaa, g: 0xbb, b: 0xcc });
+  assert.equal(applyColor(theme, "#abc", "x"), "\x1b[38;2;170;187;204mx\x1b[0m");
+});
 
 test("session_stats renders prompts, api calls, and tool calls", () => {
   const ctx = { theme: { fg: (_c, s) => s }, sessionStats: { prompts: 2, apiCalls: 31, toolCalls: 48, llmMs: 0, toolMs: 0, ttftSamples: [], lastTurnaroundMs: 0 } };
@@ -47,6 +61,7 @@ test("formats footer token and duration values at display boundaries", () => {
   assert.equal(formatTokens(999), "999", "under 1k is raw");
   assert.equal(formatTokens(1000), "1.00k", "1k boundary");
   assert.equal(formatTokens(1536), "1.54k");
+  assert.equal(formatTokens(12500), "12.50k", "mid-range stays k after collapsing duplicate branches");
   assert.equal(formatTokens(999999), "1000.00k", "just under 1M still k");
   assert.equal(formatTokens(1000000), "1.00M", "1M boundary");
   assert.equal(formatTokens(2500000), "2.50M");
@@ -162,4 +177,49 @@ test("renders footer helpers and mode color precedence", () => {
   globalThis.__agentMode = { mode: "research" };
   assert.equal(modeSwitcherSegment.render(segmentCtx).content, "[dim]Mode: [muted]Research", "falls back to hardcoded muted");
   delete globalThis.__agentMode;
+});
+
+test("git probes back off outside a repository and recover on invalidation", async () => {
+  const { mkdtempSync, rmSync, writeFileSync, readFileSync, chmodSync, mkdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const dir = mkdtempSync(join(tmpdir(), "opl-norepo-"));
+  const log = join(dir, "calls.log");
+  // Stand-in git that always fails like a non-repository does, and records what it was asked.
+  const bin = join(dir, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "git"), "#!/bin/sh\nprintf '%s\\n' \"$1\" >> \"$OPL_GIT_LOG\"\nexit 128\n");
+  chmodSync(join(bin, "git"), 0o755);
+
+  const prevCwd = process.cwd();
+  const prevPath = process.env.PATH;
+  const prevLog = process.env.OPL_GIT_LOG;
+  process.chdir(dir);
+  process.env.PATH = `${bin}:${prevPath}`;
+  process.env.OPL_GIT_LOG = log;
+  const calls = () => (readFileSync(log, "utf8").match(/\n/g) || []).length;
+
+  try {
+    const git = await import("../extensions/opl-footer/git-status.ts");
+    // Render for long enough that the 1s/500ms TTLs would expire repeatedly without a back-off.
+    for (let i = 0; i < 8; i++) {
+      git.getGitStatus(null);
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    const firstBurst = calls();
+    assert.ok(firstBurst >= 1, "expected at least one git call");
+    assert.ok(firstBurst <= 4, `expected one probe burst, saw ${firstBurst}`);
+
+    git.invalidateGitStatus(); // what `git init` in-session triggers via the tool_result matcher
+    git.getGitStatus(null);
+    await new Promise((r) => setTimeout(r, 150));
+    assert.ok(calls() > firstBurst, "invalidation clears the back-off so a new repo is picked up");
+  } finally {
+    process.chdir(prevCwd);
+    process.env.PATH = prevPath;
+    if (prevLog === undefined) delete process.env.OPL_GIT_LOG;
+    else process.env.OPL_GIT_LOG = prevLog;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

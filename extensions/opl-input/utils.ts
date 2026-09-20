@@ -48,7 +48,9 @@ function isHexColor(color: string): boolean {
 }
 
 function hexToAnsi(hex: string): string {
-	const h = hex.replace("#", "");
+	// Accept the #abc shorthand so a three-digit value renders the same as #aabbcc.
+	let h = hex.replace("#", "");
+	if (/^[0-9a-fA-F]{3}$/.test(h)) h = h.split("").map((c) => c + c).join("");
 	if (!/^[0-9a-fA-F]{6}$/.test(h)) return "";
 	const r = parseInt(h.slice(0, 2), 16);
 	const g = parseInt(h.slice(2, 4), 16);
@@ -56,14 +58,23 @@ function hexToAnsi(hex: string): string {
 	return `\x1b[38;2;${r};${g};${b}m`;
 }
 
-export function startRenderTimer(render: () => void): () => void {
-	const timer = setInterval(render, 100);
+/** Animation cadence while the companion is visible. */
+export const COMPANION_TICK_MS = 100;
+/** Idle repaint cadence with the companion off: keeps time-based footer cells advancing without 10 repaints/second. */
+export const IDLE_REPAINT_MS = 1000;
+
+export function startRenderTimer(render: () => void, periodMs: number = COMPANION_TICK_MS): () => void {
+	const timer = setInterval(render, periodMs);
 	return () => clearInterval(timer);
 }
 
 export function applyColor(theme: Theme, color: string, text: string): string {
 	if (isHexColor(color)) {
-		return `${hexToAnsi(color)}${text}\x1b[0m`;
+		// A malformed hex yields "": render the text with no escape rather than an empty
+		// color plus a stray reset.
+		const ansi = hexToAnsi(color);
+		if (!ansi) return text;
+		return `${ansi}${text}\x1b[0m`;
 	}
 	try {
 		return theme.fg(color as ThemeColor, text);
@@ -86,7 +97,7 @@ export interface CompanionState {
 
 type Phase = "face" | "ears" | "full" | "none";
 
-const TICK_MS = 100; // matches setInterval in ChatInput
+const TICK_MS = COMPANION_TICK_MS; // companion animation frame budget
 const R = (min: number, max: number) => min + Math.random() * (max - min);
 
 export class CompanionAnimator {

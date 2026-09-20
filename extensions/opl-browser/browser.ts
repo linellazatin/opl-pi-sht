@@ -90,11 +90,11 @@ export async function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<B
       return { text: tree || "(empty snapshot)" };
     }
     case "extract": {
-      const scoped = Boolean(p.selector);
-      const html = scoped
-        ? await page().locator(p.selector).evaluate((el: Element) => el.outerHTML)
+      const selector = p.selector;
+      const html = selector
+        ? await page().locator(selector).evaluate((el: Element) => el.outerHTML)
         : await page().content();
-      const { markdown } = extractMarkdown(html, { raw: scoped });
+      const { markdown } = extractMarkdown(html, { raw: Boolean(selector) });
       return { text: markdown || "(empty extraction)" };
     }
     case "screenshot": {
