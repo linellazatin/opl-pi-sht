@@ -1,10 +1,14 @@
 # opl-pi-sht
 
+<div align="center">
+
 [![gh stars](https://img.shields.io/github/stars/linellazatin/opl-pi-sht?logo=github&color=ffffe0)](https://github.com/linellazatin/opl-pi-sht)
 [![gh release](https://img.shields.io/github/v/release/linellazatin/opl-pi-sht?display_name=release&logo=github&color=ffffe0)](https://github.com/linellazatin/opl-pi-sht)
 [![npm version](https://img.shields.io/npm/v/%40openlines%2Fopl-pi-sht?logo=npm&color=cb3837)](https://www.npmjs.com/package/@openlines/opl-pi-sht)
-[![npm downloads](https://img.shields.io/npm/dm/@openlines/opl-pi-sht?logo=npm&color=cb3837)](https://www.npmjs.com/package/@openlines/opl-pi-sht)
+[![npm downloads](https://img.shields.io/npm/dt/@openlines/opl-pi-sht?logo=npm&color=cb3837)](https://www.npmjs.com/package/@openlines/opl-pi-sht)
 [![license](https://img.shields.io/npm/l/@openlines/opl-pi-sht)](./LICENSE)
+
+</div>
 
 **Cut token cost, run the agent safely, and drop your MCP servers.**
 
@@ -67,7 +71,7 @@ Copy mode overwrites matching destinations. Link mode skips existing destination
 
 | Extension                                                     | Summary                                                                                                                                                                                                                      | Commands, tools, and configuration                                                                             |
 | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| [`opl-init`](extensions/opl-init/README.md)                   | Fingerprinted repository-guide generator.                                                                                                                                                                                    | `/init`; no config.                                                                                            |
+| [`opl-init`](extensions/opl-init/README.md)                   | Fingerprinted repository-guide generator.                                                                                                                                                                                    | `/init [--refine]`; no config.                                                                                            |
 | [`opl-simplebench`](extensions/opl-simplebench/README.md)     | Auditable provider-aware model benchmark with JSON artifacts and metrics.                                                                                                                                                    | `/simplebench`, `simplebench`; supports Ollama, OpenAI-compatible providers, and Bedrock; optional `opl-simplebench.json`. |
 | [`opl-webaccess`](extensions/opl-webaccess/README.md)         | Search plus readable URL/PDF retrieval with session recovery.                                                                                                                                                                | `web_search`, `fetch_content`, `get_search_content`; `opl-webaccess.json`.                                     |
 | [`opl-browser`](extensions/opl-browser/README.md)             | Chromium automation via Playwright with structured extraction of rendered pages; single dispatcher tool replacing the chrome-devtools MCP.                                                                                   | `browser` (action-based); `opl-browser.json`.                                                                  |
@@ -100,14 +104,14 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 
 ### Run the agent without babysitting it
 
-- **`opl-modes`** chat and plan modes swap the active toolset for read-only lists and gate Bash to safe inspection patterns **per shell segment**, so `cat f && node -e '...'` can no longer ride the first command's allowance. Destructive checks still fire inside otherwise-safe commands (anchored to command position, so `du -sh` and `find . -name '*.sh'` stay allowed; `find -delete`, `git clean`, `sudo`, and quote-obfuscated `r"m"`/`-del"ete"` are blocked; `env`/`printenv` are not safe-listed). The plan to execute lifecycle keeps exploration and mutation cleanly separated. Add custom modes (like below) for your workflow needs.
+- **`opl-modes`** chat and plan modes swap the active toolset for read-only lists and gate Bash to safe inspection patterns **per shell segment**, so `cat f && node -e '...'`, `cat x & rm -rf /tmp/x`, and `echo "$(node -e ...)"` can no longer ride the first command's allowance. Destructive checks still fire inside otherwise-safe commands (anchored to command position, so `du -sh` and `find . -name '*.sh'` stay allowed; `find -delete`, `find -fprint`, `git log --output`, `sort -o`, `npm audit fix`, `git clean`, `sudo`, and quote-obfuscated `r"m"`/`-del"ete"` are blocked; `env`/`printenv` are not safe-listed). The plan to execute lifecycle keeps exploration and mutation cleanly separated. Add custom modes (like below) for your workflow needs.
 ![custom mode sample](images/ss-mode-custom.png)
 - `load_tools` activation is bounded by the current mode, so a read-only mode cannot be tricked into enabling a write-capable tool.
 
 
 ### Move through work faster
 
-- **`opl-init`** writes a fingerprinted `AGENTS.md` so any agent starts already oriented in a repo. It writes a baseline before asking the model to refine the guide, so smaller models cannot leave the update only in chat; it re-runs only when the tree actually changes.
+- **`opl-init`** deterministically writes a fingerprinted `AGENTS.md` so any agent starts already oriented in a repo. It refreshes only when the tree changes, overwriting a stale guide outright, and plain `/init` never sends a synthetic user message; `/init --refine` is the opt-in single request for a model-expanded guide, meant for session start or just before a push, not mid-task.
 ![init](images/ss-init.png)
 - **`opl-browser`** gives full Chromium automation (navigate, snapshot, extract rendered-page markdown, interact, screenshot, console/network capture, evaluate) through a single tool, with handle+preview output for large results — navigation is http(s)-only and screenshots stay in the project directory.
 - **`opl-webaccess`** adds provider-backed search plus readable URL and PDF extraction, with session recovery of earlier results, an http(s)-only fetch, a 10 MB response cap, and a 30s timeout.
