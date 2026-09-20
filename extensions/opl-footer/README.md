@@ -48,7 +48,7 @@ The config is cached for five seconds. Changes normally appear automatically; us
 The `git` segment reads branch (500 ms cache) and dirty counts (1 s cache) so an idle footer never spawns more than a couple of `git` processes per second. Two guards keep that floor honest:
 
 - The probes are skipped entirely when no configured row contains `git`, so a layout without the segment pays nothing for it.
-- In a directory that is not a repository, the first failed probe arms a 30 second back-off instead of re-running `git` every second forever. A mid-session `git init` or `git clone` clears it immediately (matched on tool results), as does any `write`/`edit` invalidation; a probe that fails inside a real repository (for example a locked index) is confirmed with `git rev-parse --is-inside-work-tree` and keeps the normal one-second cadence.
+- In a directory that is not a repository, the first failed probe arms a 30 second back-off instead of re-running `git` every second forever. A mid-session `git init` or `git clone` clears it immediately (matched on tool results), as does any `write`/`edit` invalidation; a probe that fails inside a real repository (for example a locked index) is confirmed with `git rev-parse --is-inside-work-tree` and keeps the normal one-second cadence. A probe that finishes after an invalidation is dropped outright, so the failure that happened *before* a `git init` cannot push the fresh repository back into a 30 second back-off.
 
 ```json
 {
@@ -76,7 +76,7 @@ See the tracked [`configs/opl-footer.json.sample`](../../configs/opl-footer.json
 | `path` | Current working directory | `segmentOptions.path.mode`: `"full"` (default) · `"abbreviated"` · `"basename"` |
 | `git` | Git branch and dirty indicators | `showBranch`, `showStaged`, `showUnstaged`, `showUntracked` (all bool) |
 | `context_pct` | Gradient bar + `X.X%` + max tokens | Bar fully configurable via `segmentOptions.contextBar` (see below). % and max tokens use `contextLabel` colour. Max tokens formatted with K/M suffix (e.g. `128k`, `2M`). Set `DEBUG_PCT` in `context.ts` to a number (0–100) to pin the bar at a fixed value for visual testing. |
-| `cost` | `$<amount>` | `$` dim, amount in `cost` colour (`muted` by default). Shows dim `(no pricing)` when the session total is zero on a non-local model (provider has no pricing configured), and `(local model)` for local models |
+| `cost` | `$<amount>` (4 decimals, e.g. `$0.0123`) | `$` dim, amount in `cost` colour (`muted` by default). Four decimals keep cheap local or short sessions distinguishable instead of pinning at `$0.00`. Shows dim `(no pricing)` when the session total is zero on a non-local model (provider has no pricing configured), and `(local model)` for local models |
 | `thinking` | `Thinking: <LEVEL>` | Dim label, CAPS level with per-level colour; always visible |
 | `mode_switcher` | Unified active mode label | Reads state published by `opl-modes`; `appearance.modeColor` controls the mode value, with hardcoded `muted` fallback |
 | `caveman` | `Caveman mode: <MODE>` | Hidden when caveman extension not loaded |
