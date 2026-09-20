@@ -22,6 +22,9 @@ const MAX_MEMBER_DEPTH = 3;
 const MAX_TREE_LINES = 300;
 const MAX_MANIFEST_BYTES = 2048;
 const MAX_DIR_ENTRIES = 40;
+// Bumping this constant is how generator upgrades invalidate every
+// previously-written guide: it is a fingerprint input.
+const GUIDE_SCHEMA_VERSION = 1;
 
 type Crawl = {
   tree: string[];
@@ -34,23 +37,44 @@ type Crawl = {
 const FP_MARKER = /<!-- opl-init:fp (\S+) -->/;
 
 // Exact snapshot of git-tracked + untracked state. Respects .gitignore for free.
+// Content-based: HEAD + per-path content hashes of every dirty tracked file
+// (vs HEAD, so staged changes count) and every untracked file. Only the root
+// AGENTS.md is excluded, so writing the guide does not make it stale;
+// subdirectory AGENTS.md files are repository facts.
 // Returns null for non-git directories (caller falls back to fingerprintFallback).
 function fingerprintGit(root: string): string | null {
+  const head = gitOutput(root, ["rev-parse", "HEAD"]);
+  if (head === null) return null;
+  const hash = createHash("sha256").update(`schema:${GUIDE_SCHEMA_VERSION}\0head:${head}\0`);
+  for (const path of (gitOutput(root, ["diff", "HEAD", "--name-only", "-z"]) ?? "").split("\0")) {
+    if (!path || path === "AGENTS.md") continue;
+    hash.update(`${path}\0`).update(hashFile(join(root, path))).update("\0");
+  }
+  for (const path of (gitOutput(root, ["ls-files", "--others", "--exclude-standard", "-z"]) ?? "").split("\0")) {
+    if (!path || path === "AGENTS.md") continue;
+    hash.update(`${path}\0`).update(hashFile(join(root, path))).update("\0");
+  }
+  return hash.digest("hex").slice(0, 16);
+}
+
+function gitOutput(root: string, args: string[]): string | null {
   try {
-    const head = execFileSync("git", ["rev-parse", "HEAD"], {
+    return execFileSync("git", args, {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
+      maxBuffer: 64 * 1024 * 1024,
     });
-    const status = execFileSync(
-      "git",
-      ["status", "--porcelain=v1", "--untracked-files=all"],
-      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-    );
-    const relevantStatus = status.split("\n").filter(line => !line.endsWith("AGENTS.md")).join("\n");
-    return createHash("sha256").update(head).update(relevantStatus).digest("hex").slice(0, 16);
   } catch {
     return null;
+  }
+}
+
+function hashFile(path: string): string {
+  try {
+    return createHash("sha256").update(readFileSync(path)).digest("hex");
+  } catch {
+    return "DELETED";
   }
 }
 
@@ -85,7 +109,7 @@ function fingerprintFallback(root: string): string {
 
   walk(root);
   parts.sort();
-  return createHash("sha256").update(parts.join("\n")).digest("hex").slice(0, 16);
+  return createHash("sha256").update(`schema:${GUIDE_SCHEMA_VERSION}\n`).update(parts.join("\n")).digest("hex").slice(0, 16);
 }
 
 function fingerprint(root: string): string {
@@ -318,8 +342,8 @@ function refinePrompt(agentsPath: string, marker: string): string {
   ].join("\n");
 }
 
-// Named export for fixture tests (tests/opl-init-crawl.test.mjs).
-export { crawl };
+// Named exports for fixture tests (tests/opl-init-*.test.mjs).
+export { crawl, fingerprint };
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("init", {
