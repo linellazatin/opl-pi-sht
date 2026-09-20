@@ -13,13 +13,14 @@ test(`bundles ${extension} extension entrypoint`, () => {
 
   if (extension === "opl-init") {
     const source = readFileSync(`extensions/${extension}/index.ts`, "utf8");
-    assert.equal(source.match(/sendUserMessage/g)?.length, 1, "exactly one injection site");
-    assert.match(source, /if \(refine\) pi\.sendUserMessage/, "the injection is gated on --refine");
-    assert.doesNotMatch(source, /const PROMPT/);
-    assert.doesNotMatch(source, /buildContext/);
+    assert.doesNotMatch(source, /sendUserMessage/, "the refinement path never injects a user turn");
+    assert.match(source, /streamSimple/, "refinement goes through modelRegistry");
+    assert.match(source, /await ctx\.reload\(\)/, "context reloads after a successful write");
+    assert.doesNotMatch(source, /deliverAs/);
     assert.match(source, /buildGuide/);
+    assert.match(source, /GUIDE_SCHEMA_VERSION/);
+    assert.match(source, /MAX_EVIDENCE_BYTES/);
     assert.match(source, /pnpm-workspace\.yaml/);
-    assert.match(source, /MAX_MEMBER_DEPTH/);
     assert.match(source, /MAX_DIR_ENTRIES/);
     assert.match(source, /tree truncated at/);
   }
