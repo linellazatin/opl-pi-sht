@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { evidencePacket, finalizeRefinedGuide } from "../extensions/opl-init/index.ts";
 
 const MARKER = "<!-- opl-init:fp aaaaaaaaaaaaaaaa -->";
-const NO_CRAWL = { manifests: [], workspaceMembers: [] };
 
 test("finalizer strips fences, smuggled markers, and always ends with exactly one marker", () => {
   const fenced = "```markdown\n# Guide\n\nProse.\n```";
@@ -52,7 +51,9 @@ test("evidence packet includes readme heads and enforces its budget", () => {
     writeFileSync(join(root, "packages", "ui", "README.md"), "U".repeat(4000));
     writeFileSync(join(root, "package.json"), "{}");
     const baseline = "B".repeat(21000);
-    const packet = evidencePacket(root, baseline, NO_CRAWL);
+    // Overflow must come from packages/ui/README.md, not from case-insensitive
+    // filesystem aliasing of readme.md -> README.md (Linux CI is case-sensitive).
+    const packet = evidencePacket(root, baseline, { manifests: [], workspaceMembers: ["packages/ui"] });
     assert.ok(packet.includes("R".repeat(2048)), "root readme head included");
     assert.ok(packet.includes("(evidence truncated)"), "budget overflow is explicit");
     assert.ok(Buffer.byteLength(packet, "utf8") <= 24576 + 512, "hard budget");

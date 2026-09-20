@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+      - run: npm install
+      - run: npm test
+      - name: Audit nested extension deps
+        run: |
+          cd extensions/opl-browser && npm audit --omit=dev --audit-level=high
+          cd ../opl-webaccess && npm audit --omit=dev --audit-level=high
