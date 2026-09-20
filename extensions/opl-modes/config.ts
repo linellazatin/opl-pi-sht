@@ -73,9 +73,20 @@ export const DEFAULT_DESTRUCTIVE_PATTERNS: RegExp[] = [
   // Write flags that ride a safe-listed command: find's file-writing predicates and --output
   // on sort/git log/git diff/git show. `-print`/`-printf` stay allowed (they go to stdout).
   /\s-{1,2}(delete|exec|execdir|exec-batch|fprint0?|fprintf|fls|output)\b/i,
-  /\bsort\b[^\n]*\s-o\b/i,
+  // `fd -x`/`-X` (also inside a short-flag cluster like `-Hx`) execute a command per match.
+  // The long forms are already caught above; the anchor keeps `grep -x` and `cut -d` legal.
+  /^\s*fd\b[^\n]*\s-[A-Za-z]*[xX]\b/,
+  // `rg --pre CMD` runs CMD on every file before searching.
+  /^\s*rg\b[^\n]*\s--pre\b/,
+  // `sort -o`/`tree -o` write their output operand in any argument position.
+  /^\s*(sort|tree)\b[^\n]*\s-[A-Za-z]*o\b/i,
+  // jq can read the process environment, which is why `env`/`printenv` are not safe-listed.
+  // Over-blocks a JSON key literally named `env`; a leaked API key costs more.
+  /^\s*jq\b[^\n]*(\$ENV|\benv\b)/i,
   // Any redirect that names a file. `>&<fd>`/`>&-` duplication is not a write, so 2>&1 survives.
-  /(^|[^<])>(?!>)(?!&[0-9-])(?! *\/dev\/null)/, />>(?! *\/dev\/null)/,
+  // The /dev/null exception needs a token boundary: `> /dev/null/../tmp/pwn` and `> /dev/nullfoo`
+  // are writes to real paths that merely start with that prefix.
+  /(^|[^<])>(?!>)(?!&[0-9-])(?! *\/dev\/null(?![^\s;&|)]))/, />>(?! *\/dev\/null(?![^\s;&|)]))/,
   // uniq writes its second operand (`uniq -c in.txt out.txt`); flags don't count, so
   // `uniq -c sorted.txt` stays a read.
   /^\s*uniq\b(?:\s+-\S+)*\s+[^-\s]\S*(?:\s+[^-\s]\S*)+/,

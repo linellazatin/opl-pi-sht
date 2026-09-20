@@ -353,8 +353,21 @@ test("bash gate covers backgrounding and quoted substitutions without breaking f
     "npm audit --fix",
     "git remote add origin http://x",
     "git branch --unset-upstream",
+    // Safe-listed commands that can still exec or write through a flag.
+    "fd -x rm {}",
+    "fd -X rm",
+    "fd -Hx rm {}",
+    "tree -o /tmp/out",
+    "tree --du -o out.html",
+    "rg --pre cat x",
+    "jq -n env",
+    "jq -r env.SECRET x",
     "cat f >&/tmp/written",
     "ls -l >> out.txt",
+    // A path that merely starts with /dev/null is still a write target.
+    "cat f > /dev/null/../tmp/pwn",
+    "cat f > /dev/nullfoo",
+    "cat f >> /dev/null/x",
   ]) {
     assert.ok(blocked(cmd), `blocked: ${cmd}`);
   }
@@ -377,6 +390,14 @@ test("bash gate covers backgrounding and quoted substitutions without breaking f
     'cat "$(git rev-parse HEAD)"',
     "grep -rn \"a|b\" src",
     "sort -c in.txt",
+    "fd -t f name",
+    "fd --extension ts",
+    "tree -L 2",
+    "tree -I node_modules",
+    "grep -x foo f",
+    "jq -r '.items[]' f.json",
+    "jq '.environment' f",
+    "rg -n pat src",
     "git log --oneline -5",
   ]) {
     assert.equal(blocked(cmd), false, `allowed: ${cmd}`);
