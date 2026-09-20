@@ -126,21 +126,20 @@ export function restore(
 ): boolean {
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i];
-    if (entry.type !== "custom") continue;
+    if (entry.type !== "custom" || entry.customType !== ENTRY_TYPE) continue;
 
-    if (entry.customType === ENTRY_TYPE) {
-      const data = entry.data as AgentModeBlob | undefined;
-      // Fail closed: only apply modes the registry actually knows, otherwise a stale or
-      // foreign-branch entry would leave the session unrestricted (no tools, no patterns).
-      if (data?.mode && getModeDefinition(data.mode)) {
-        state.mode = data.mode;
-        state.activePlanFile = normalizePlanFile(data.activePlanFile);
-        state.restoringModel = normalizeModelRef(data.restoreModel);
-        state.refining = false;
-        syncGlobalThis();
-        return true;
-      }
-    }
+    const data = entry.data as AgentModeBlob | undefined;
+    if (!data?.mode) continue; // Malformed/incomplete blob: keep looking back.
+    // The newest well-formed entry decides. A mode the registry does not know (a removed
+    // custom mode, a foreign branch) restores nothing at all: falling through to an older
+    // entry could resume a chat/execute mode the user had already left.
+    if (!getModeDefinition(data.mode)) return false;
+    state.mode = data.mode;
+    state.activePlanFile = normalizePlanFile(data.activePlanFile);
+    state.restoringModel = normalizeModelRef(data.restoreModel);
+    state.refining = false;
+    syncGlobalThis();
+    return true;
   }
 
   // Backward compat: restore from legacy entries written by the old extensions.
