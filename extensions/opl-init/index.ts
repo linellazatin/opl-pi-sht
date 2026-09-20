@@ -343,6 +343,58 @@ function buildGuide(root: string, crawlResult: Crawl, marker: string): string {
   return `# Repository Guide\n\n## What this is\n\nRepository at \`${root}\`. Use the repository files as the source of truth; the top-level inventory includes ${topLevel || "(not available)"}.\n\n## Commands\n\n${commandBlock}\n\n## Repository inventory\n\n- File types: ${[...crawlResult.extCounts.entries()].map(([extension, count]) => `${extension} (${count})`).join(", ") || "none detected"}.\n- Inspect specific files before changing behavior; this guide is a starting point, not a substitute for reading the code.\n\n## Agent workflow\n\nKeep changes focused on the requested behavior, preserve existing interfaces, and run the narrowest relevant test before the full suite. Keep secrets and generated output out of tracked configuration.\n${marker}\n`;
 }
 
+// One out-of-band completion's worth of evidence: the deterministic stand-in
+// for the tools the refine call does not have. The model cannot open files,
+// so bounded file heads ride along under a hard byte budget.
+const MAX_EVIDENCE_BYTES = 24576;
+const MAX_README_HEAD_BYTES = 2048;
+
+function evidencePacket(root: string, baseline: string, members: string[]): string {
+  const parts = [baseline];
+  let used = Buffer.byteLength(baseline, "utf8");
+  const candidates = ["README.md", "readme.md", "README", "CLAUDE.md"];
+  const paths = [...candidates, ...members.flatMap((m) => candidates.map((c) => `${m}/${c}`))];
+  for (const rel of paths) {
+    if (used >= MAX_EVIDENCE_BYTES) {
+      parts.push("(evidence truncated)");
+      break;
+    }
+    let head: string;
+    try {
+      head = readFileSync(join(root, rel), "utf8").slice(0, MAX_README_HEAD_BYTES);
+    } catch {
+      continue;
+    }
+    const bytes = Buffer.byteLength(head, "utf8");
+    if (used + bytes > MAX_EVIDENCE_BYTES) {
+      parts.push(`=== ${rel} ===`);
+      parts.push("(evidence truncated)");
+      break;
+    }
+    used += bytes;
+    parts.push(`=== ${rel} ===`, head);
+  }
+  return parts.join("\n");
+}
+
+const REFINE_SYSTEM_PROMPT = [
+  "You are rewriting a repository guide for an AI coding agent.",
+  "Input: a draft guide generated from a deterministic repository crawl, plus bounded file excerpts.",
+  "Return ONLY the final Markdown document: no preamble, no code fence around the document, no HTML comments.",
+  "Do not invent facts unsupported by the input; keep the factual inventory (commands, file types, workspace members).",
+  'Prefer these sections when evidence supports them: "## What this is", "## Commands", "## Architecture", "## Configuration and installation", "## Testing and operational quirks", "## Key files". Omit unsupported sections.',
+  "Usually 250-700 words. Avoid generic contribution, Git, or pull-request advice.",
+].join("\n");
+
+// The model never owns the marker line: every opl-init:fp comment is stripped
+// and the extension's exact marker is appended as the final line.
+function finalizeRefinedGuide(text: string, marker: string): string {
+  let body = text.trim();
+  body = body.replace(/^```[a-zA-Z]*\s*\n/, "").replace(/\n```\s*$/, "");
+  body = body.replace(/<!-- opl-init:fp \S+ -->/g, "").trimEnd();
+  return `${body}\n${marker}\n`;
+}
+
 /**
  * Opt-in refinement request for `/init --refine`. Deliberately small: the crawl inventory is
  * already in the guide, so the model reads the file instead of receiving a second copy of the
@@ -362,7 +414,7 @@ function refinePrompt(agentsPath: string, marker: string): string {
 }
 
 // Named exports for fixture tests (tests/opl-init-*.test.mjs).
-export { crawl, fingerprint };
+export { crawl, fingerprint, evidencePacket, finalizeRefinedGuide };
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("init", {
