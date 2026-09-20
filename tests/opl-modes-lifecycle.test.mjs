@@ -5,36 +5,29 @@ import assert from "node:assert/strict";
 import { test, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 
-// Pi's extension host package is provided by the running `pi` binary and is deliberately not a
-// dependency of this repo, so `index.ts` cannot be imported directly here. Build the real
-// extension with that one value import (DynamicBorder, used only by the UI menus) stubbed, and
-// re-export the shared state/registry modules from the same bundle so the test and the extension
-// observe one module instance.
+// Pi's extension host package ships with the running `pi` binary and is deliberately not a
+// dependency of this repo, so `extensions/opl-modes/index.ts` cannot be imported directly here.
+// Bundle it through tests/support/opl-modes-host-shim.ts with that one value import stubbed, and
+// take the shared state/registry modules from the same bundle so test and extension agree.
 const buildDir = new URL("./.build/opl-modes", import.meta.url).pathname;
-const shimPath = `${buildDir}/host-shim.ts`;
-const hostExports = [
-  'export { default } from "../../../extensions/opl-modes/index.ts";',
-  'export { getMode, getRestoringModel, resetState, transition } from "../../../extensions/opl-modes/state.ts";',
-  'export { MODE_REGISTRY, registerMode, getModeDefinition } from "../../../extensions/opl-modes/config.ts";',
-].join("\n") + "\n";
 mkdirSync(buildDir, { recursive: true });
-writeFileSync(shimPath, hostExports);
+const hostPackage = "@earendil-works/" + "pi-coding-agent";
 const built = await Bun.build({
-  entrypoints: [shimPath],
+  entrypoints: [new URL("./support/opl-modes-host-shim.ts", import.meta.url).pathname],
   target: "node",
   outdir: buildDir,
   external: ["@earendil-works/pi-tui", "@earendil-works/pi-ai", "typebox"],
   plugins: [{
     name: "opl-pi-host",
     setup(build) {
-      build.onResolve({ filter: /^@earendil-works\/pi-coding-agent$/ }, () => ({ path: "pi-host", namespace: "opl-stub" }));
+      build.onResolve({ filter: new RegExp(`^${hostPackage}$`) }, () => ({ path: "pi-host", namespace: "opl-stub" }));
       build.onLoad({ filter: /.*/, namespace: "opl-stub" }, () => ({ contents: "export class DynamicBorder {}\n", loader: "js" }));
     },
   }],
 });
 if (!built.success) throw new Error(`opl-modes lifecycle build failed: ${built.logs.map((l) => l.message).join("\n")}`);
-const { default: modeSwitcher, getMode, getRestoringModel, resetState, transition, MODE_REGISTRY, registerMode, getModeDefinition } =
-  await import(`${buildDir}/host-shim.js`);
+const { default: modeSwitcher, getMode, getRestoringModel, resetState, MODE_REGISTRY, registerMode, getModeDefinition } =
+  await import(new URL("./.build/opl-modes/opl-modes-host-shim.js", import.meta.url).href);
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
