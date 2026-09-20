@@ -395,66 +395,86 @@ function finalizeRefinedGuide(text: string, marker: string): string {
   return `${body}\n${marker}\n`;
 }
 
-/**
- * Opt-in refinement request for `/init --refine`. Deliberately small: the crawl inventory is
- * already in the guide, so the model reads the file instead of receiving a second copy of the
- * tree. This is the only injected user turn in the extension, and it never fires on its own.
- */
-function refinePrompt(agentsPath: string, marker: string): string {
-  return [
-    `Refine the repository guide at ${agentsPath}, which /init generated from a repository crawl.`,
-    "Read the guide first, then open only the specific files you need to confirm repository-specific facts. Do not re-crawl the tree, spawn subagents, or create task lists.",
-    "Rewrite the guide in place with the write tool, concise and evidence-based (usually 250-700 words):",
-    '- Prefer these sections when evidence supports them: "## What this is", "## Commands", "## Architecture", "## Configuration and installation", "## Testing and operational quirks", "## Key files". Omit unsupported sections instead of inventing them, and state meaningful absences such as no build, lint, or typecheck command.',
-    "- Keep the crawl's factual inventory (commands, file types, workspace members) and avoid generic contribution, Git, or pull-request advice.",
-    "- Do not modify, create, or delete any other file.",
-    `- Make the very last line exactly: ${marker}`,
-    "A response containing Markdown without writing the file is a failure.",
-  ].join("\n");
+// One out-of-band completion on the current model. No tools, no session
+// message: any failure returns null and the caller writes the baseline.
+async function refineGuide(ctx: any, evidence: string, marker: string): Promise<string | null> {
+  const model = ctx.model;
+  if (!model || typeof ctx.modelRegistry?.streamSimple !== "function") return null;
+  try {
+    const stream = ctx.modelRegistry.streamSimple(
+      model,
+      { systemPrompt: REFINE_SYSTEM_PROMPT, messages: [{ role: "user", content: evidence }], tools: [] },
+      { reasoning: false },
+    );
+    const result = await stream.result();
+    if (!result || result.stopReason === "error" || result.stopReason === "aborted") return null;
+    const text = (result.content ?? [])
+      .filter((part: any) => part.type === "text")
+      .map((part: any) => part.text)
+      .join("\n");
+    return text.trim() ? finalizeRefinedGuide(text, marker) : null;
+  } catch {
+    return null;
+  }
 }
 
 // Named exports for fixture tests (tests/opl-init-*.test.mjs).
-export { crawl, fingerprint, evidencePacket, finalizeRefinedGuide };
+export { crawl, fingerprint, evidencePacket, finalizeRefinedGuide, refineGuide };
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("init", {
-    description: "[opl-init] Crawl the repository and write an AGENTS.md guide (--refine also asks the model to expand it)",
-    handler: async (args, ctx) => {
-      const refine = /(?:^|\s)--refine(?:\s|$)/.test(args.trim());
+    description: "[opl-init] Crawl + refine AGENTS.md out-of-band; zero model calls when current",
+    handler: async (_args, ctx) => {
       const root = ctx.cwd;
       const agentsPath = join(root, "AGENTS.md");
-      const currentFp = fingerprint(root);
-      const exists = existsSync(agentsPath);
-
-      let storedFp: string | null = null;
-      if (exists) {
+      const storedFp = () => {
         try {
-          storedFp = readFileSync(agentsPath, "utf8").match(FP_MARKER)?.[1] ?? null;
+          return readFileSync(agentsPath, "utf8").match(FP_MARKER)?.[1] ?? null;
         } catch {
-          storedFp = null;
+          return null;
         }
+      };
+
+      let currentFp = fingerprint(root);
+      if (existsSync(agentsPath) && storedFp() === currentFp) {
+        ctx.ui.notify("AGENTS.md is current; /init will not modify it.", "info");
+        return;
       }
 
-      const marker = `<!-- opl-init:fp ${currentFp} -->`;
-
-      if (exists && storedFp === currentFp) {
-        ctx.ui.notify("AGENTS.md is current; /init will not modify it.", "info");
-      } else {
-        // Regenerating replaces the whole file, including hand-edited prose; the repository's
-        // version control is the recovery path.
-        const crawlResult = crawl(root);
-        try {
-          writeFileSync(agentsPath, buildGuide(root, crawlResult, marker), "utf8");
-          ctx.ui.notify(exists ? "AGENTS.md overwritten from the repository crawl." : "AGENTS.md created.", "info");
-        } catch (error: any) {
-          ctx.ui.notify(`Could not write AGENTS.md: ${error?.message || error}`, "error");
+      if (!ctx.isIdle()) {
+        ctx.ui.notify("opl-init: waiting for the current agent run to settle before writing AGENTS.md.", "info");
+        await ctx.waitForIdle();
+        // The settling run may have moved the tree; recompute before crawling.
+        currentFp = fingerprint(root);
+        if (existsSync(agentsPath) && storedFp() === currentFp) {
+          ctx.ui.notify("AGENTS.md is current; /init will not modify it.", "info");
           return;
         }
       }
 
-      // Queue, never steer: Pi throws "Agent is already processing" for an injection with no
-      // deliverAs while a turn is streaming, and steering would hijack the task in flight.
-      if (refine) pi.sendUserMessage(refinePrompt(agentsPath, marker), { deliverAs: "followUp" });
+      const marker = `<!-- opl-init:fp ${currentFp} -->`;
+      // Regenerating replaces the whole file, including hand-edited prose; the
+      // repository's version control is the recovery path.
+      const crawlResult = crawl(root);
+      const baseline = buildGuide(root, crawlResult, marker);
+      const refined = await refineGuide(ctx, evidencePacket(root, baseline, crawlResult.workspaceMembers), marker);
+
+      try {
+        writeFileSync(agentsPath, refined ?? baseline, "utf8");
+      } catch (error: any) {
+        ctx.ui.notify(`Could not write AGENTS.md: ${error?.message || error}`, "error");
+        return;
+      }
+
+      ctx.ui.notify(
+        refined
+          ? "AGENTS.md written from the repository crawl (model-refined)."
+          : "refine failed; wrote deterministic AGENTS.md from the repository crawl.",
+        "info",
+      );
+      // Terminal: pi docs say code after ctx.reload() runs in the old frame.
+      await ctx.reload();
+      return;
     },
   });
 }

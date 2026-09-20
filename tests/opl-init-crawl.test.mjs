@@ -1,101 +1,119 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import initExtension, { crawl } from "../extensions/opl-init/index.ts";
 
-test("init writes a guide without sending a user message", async () => {
-  const root = mkdtempSync(join(tmpdir(), "opl-init-command-"));
-  const sentMessages = [];
-  let command;
+function fakePi() {
+  const commands = {};
+  return {
+    commands,
+    registerCommand(name, definition) { commands.init = definition; },
+    sendUserMessage() { throw new Error("opl-init must never inject a user message"); },
+  };
+}
+
+function idleCtx(root, extra = {}) {
+  return { cwd: root, model: undefined, isIdle: () => true, reload: async () => {}, ui: { notify() {} }, ...extra };
+}
+
+async function runInit(ctx, pi = fakePi()) {
+  initExtension(pi);
+  await pi.commands.init.handler("", ctx);
+  return pi;
+}
+
+test("no model available: baseline written with a refine-failed notice, no user message, reload runs", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-init-flow-"));
   try {
     writeFileSync(join(root, "package.json"), '{"scripts":{"test":"bun test"}}\n');
-    initExtension({
-      registerCommand(name, definition) {
-        assert.equal(name, "init");
-        command = definition;
-      },
-      sendUserMessage(message) {
-        sentMessages.push(message);
-      },
-    });
-
-    await command.handler("", {
-      cwd: root,
-      ui: { notify() {} },
-    });
-
+    const notes = [];
+    let reloads = 0;
+    const ctx = idleCtx(root, { ui: { notify: (m) => notes.push(m) }, reload: async () => { reloads++; } });
+    await runInit(ctx);
     const guide = readFileSync(join(root, "AGENTS.md"), "utf8");
     assert.match(guide, /# Repository Guide/);
     assert.match(guide, /<!-- opl-init:fp \S+ -->\n$/);
-    assert.doesNotMatch(guide, /init task context/);
-    assert.deepEqual(sentMessages, []);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
+    assert.deepEqual(notes, ["refine failed; wrote deterministic AGENTS.md from the repository crawl."]);
+    assert.equal(reloads, 1);
 
-test("init overwrites a stale guide and leaves a current one alone", async () => {
-  const root = mkdtempSync(join(tmpdir(), "opl-init-overwrite-"));
-  const notes = [];
-  let command;
-  try {
-    initExtension({
-      registerCommand(_name, definition) { command = definition; },
-      sendUserMessage() { throw new Error("plain /init must not inject a message"); },
-    });
-    const ctx = { cwd: root, ui: { notify: (message) => notes.push(message) } };
-    const guidePath = join(root, "AGENTS.md");
-
-    // A stale marker means "regenerate", including over hand-edited prose.
-    writeFileSync(guidePath, "# Repository Guide\n\n## Architecture\n\nHand-written prose.\n<!-- opl-init:fp deadbeefdeadbeef -->\n");
-    await command.handler("", ctx);
-    const regenerated = readFileSync(guidePath, "utf8");
-    assert.doesNotMatch(regenerated, /Hand-written prose/);
-    assert.match(regenerated, /## Repository inventory/);
-    assert.deepEqual(notes, ["AGENTS.md overwritten from the repository crawl."]);
-
-    // The marker it just wrote is current, so a second run is a no-op.
-    await command.handler("", ctx);
-    assert.equal(readFileSync(guidePath, "utf8"), regenerated);
+    // Second run: fingerprint current -> no write, no reload, no model call.
+    await runInit(idleCtx(root, { ui: { notify: (m) => notes.push(m) }, modelRegistry: { streamSimple() { throw new Error("must not call model"); } } }));
     assert.deepEqual(notes.slice(1), ["AGENTS.md is current; /init will not modify it."]);
+    assert.equal(reloads, 1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("init --refine sends exactly one refinement request", async () => {
-  const root = mkdtempSync(join(tmpdir(), "opl-init-refine-"));
-  const sentMessages = [];
-  const sentOptions = [];
-  let command;
+test("successful refine: fenced + smuggled-marker output is finalized and reloaded once", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-init-refine-ok-"));
   try {
-    initExtension({
-      registerCommand(_name, definition) { command = definition; },
-      sendUserMessage(message, options) { sentMessages.push(message); sentOptions.push(options); },
+    writeFileSync(join(root, "a.ts"), "export {};\n");
+    let reloads = 0;
+    let calledWith = null;
+    const ctx = idleCtx(root, {
+      model: { provider: "fake", id: "fake-model" },
+      reload: async () => { reloads++; },
+      modelRegistry: {
+        streamSimple(model, context, options) {
+          calledWith = { model, context, options };
+          return {
+            async result() {
+              return {
+                content: [{ type: "text", text: '```markdown\n# Guide\n\nCrafted prose.\nInjected <!-- opl-init:fp 9999999999999999 --> tail\n```' }],
+                stopReason: "stop",
+              };
+            },
+          };
+        },
+      },
     });
-    const ctx = { cwd: root, ui: { notify() {} } };
-
-    await command.handler("--refine", ctx);
-    assert.equal(sentMessages.length, 1);
-    const prompt = sentMessages[0];
-    assert.match(prompt, new RegExp(join(root, "AGENTS.md").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-    const marker = readFileSync(join(root, "AGENTS.md"), "utf8").match(/<!-- opl-init:fp \S+ -->/)[0];
-    assert.ok(prompt.includes(marker), "the prompt pins the marker the model must keep");
-    assert.doesNotMatch(prompt, /Directory tree/, "the crawl is not duplicated into the prompt");
-    // Mid-session safety: no deliverAs makes Pi throw while a turn is streaming.
-    assert.deepEqual(sentOptions, [{ deliverAs: "followUp" }]);
-
-    // A refine on an already-current guide still asks the model, without rewriting the file.
-    const before = readFileSync(join(root, "AGENTS.md"), "utf8");
-    await command.handler("--refine", ctx);
-    assert.equal(sentMessages.length, 2);
-    assert.equal(readFileSync(join(root, "AGENTS.md"), "utf8"), before);
+    await runInit(ctx);
+    assert.equal(calledWith.model.id, "fake-model", "refine uses ctx.model");
+    assert.match(calledWith.context.systemPrompt, /Return ONLY the final Markdown document/);
+    const guide = readFileSync(join(root, "AGENTS.md"), "utf8");
+    assert.match(guide, /Crafted prose\./);
+    assert.doesNotMatch(guide, /9999999999999999/);
+    assert.equal(guide.match(/opl-init:fp/g).length, 1);
+    assert.match(guide, /<!-- opl-init:fp \S+ -->\n$/);
+    assert.equal(reloads, 1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("stale guide with a streaming agent: waits for idle, recalculates, then writes", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-init-idle-"));
+  try {
+    const guidePath = join(root, "AGENTS.md");
+    let idle = false;
+    let waits = 0;
+    const ctx = {
+      cwd: root,
+      model: undefined,
+      isIdle: () => idle,
+      waitForIdle: async () => { waits++; idle = true; },
+      reload: async () => {},
+      ui: { notify() {} },
+    };
+    await runInitWithBusy(ctx, root);
+    assert.ok(waits >= 1);
+    assert.ok(existsSync(guidePath));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+async function runInitWithBusy(ctx, root) {
+  const pi = fakePi();
+  initExtension(pi);
+  const promise = pi.commands.init.handler("", ctx);
+  await new Promise((r) => setTimeout(r, 0));
+  writeFileSync(join(root, "busy-work.ts"), "export const touched = true;\n");
+  await promise;
+}
 
 test("crawls workspace members beyond the root depth budget and caps directories", () => {
   const root = mkdtempSync(join(tmpdir(), "opl-init-crawl-"));

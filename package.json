@@ -43,7 +43,7 @@
     "test": "npm run test:opl-browser && npm run test:opl-footer && npm run test:opl-init && npm run test:opl-input && npm run test:opl-modes && npm run test:opl-questionnaire && npm run test:opl-todo && npm run test:opl-webaccess && npm run test:opl-simplebench && npm run test:opl-ctxtrim",
     "test:opl-browser": "bun test tests/opl-browser-helpers.test.mjs && OPL_EXTENSION=opl-browser bun test tests/extension-smoke.test.mjs",
     "test:opl-footer": "bun test tests/opl-footer-helpers.test.mjs && OPL_EXTENSION=opl-footer bun test tests/extension-smoke.test.mjs",
-    "test:opl-init": "bun test tests/opl-init-crawl.test.mjs && OPL_EXTENSION=opl-init bun test tests/extension-smoke.test.mjs",
+    "test:opl-init": "bun test tests/opl-init-crawl.test.mjs tests/opl-init-fingerprint.test.mjs tests/opl-init-packet.test.mjs && OPL_EXTENSION=opl-init bun test tests/extension-smoke.test.mjs",
     "test:opl-input": "bun test tests/opl-input-style.test.mjs && OPL_EXTENSION=opl-input bun test tests/extension-smoke.test.mjs",
     "test:opl-modes": "bun test tests/opl-modes-helpers.test.mjs tests/opl-modes-lifecycle.test.mjs && OPL_EXTENSION=opl-modes bun test tests/extension-smoke.test.mjs",
     "test:opl-questionnaire": "OPL_EXTENSION=opl-questionnaire bun test tests/extension-smoke.test.mjs",
