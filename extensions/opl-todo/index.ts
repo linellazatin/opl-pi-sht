@@ -401,8 +401,8 @@ export default function (pi: ExtensionAPI) {
 			}
 			// Fallback: switch above must never fall through. Returning undefined here
 			// makes pi wrap it in a MouseRegion with an undefined child and crashes the TUI.
-			const fb = result.content[0];
-			return new Text(theme.fg("error", String(fb?.type === "text" ? fb.text : "Unknown todo result")), 0, 0);
+			// The action is known here, so report it instead of digging through content blocks.
+			return new Text(theme.fg("error", `Unhandled todo result for action "${String(details.action ?? "")}"`), 0, 0);
 		},
 	});
 

@@ -65,11 +65,10 @@ export default function (pi: ExtensionAPI) {
 
 pi.registerCommand("simplebench", {
   description: "Benchmark a model with auditable closed-answer, instruction, and tool-use tests.",
-  detailedHelp: "\n\n🔍 Simplebench Extension\n\nThis extension tests AI models across multiple dimensions:\n• Closed-answer contract: 20 deterministic final-line answers (logic, math, spatial, commonsense)\n• Tool Usage: Ability to use available tools effectively\n• Instruction Following: How well the model follows complex JSON instructions\n• Coding Lite: Six isolated, execution-backed coding tasks\n\n📋 Usage Examples:\n  /simplebench                    # Test current model\n  /simplebench <model>           # Test a specific model\n  /simplebench --all             # Test all Ollama models\n  /simplebench <model> --3ptest  # Run the default 3ptest baseline explicitly\n  /simplebench <model> --coding-lite # Run only coding tasks\n  /simplebench <model> --test-all # Run baseline, coding, and grounded research\n  /simplebench <model> --research-live # Add live search integration smoke test\n  /simplebench --all --test-all  # Run complete suite for every Ollama model\n  /simplebench <model> --sequence[=<name>] # Run a configured runSequence profile\n  /simplebench <model> --thinking-max # Request max reasoning\n  /simplebench <model> --llama-server # Capture configured /props and /metrics\n  /simplebench <model> --llamagputop # Capture configured llama.cpp stats\n  /simplebench <model> --tag=coldrun # Label the run: benchmark.tag plus artifact filename prefix\n  /simplebench --help            # Show this help\n  /simplebench --clear-cache     # Clear tool support cache\n\nCoding tasks run in disposable directories and never access the user repository.\n",
   getArgumentCompletions: async (prefix) => {
     try {
       const models = await getOllamaModels();
-      return models.map(m => ({ label: m, description: `Test ${m}` }))
+      return models.map(m => ({ value: m, label: m, description: `Test ${m}` }))
         .filter(m => m.label.startsWith(prefix));
     } catch (err) { debugLog("simplebench", "failed to get model completions", err); return []; }
   },
@@ -151,7 +150,7 @@ pi.registerCommand("simplebench", {
           pi.sendMessage({
             customType: "simplebench-report",
             content: report,
-            display: { type: "content", content: report },
+            display: true,
             details: { model, timestamp: new Date().toISOString() },
           });
         } catch (e: any) {
@@ -191,7 +190,7 @@ pi.registerCommand("simplebench", {
           pi.sendMessage({
             customType: "simplebench-report",
             content: report,
-            display: { type: "content", content: report },
+            display: true,
             details: { model, timestamp: new Date().toISOString() },
           });
         } catch (e: any) {
@@ -214,7 +213,7 @@ pi.registerCommand("simplebench", {
       pi.sendMessage({
         customType: "simplebench-report",
         content: report,
-        display: { type: "content", content: report },
+        display: true,
         details: { model, timestamp: new Date().toISOString() },
       });
     } catch (e: any) {
@@ -256,6 +255,7 @@ pi.registerTool({
     if (params?.tag !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(params.tag))) {
       return {
         content: [{ type: "text", text: "--tag must be a single word (letters, digits, dot, dash, underscore)" }],
+        details: undefined,
         isError: true,
       } as AgentToolResult;
     }
@@ -264,6 +264,7 @@ pi.registerTool({
     if (!model) {
       return {
         content: [{ type: "text", text: "No model currently selected to test." }],
+        details: undefined,
         isError: true,
       } as AgentToolResult;
     }
@@ -271,6 +272,7 @@ pi.registerTool({
       const report = await testModel(model, ctx, options);
       return {
         content: [{ type: "text", text: report }],
+        details: undefined,
         isError: false,
       } as AgentToolResult;
     } catch (e: any) {
@@ -281,6 +283,7 @@ pi.registerTool({
       
       return {
         content: [{ type: "text", text: errorMessage }],
+        details: undefined,
         isError: true,
       } as AgentToolResult;
     }
