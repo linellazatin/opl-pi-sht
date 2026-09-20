@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.1] - 2026-09-20
+
+### MAJOR CHANGE - opl-init: single flagless /init, out-of-band model refinement
+
+Enabled by pi 0.86.0, which exposed `ctx.modelRegistry.stream()/streamSimple()` for extension model calls through configured providers with resolved auth, plus `ctx.reload()` and `ctx.waitForIdle()`. opl-init v0.2.1 uses them to retire every synthetic user message.
+
+- **`opl-init`**: `/init` is now one command with no flags. Stale guide -> deterministic crawl -> **one** `streamSimple()` refinement on the **current model** with a bounded evidence packet (baseline guide + README/CLAUDE heads, 24 KB budget) -> the extension validates the output (strips fences and any model-smuggled markers, appends its own fingerprint marker) -> writes `AGENTS.md` -> `ctx.reload()` so the session actually runs on the new guide. No `deliverAs: "followUp"`, no user-role turn, no persisted prompt replay on every later turn and on resume, and the main agent's `write` tool is no longer required (chat/plan/read-only modes refine fine). Current fingerprint -> zero model calls.
+- **`opl-init`**: mid-session `/init` waits (`ctx.waitForIdle()`), recomputes the fingerprint (the settling run may have changed the tree), and only then crawls. It never steers or interrupts the task in flight.
+- **`opl-init`**: **breaking** - `/init --refine` is gone; refine is the default and the only path. Unknown args are ignored.
+- **`opl-init`**: fingerprint v2 hashes actual dirty content (per-file sha256 over `git diff HEAD --name-only` + untracked files) instead of `git status` lines, so re-editing an already-`M` file no longer leaves the guide reading "current". A `GUIDE_SCHEMA_VERSION` input means generator upgrades invalidate old guides. Only the root `AGENTS.md` is excluded now; subdirectory `AGENTS.md` files count.
+- **`opl-init`**: `package.json` parsing reads up to 256 KB (the 2 KB cap applied to *parsing* before, silently losing scripts on moderate manifests), workspace scripts aggregate root-first with per-package labels instead of first-package-wins, and re-walked workspace members no longer double-count the file-type inventory.
+- **tests**: `npm run test:opl-init` now runs three suites: the content-fingerprint test drives a throwaway git repo; flow tests run the real handler against fake pi/ctx (never call the model, marker smuggling, idle-gate recalculation, reload exactly once); the smoke assertion now requires `sendUserMessage` to be absent from the source.
+
 ## [0.2.0] - 2026-09-20
 
 ### MAJOR FIX - prevented multi-message 'user-labeled' prompts on /init invoke (opl-init should just initialize context file, not continuously inject)
