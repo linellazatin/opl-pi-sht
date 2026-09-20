@@ -130,3 +130,46 @@ test("crawls workspace members beyond the root depth budget and caps directories
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("workspace files are counted once and scripts aggregate across packages", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-init-dedupe-"));
+  try {
+    writeFileSync(join(root, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { build: "tsc -b", test: "vitest" } }));
+    mkdirSync(join(root, "packages", "ui"), { recursive: true });
+    writeFileSync(join(root, "packages", "ui", "package.json"), JSON.stringify({ scripts: { test: "vitest run" } }));
+    writeFileSync(join(root, "packages", "ui", "button.tsx"), "export {};\n");
+
+    const result = crawl(root);
+    assert.equal(result.extCounts.get(".tsx"), 1, "member file not double-counted by re-walk");
+    assert.equal(result.extCounts.get(".json"), 2, "manifests counted once each");
+
+    // Guide rendering path (no model here -> baseline): both script blocks appear.
+    // The ctx shape matches Task 4's handler contract (isIdle/reload/model) so this
+    // test survives the handler rewrite unchanged.
+    let command;
+    initExtension({ registerCommand: (_n, d) => { command = d; } });
+    await command.handler("", { cwd: root, model: undefined, isIdle: () => true, reload: async () => {}, ui: { notify() {} } });
+    const guide = readFileSync(join(root, "AGENTS.md"), "utf8");
+    assert.match(guide, /build: tsc -b/);
+    assert.match(guide, /ui\/ test: vitest run/, "member scripts labeled by package");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("package.json beyond the old 2KB display cap keeps its scripts", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-init-bigpkg-"));
+  try {
+    const scripts = {};
+    for (let i = 0; i < 120; i++) scripts[`task${i}`] = `echo a-long-command-line-to-pad-the-file-${i}`;
+    writeFileSync(join(root, "package.json"), JSON.stringify({ scripts, filler: "x".repeat(2048) }));
+    let command;
+    initExtension({ registerCommand: (_n, d) => { command = d; } });
+    await command.handler("", { cwd: root, model: undefined, isIdle: () => true, reload: async () => {}, ui: { notify() {} } });
+    const guide = readFileSync(join(root, "AGENTS.md"), "utf8");
+    assert.match(guide, /task0: echo/, "scripts survive beyond 2048 bytes");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

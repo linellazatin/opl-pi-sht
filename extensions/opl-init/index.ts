@@ -21,6 +21,7 @@ const MAX_DEPTH = 3;
 const MAX_MEMBER_DEPTH = 3;
 const MAX_TREE_LINES = 300;
 const MAX_MANIFEST_BYTES = 2048;
+const MAX_MANIFEST_PARSE_BYTES = 262144;
 const MAX_DIR_ENTRIES = 40;
 // Bumping this constant is how generator upgrades invalidate every
 // previously-written guide: it is a fingerprint input.
@@ -31,6 +32,7 @@ type Crawl = {
   extCounts: Map<string, number>;
   manifests: { path: string; content: string }[];
   workspaceMembers: string[];
+  seen: Set<string>;
 };
 
 // Marker the model appends to AGENTS.md so future runs can detect staleness exactly.
@@ -122,6 +124,7 @@ function crawl(root: string): Crawl {
     extCounts: new Map(),
     manifests: [],
     workspaceMembers: [],
+    seen: new Set(),
   };
 
   function walk(dir: string, depth: number, prefix: string, maxDepth: number) {
@@ -152,17 +155,23 @@ function crawl(root: string): Crawl {
       }
 
       files.push(entry);
-      const extension = extname(entry) || entry;
-      result.extCounts.set(extension, (result.extCounts.get(extension) ?? 0) + 1);
+      // Dedupe by absolute path: declared-member re-walks overlap the root
+      // walk, and the inventory must not double-count. Tree lines still
+      // accept shallow overlap for completeness.
+      if (!result.seen.has(path)) {
+        result.seen.add(path);
+        const extension = extname(entry) || entry;
+        result.extCounts.set(extension, (result.extCounts.get(extension) ?? 0) + 1);
 
-      if (MANIFESTS.has(entry)) {
-        try {
-          result.manifests.push({
-            path: relative(root, path),
-            content: readFileSync(path, "utf8").slice(0, MAX_MANIFEST_BYTES),
-          });
-        } catch {
-          // Skip unreadable manifests.
+        if (MANIFESTS.has(entry)) {
+          try {
+            result.manifests.push({
+              path: relative(root, path),
+              content: readFileSync(path, "utf8").slice(0, MAX_MANIFEST_PARSE_BYTES),
+            });
+          } catch {
+            // Skip unreadable manifests.
+          }
         }
       }
     }
@@ -303,23 +312,33 @@ function result_tree_paths(root: string): string[] {
   return paths;
 }
 
-function packageScripts(content: string): string | null {
-  try {
-    const packageJson = JSON.parse(content);
-    if (!packageJson.scripts || !Object.keys(packageJson.scripts).length) return null;
-    return Object.entries(packageJson.scripts)
-      .map(([name, command]) => `  ${name}: ${command}`)
-      .join("\n");
-  } catch {
-    return null;
+// Root-first, per-package-labeled script lines, bounded at 30 entries total.
+function aggregateScripts(manifests: { path: string; content: string }[]): string | null {
+  const lines: string[] = [];
+  const sorted = [...manifests].sort((a, b) =>
+    a.path === "package.json" ? -1 : b.path === "package.json" ? 1 : a.path.localeCompare(b.path));
+  for (const manifest of sorted) {
+    if (!manifest.path.endsWith("package.json") || lines.length >= 30) continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(manifest.content);
+    } catch {
+      continue;
+    }
+    const scripts = parsed?.scripts;
+    if (!scripts || typeof scripts !== "object") continue;
+    const label = manifest.path === "package.json" ? "" : `${manifest.path.replace(/\/package\.json$/, "")}/ `;
+    for (const [name, command] of Object.entries(scripts)) {
+      if (lines.length >= 30) break;
+      lines.push(`  ${label}${name}: ${command}`);
+    }
   }
+  return lines.length ? lines.join("\n") : null;
 }
 
 function buildGuide(root: string, crawlResult: Crawl, marker: string): string {
   const topLevel = crawlResult.tree.filter(line => !line.startsWith("  ")).slice(0, 30).join(", ");
-  const scripts = crawlResult.manifests
-    .map(manifest => manifest.path.endsWith("package.json") ? packageScripts(manifest.content) : null)
-    .find(Boolean);
+  const scripts = aggregateScripts(crawlResult.manifests);
   const commandBlock = scripts ? "Package scripts:\n```\n" + scripts + "\n```" : "No package scripts were detected by the repository crawl.";
   return `# Repository Guide\n\n## What this is\n\nRepository at \`${root}\`. Use the repository files as the source of truth; the top-level inventory includes ${topLevel || "(not available)"}.\n\n## Commands\n\n${commandBlock}\n\n## Repository inventory\n\n- File types: ${[...crawlResult.extCounts.entries()].map(([extension, count]) => `${extension} (${count})`).join(", ") || "none detected"}.\n- Inspect specific files before changing behavior; this guide is a starting point, not a substitute for reading the code.\n\n## Agent workflow\n\nKeep changes focused on the requested behavior, preserve existing interfaces, and run the narrowest relevant test before the full suite. Keep secrets and generated output out of tracked configuration.\n${marker}\n`;
 }
