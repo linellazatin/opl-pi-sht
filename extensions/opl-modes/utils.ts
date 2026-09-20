@@ -10,7 +10,7 @@ import type { PlanFileSummary } from "./types.js";
 /** Serialize async model changes so the final requested model wins. */
 export function createLatestModelQueue() {
   let latest = 0;
-  let tail = Promise.resolve();
+  let tail: Promise<unknown> = Promise.resolve();
 
   return <T>(change: () => Promise<T>): Promise<T | undefined> => {
     const request = ++latest;
@@ -19,25 +19,92 @@ export function createLatestModelQueue() {
   };
 }
 
-/** Shell operators that start a new command: chaining, pipes, separators, substitutions. */
-const SEGMENT_SPLIT = /\$\(|`|[<>]\(|&&|\|\||[;|\n]/;
-
-/** Replace quoted runs with empty pairs so operators inside strings are not read as separators. */
-function blankQuotes(command: string): string {
-  return command.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, "''");
-}
-
 const stripQuotes = (text: string): string => text.replace(/["'\\]/g, "");
 
 /**
- * Split a command into shell segments (chaining, pipes, `$(...)`, backticks, process
- * substitution). Segments are trimmed and empty ones dropped. `blankQuoted` hides
- * quoted string contents from the separator scan — use it for the allowlist check,
- * never for the blocklist check, because `$(...)` inside double quotes still executes.
+ * Blind split on every operator, quotes ignored — used only for the blocklist scan, where
+ * over-splitting is fail-safe. A lone `&` counts as a separator unless it belongs to `&&`,
+ * `||`, or an `>&`/`<&` descriptor duplication (`echo hi 2>&1` stays one command).
  */
-function commandSegments(command: string, blankQuoted = false): string[] {
-  const source = blankQuoted ? blankQuotes(command) : command;
-  return source.split(SEGMENT_SPLIT).map((s) => s.trim()).filter((s) => s.length > 0);
+const BLIND_SPLIT = /\$\(|`|[<>]\(|&&|\|\||(?<![<>&])&(?![>&])|[;|\n\r]/;
+
+/** Quote/substitution nesting level. `quote` is the string quote open inside this level. */
+interface Frame { kind: "root" | "sub" | "tick"; quote: "" | "'" | '"'; parens: number }
+
+/**
+ * Split a command into the pieces the shell actually executes, so each one can be required
+ * to clear the allowlist: chaining (`&&`, `||`), backgrounding (`&`), pipes, `;`, newlines,
+ * process substitution, and the payload of `$(...)`/backticks. Quote-aware, so `grep "a|b"`
+ * stays one command, while a substitution inside double quotes still expands —
+ * `echo "$(node -e ...)"` yields the `node` payload as its own segment instead of blanking
+ * the whole string away. Quote characters are dropped from the segments (matching is
+ * prefix-anchored, so a leading `"` must not defeat a safe pattern).
+ */
+function commandSegments(command: string): string[] {
+  const out: string[] = [];
+  const stack: Frame[] = [{ kind: "root", quote: "", parens: 0 }];
+  let buf = "";
+  const flush = () => {
+    const s = buf.trim();
+    if (s) out.push(s);
+    buf = "";
+  };
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i];
+    const top = stack[stack.length - 1];
+    // Single quotes are literal: nothing expands, only the closing ' matters.
+    if (top.quote === "'") {
+      if (ch === "'") top.quote = "";
+      else buf += ch;
+      continue;
+    }
+    // Double quotes keep their text literal, except for `$(...)` and backticks, which run.
+    if (top.quote === '"') {
+      if (ch === '"') { top.quote = ""; continue; }
+      if (ch === "\\") { i++; continue; } // \X is a literal X, so `\$(x)` does not expand
+      if (ch === "$" && command[i + 1] === "(") { stack.push({ kind: "sub", quote: "", parens: 0 }); flush(); i++; continue; }
+      if (ch === "`") { stack.push({ kind: "tick", quote: "", parens: 0 }); flush(); continue; }
+      buf += ch;
+      continue;
+    }
+    if (ch === "'") { top.quote = "'"; continue; }
+    if (ch === '"') { top.quote = '"'; continue; }
+    if (ch === "\\") { buf += ch + (command[++i] ?? ""); continue; }
+    if (ch === "$" && command[i + 1] === "(") { stack.push({ kind: "sub", quote: "", parens: 0 }); flush(); i++; continue; }
+    if (ch === "`") {
+      if (top.kind === "tick") stack.pop();
+      else stack.push({ kind: "tick", quote: "", parens: 0 });
+      flush();
+      continue;
+    }
+    if (top.kind === "sub") {
+      if (ch === "(") top.parens++;
+      else if (ch === ")") {
+        if (top.parens === 0) { stack.pop(); flush(); continue; }
+        top.parens--;
+      }
+    } else if ((ch === "<" || ch === ">") && command[i + 1] === "(") {
+      stack.push({ kind: "sub", quote: "", parens: 0 });
+      flush();
+      i++;
+      continue;
+    }
+    if (ch === ";" || ch === "|" || ch === "\n" || ch === "\r") { flush(); continue; }
+    if (ch === "&") {
+      if (command[i + 1] === "&") { i++; flush(); continue; } // &&
+      // A lone & backgrounds the command before it. `>&`/`<&` is descriptor duplication and
+      // `&>` is a redirect, so neither starts a new command here (the blocklist judges those).
+      if (!/[<>&|]/.test(command[i - 1] ?? "") && command[i + 1] !== ">") { flush(); continue; }
+    }
+    buf += ch;
+  }
+  flush();
+  return out;
+}
+
+/** Quote-blind segments for the blocklist, on the raw text and its quote-stripped skeleton. */
+function blindSegments(text: string): string[] {
+  return text.split(BLIND_SPLIT).map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
 /** Whether a destructive pattern matches the command, any of its segments, or either
@@ -46,7 +113,7 @@ export function isDestructive(command: string, patterns: RegExp[]): boolean {
   const haystacks = [
     command,
     stripQuotes(command),
-    ...commandSegments(command).flatMap((s) => [s, stripQuotes(s)]),
+    ...blindSegments(command).flatMap((s) => [s, stripQuotes(s)]),
   ];
   return patterns.some((p) => haystacks.some((h) => p.test(h)));
 }
@@ -63,7 +130,7 @@ export function bashBlockReason(
   destructivePatterns?: RegExp[],
 ): string | null {
   if (safePatterns && safePatterns.length > 0) {
-    const offender = commandSegments(command, true).find((s) => !safePatterns.some((p) => p.test(s)));
+    const offender = commandSegments(command).find((s) => !safePatterns.some((p) => p.test(s)));
     if (offender !== undefined) return `not in safe pattern list: ${offender}`;
   }
   if (destructivePatterns && destructivePatterns.length > 0 && isDestructive(command, destructivePatterns)) {

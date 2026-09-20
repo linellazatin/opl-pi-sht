@@ -50,12 +50,14 @@ export const DEFAULT_SAFE_PATTERNS: RegExp[] = [
   /^\s*cat\b/, /^\s*head\b/, /^\s*tail\b/, /^\s*less\b/, /^\s*more\b/,
   /^\s*grep\b/, /^\s*find\b/, /^\s*ls\b/, /^\s*pwd\b/, /^\s*cd\b/,
   /^\s*echo\b/, /^\s*printf\b/, /^\s*wc\b/, /^\s*sort\b/,
+  // Pure stdout filters. uniq can write its second operand, so it is gated in the blocklist.
+  /^\s*uniq\b/, /^\s*tr\b/, /^\s*cut\b/,
   /^\s*diff\b/, /^\s*file\b/, /^\s*stat\b/, /^\s*du\b/, /^\s*df\b/,
   /^\s*tree\b/, /^\s*which\b/, /^\s*whereis\b/, /^\s*type\b/,
   /^\s*uname\b/, /^\s*whoami\b/,
   /^\s*date\b/, /^\s*uptime\b/, /^\s*ps\b/, /^\s*free\b/,
   /^\s*rg\b/, /^\s*fd\b/, /^\s*bat\b/, /^\s*jq\b/,
-  /^\s*git\s+(status|log|diff|show|branch|remote)/i,
+  /^\s*git\s+(status|log|diff|show|branch|remote|rev-parse)/i,
   /^\s*node\s+--version/i, /^\s*python\s+--version/i,
   /^\s*(npx\s+)?tsc\b.*--noEmit/i,
   /^\s*npm\s+(list|ls|view|info|outdated|audit)/i,
@@ -68,13 +70,22 @@ export const DEFAULT_SAFE_PATTERNS: RegExp[] = [
  *  `git log --grep=rm`) stays allowed. Flag and redirect patterns stay unanchored on purpose. */
 export const DEFAULT_DESTRUCTIVE_PATTERNS: RegExp[] = [
   /^\s*(rm|rmdir|mv|cp|mkdir|touch|chmod|chown|tee|dd|shred|truncate)\b/i,
-  /\s-{1,2}(delete|exec|execdir|exec-batch)\b/i,
-  /\bsort\s+-o\b/i,
-  /(^|[^<])>(?!>|&)/, />>/,
-  /\bnpm\s+(install|uninstall|update|ci)/i,
+  // Write flags that ride a safe-listed command: find's file-writing predicates and --output
+  // on sort/git log/git diff/git show. `-print`/`-printf` stay allowed (they go to stdout).
+  /\s-{1,2}(delete|exec|execdir|exec-batch|fprint0?|fprintf|fls|output)\b/i,
+  /\bsort\b[^\n]*\s-o\b/i,
+  // Any redirect that names a file. `>&<fd>`/`>&-` duplication is not a write, so 2>&1 survives.
+  /(^|[^<])>(?!>)(?!&[0-9-])(?! *\/dev\/null)/, />>(?! *\/dev\/null)/,
+  // uniq writes its second operand (`uniq -c in.txt out.txt`); flags don't count, so
+  // `uniq -c sorted.txt` stays a read.
+  /^\s*uniq\b(?:\s+-\S+)*\s+[^-\s]\S*(?:\s+[^-\s]\S*)+/,
+  /\bnpm\s+(install|uninstall|update|upgrade|ci)/i,
+  /\bnpm\s+audit\b.*\bfix\b/i,
   /\byarn\s+(add|remove|install)/i,
   /\bpip\s+(install|uninstall)/i,
-  /\bgit\s+(add|commit|push|merge|rebase|reset|checkout|clean|update-ref|cherry-pick|revert|am|apply|branch\s+-[dDmM]|tag\s+-)/i,
+  /\bgit\s+(add|commit|push|merge|rebase|reset|checkout|clean|update-ref|cherry-pick|revert|am|apply|branch\s+(-{1,2}[dDmMcC]|--(unset-upstream|edit-description))|tag\s+-)/i,
+  // Subcommands that hide behind the safe `git remote` prefix and still write .git.
+  /\bgit\s+remote\s+(add|remove|rename|set-url|set-head|setbranches|prune|update)\b/i,
   /^\s*(sudo|su|kill|pkill)\b/i,
   /^\s*(sh|bash|zsh)\b/i,
   /^\s*(vim?|nano|emacs|code|subl)\b/i,

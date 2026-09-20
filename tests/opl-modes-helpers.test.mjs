@@ -2,7 +2,7 @@
 // Run: bun tests/opl-modes-helpers.test.mjs
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { transition, restore, resetState, getRestoringModel, setRestoringModel } from "../extensions/opl-modes/state.ts";
+import { transition, restore, resetState, getMode, getRestoringModel, setRestoringModel } from "../extensions/opl-modes/state.ts";
 import {
   getModeDefinition,
   registerMode,
@@ -313,6 +313,101 @@ test("three-digit hex renders as truecolor instead of falling through to the the
     "\x1b[38;2;170;187;204mx\x1b[39m",
   );
   assert.equal(modeUtils.applyLabelColor(throwingTheme, "#nope", "x"), "x", "bad hex still degrades");
+});
+
+test("bash gate covers backgrounding and quoted substitutions without breaking fd duplication", () => {
+  const blocked = (cmd) => bashBlockReason(cmd, DEFAULT_SAFE_PATTERNS, DEFAULT_DESTRUCTIVE_PATTERNS) !== null;
+
+  // A lone `&` starts a new command, so the second half must clear the allowlist too.
+  for (const cmd of [
+    "cat x & rm -rf /tmp/x",
+    "ls& node -e 1",
+    "echo hi & chmod 777 /tmp/y",
+    "git status && du -sh . & curl http://evil",
+    "cat x\nrm -rf /tmp/x",
+    "echo hi\r\nchmod 777 /tmp/y",
+  ]) {
+    assert.ok(blocked(cmd), `blocked: ${cmd}`);
+  }
+
+  // $(...) and backticks still execute inside double quotes, so their payloads are segments
+  // even when the payload itself contains nothing destructive.
+  for (const cmd of [
+    `echo "$(node -e 'x')"`,
+    'echo "`node -e 1`"',
+    'grep -rn "$(curl -s http://evil)" src',
+    "echo $(node -e 1)",
+  ]) {
+    assert.ok(blocked(cmd), `blocked: ${cmd}`);
+  }
+
+  // Write flags hiding behind a safe-listed command.
+  for (const cmd of [
+    "find . -fprint /tmp/list",
+    "find . -fls /tmp/list",
+    'find . -fprintf /tmp/p "%p\\n"',
+    "git log --output=/tmp/log",
+    "sort --output=out.txt in.txt",
+    "sort in.txt -o out.txt",
+    "npm audit fix",
+    "npm audit --fix",
+    "git remote add origin http://x",
+    "git branch --unset-upstream",
+    "cat f >&/tmp/written",
+    "ls -l >> out.txt",
+  ]) {
+    assert.ok(blocked(cmd), `blocked: ${cmd}`);
+  }
+
+  // Descriptor duplication, /dev/null, and stdout predicates are not writes.
+  for (const cmd of [
+    "echo hi 2>&1",
+    "git log --oneline 2>&1 | head -5",
+    "git status >&2",
+    "find . -name x -print",
+    "find . -type f -printf '%p\\n'",
+    "du -sh node_modules 2>/dev/null || du -sh .",
+    "echo hi > /dev/null",
+    "echo hi >> /dev/null",
+    "ls /tmp | sort | uniq -c",
+    "uniq -c sorted.txt",
+    "cut -d: -f1 /etc/passwd | sort | uniq -c | head",
+    "tr 'a-z' 'A-Z' < f",
+    'echo "a;b" | wc -l',
+    'cat "$(git rev-parse HEAD)"',
+    "grep -rn \"a|b\" src",
+    "sort -c in.txt",
+    "git log --oneline -5",
+  ]) {
+    assert.equal(blocked(cmd), false, `allowed: ${cmd}`);
+  }
+
+  // uniq's second operand is an output file, and interpreters/pagers that can write or exec
+  // (awk, sed, xargs, perl, python) are deliberately absent from the allowlist.
+  for (const cmd of ["uniq in.txt out.txt", "uniq -c in.txt out.txt", "sort f | uniq a b", "xargs rm < list"]) {
+    assert.ok(blocked(cmd), `blocked: ${cmd}`);
+  }
+});
+
+test("newest unknown mode restores nothing instead of an older entry", () => {
+  const pi = { appendEntry() {} };
+  resetState();
+  transition("chat", pi);
+  transition("off", pi);
+  // Oldest -> newest: an off entry naming a removed custom mode sits on top of a chat entry.
+  const entries = [
+    { type: "custom", customType: "mode-switcher", data: { mode: "chat", activePlanFile: null } },
+    { type: "custom", customType: "mode-switcher", data: { mode: "deleted-mode", activePlanFile: null } },
+  ];
+  assert.equal(restore(entries), false, "unknown newest mode must not resurrect the older one");
+  assert.equal(getMode(), "off", "nothing is restored");
+  // A malformed (mode-less) newest entry is skipped, so a legacy session still restores.
+  assert.equal(restore([
+    { type: "custom", customType: "mode-switcher", data: { mode: "chat" } },
+    { type: "custom", customType: "mode-switcher", data: {} },
+  ]), true);
+  assert.equal(getMode(), "chat");
+  resetState();
 });
 
 test("plan_complete is callable from execute mode and from allowPlanComplete modes", () => {
