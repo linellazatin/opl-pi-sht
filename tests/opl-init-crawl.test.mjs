@@ -1,9 +1,40 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { crawl } from "../extensions/opl-init/index.ts";
+import initExtension, { crawl } from "../extensions/opl-init/index.ts";
+
+test("init writes a guide without sending a user message", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-init-command-"));
+  const sentMessages = [];
+  let command;
+  try {
+    writeFileSync(join(root, "package.json"), '{"scripts":{"test":"bun test"}}\n');
+    initExtension({
+      registerCommand(name, definition) {
+        assert.equal(name, "init");
+        command = definition;
+      },
+      sendUserMessage(message) {
+        sentMessages.push(message);
+      },
+    });
+
+    await command.handler("", {
+      cwd: root,
+      ui: { notify() {} },
+    });
+
+    const guide = readFileSync(join(root, "AGENTS.md"), "utf8");
+    assert.match(guide, /# Repository Guide/);
+    assert.match(guide, /<!-- opl-init:fp \S+ -->\n$/);
+    assert.doesNotMatch(guide, /init task context/);
+    assert.deepEqual(sentMessages, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("crawls workspace members beyond the root depth budget and caps directories", () => {
   const root = mkdtempSync(join(tmpdir(), "opl-init-crawl-"));

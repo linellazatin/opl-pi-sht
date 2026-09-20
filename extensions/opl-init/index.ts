@@ -22,22 +22,6 @@ const MAX_MEMBER_DEPTH = 3;
 const MAX_TREE_LINES = 300;
 const MAX_MANIFEST_BYTES = 2048;
 const MAX_DIR_ENTRIES = 40;
-const MAX_RULE_SOURCE_BYTES = 2048;
-
-// Instruction sources other coding agents use (see research/harness-init-comparison.md).
-// AGENTS.md is deliberately absent — it is this command's output.
-const RULE_SOURCES = [
-  ".cursorrules",
-  ".cursor/rules",
-  ".github/copilot-instructions.md",
-  "CLAUDE.md",
-  "CLAUDE.local.md",
-  ".claude/rules",
-  ".windsurfrules",
-  ".windsurf/rules",
-  ".clinerules",
-  ".devin/rules",
-];
 
 type Crawl = {
   tree: string[];
@@ -307,101 +291,14 @@ function packageScripts(content: string): string | null {
   }
 }
 
-function findRuleSources(root: string): { path: string; detail: string }[] {
-  const found: { path: string; detail: string }[] = [];
-  for (const name of RULE_SOURCES) {
-    const path = join(root, name);
-    let stats;
-    try {
-      stats = statSync(path);
-    } catch {
-      continue;
-    }
-    if (stats.isDirectory()) {
-      // ponytail: filenames only for rule dirs; model can read entries itself.
-      let entries: string[] = [];
-      try {
-        entries = readdirSync(path).slice(0, 20);
-      } catch {
-        continue;
-      }
-      found.push({ path: `${name}/ (${entries.length} file${entries.length === 1 ? "" : "s"})`, detail: entries.join(", ") });
-    } else {
-      try {
-        found.push({ path: name, detail: readFileSync(path, "utf8").slice(0, MAX_RULE_SOURCE_BYTES) });
-      } catch {
-        found.push({ path: name, detail: "(unreadable)" });
-      }
-    }
-  }
-  return found;
-}
-
-function buildContext(root: string, crawlResult: Crawl): string {
-  const extensions = [...crawlResult.extCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([extension, count]) => `${extension} (${count})`)
-    .join(", ");
-  const sections = [
-    `## Repository crawl for: ${root}`,
-    `### Directory tree (depth ${MAX_DEPTH}; declared workspace members get their own depth-${MAX_MEMBER_DEPTH} walk; per-directory entries capped at ${MAX_DIR_ENTRIES})\n\`\`\`\n${crawlResult.tree.join("\n")}\n\`\`\``,
-    `### File counts by extension\n${extensions || "(none)"}`,
-  ];
-
-  if (crawlResult.workspaceMembers.length) {
-    sections.push(`### Declared workspace members (expanded above)\n${crawlResult.workspaceMembers.join(", ")}`);
-  }
-
-  if (crawlResult.manifests.length) {
-    // ponytail: send paths + package.json scripts only; the model can read a
-    // manifest itself if it needs the raw body. Keeps the prompt small and stable.
-    sections.push("### Manifests (read these files directly if you need more detail)");
-    for (const manifest of crawlResult.manifests) {
-      sections.push(`**${manifest.path}**`);
-      if (manifest.path.endsWith("package.json")) {
-        const scripts = packageScripts(manifest.content);
-        if (scripts) sections.push(`Scripts:\n\`\`\`\n${scripts}\n\`\`\``);
-      }
-    }
-  }
-
-  const ruleSources = findRuleSources(root);
-  if (ruleSources.length) {
-    sections.push("### Existing agent rule sources (from other coding agents)");
-    for (const source of ruleSources) {
-      sections.push(`**${source.path}**\n\`\`\`\n${source.detail}\n\`\`\``);
-    }
-  }
-
-  return sections.join("\n\n");
-}
-
-function fallbackGuide(root: string, crawlResult: Crawl, marker: string): string {
+function buildGuide(root: string, crawlResult: Crawl, marker: string): string {
   const topLevel = crawlResult.tree.filter(line => !line.startsWith("  ")).slice(0, 30).join(", ");
   const scripts = crawlResult.manifests
     .map(manifest => manifest.path.endsWith("package.json") ? packageScripts(manifest.content) : null)
     .find(Boolean);
   const commandBlock = scripts ? "Package scripts:\n```\n" + scripts + "\n```" : "No package scripts were detected by the repository crawl.";
-  return `# Repository Guide\n\n## What this is\n\nRepository at \`${root}\`. Use the repository files as the source of truth; the top-level inventory includes ${topLevel || "(not available)"}.\n\n## Commands\n\n${commandBlock}\n\n## Repository inventory\n\n- File types: ${[...crawlResult.extCounts.entries()].map(([extension, count]) => `${extension} (${count})`).join(", ") || "none detected"}.\n- The full crawl is available in the init task context. Inspect specific files before changing behavior.\n\n## Agent workflow\n\nKeep changes focused on the requested behavior, preserve existing interfaces, and run the narrowest relevant test before the full suite. Keep secrets and generated output out of tracked configuration.\n${marker}\n`;
+  return `# Repository Guide\n\n## What this is\n\nRepository at \`${root}\`. Use the repository files as the source of truth; the top-level inventory includes ${topLevel || "(not available)"}.\n\n## Commands\n\n${commandBlock}\n\n## Repository inventory\n\n- File types: ${[...crawlResult.extCounts.entries()].map(([extension, count]) => `${extension} (${count})`).join(", ") || "none detected"}.\n- Inspect specific files before changing behavior; this guide is a starting point, not a substitute for reading the code.\n\n## Agent workflow\n\nKeep changes focused on the requested behavior, preserve existing interfaces, and run the narrowest relevant test before the full suite. Keep secrets and generated output out of tracked configuration.\n${marker}\n`;
 }
-
-const PROMPT = `Generate or update AGENTS.md as an agent guide for this repository. This is an execution task, not a request for prose in chat. You MUST use the write tool to write the guide to the repository's AGENTS.md path; a response containing Markdown without writing the file is a failure. After writing, use the read tool to verify the file exists and ends with the exact fingerprint marker. Do not modify, refactor, or create any other file.
-If AGENTS.md already exists and the repository crawl below says it is current, do not overwrite or modify it. If it is marked stale, update it. If it does not exist, create it.
-
-The repository crawl below (directory tree, file counts, manifests, and any existing rule sources) is the primary source of truth. It was produced for you, so do not re-crawl, re-list, or re-scan the tree, and do not spawn subagents or task lists for this. Read a small number of specific files directly only when you must confirm a repository-specific fact the crawl does not already answer.
-
-Produce a concise, useful Markdown guide, usually 250-700 words:
-- Start with a project-specific title such as "# Repository Guide" or "# <project>".
-- Prefer these sections when supported by evidence: "## What this is", "## Commands", "## Architecture", "## Configuration and installation", "## Testing and operational quirks", and "## Key files".
-- State meaningful absences when known, such as no build, lint, or typecheck command.
-- Capture non-obvious constraints, state, deployment, security, or test-order invariants when they materially affect contributors.
-- Avoid generic contribution, Git, or pull-request advice unless the repository supplies specific facts for it.
-- Omit unsupported sections rather than inventing details.
-- If existing agent rule sources are listed below, incorporate their relevant project-specific content into the guide. Do not copy them verbatim and do not treat them as authoritative over evidence from this repository.
-- IMPORTANT: when you write or update AGENTS.md, make the very last line exactly the fingerprint marker given below (verbatim, no changes). This lets future runs detect staleness.
-
----
-`;
 
 // Named export for fixture tests (tests/opl-init-crawl.test.mjs).
 export { crawl };
@@ -429,23 +326,14 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      const status = !exists
-        ? "AGENTS.md status: missing; create it."
-        : storedFp === null
-          ? "AGENTS.md status: no fingerprint marker found; treat as stale and update it."
-          : "AGENTS.md status: stale (fingerprint mismatch); update it.";
       const marker = `<!-- opl-init:fp ${currentFp} -->`;
       const crawlResult = crawl(root);
       try {
-        writeFileSync(agentsPath, fallbackGuide(root, crawlResult, marker), "utf8");
-        ctx.ui.notify("AGENTS.md baseline written; the agent will refine it from the crawl.", "info");
+        writeFileSync(agentsPath, buildGuide(root, crawlResult, marker), "utf8");
+        ctx.ui.notify(exists ? "AGENTS.md refreshed." : "AGENTS.md created.", "info");
       } catch (error: any) {
-        ctx.ui.notify(`Could not write AGENTS.md baseline: ${error?.message || error}`, "error");
+        ctx.ui.notify(`Could not write AGENTS.md: ${error?.message || error}`, "error");
       }
-
-      pi.sendUserMessage(
-        `${PROMPT}\n${status}\nFingerprint marker to append as the last line: ${marker}\n\n${buildContext(root, crawlResult)}`,
-      );
     },
   });
 }
