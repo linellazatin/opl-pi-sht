@@ -13,7 +13,8 @@ test(`bundles ${extension} extension entrypoint`, () => {
 
   if (extension === "opl-init") {
     const source = readFileSync(`extensions/${extension}/index.ts`, "utf8");
-    assert.doesNotMatch(source, /sendUserMessage/);
+    assert.equal(source.match(/sendUserMessage/g)?.length, 1, "exactly one injection site");
+    assert.match(source, /if \(refine\) pi\.sendUserMessage/, "the injection is gated on --refine");
     assert.doesNotMatch(source, /const PROMPT/);
     assert.doesNotMatch(source, /buildContext/);
     assert.match(source, /buildGuide/);

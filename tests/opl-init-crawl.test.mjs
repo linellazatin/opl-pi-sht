@@ -36,6 +36,67 @@ test("init writes a guide without sending a user message", async () => {
   }
 });
 
+test("init overwrites a stale guide and leaves a current one alone", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-init-overwrite-"));
+  const notes = [];
+  let command;
+  try {
+    initExtension({
+      registerCommand(_name, definition) { command = definition; },
+      sendUserMessage() { throw new Error("plain /init must not inject a message"); },
+    });
+    const ctx = { cwd: root, ui: { notify: (message) => notes.push(message) } };
+    const guidePath = join(root, "AGENTS.md");
+
+    // A stale marker means "regenerate", including over hand-edited prose.
+    writeFileSync(guidePath, "# Repository Guide\n\n## Architecture\n\nHand-written prose.\n<!-- opl-init:fp deadbeefdeadbeef -->\n");
+    await command.handler("", ctx);
+    const regenerated = readFileSync(guidePath, "utf8");
+    assert.doesNotMatch(regenerated, /Hand-written prose/);
+    assert.match(regenerated, /## Repository inventory/);
+    assert.deepEqual(notes, ["AGENTS.md overwritten from the repository crawl."]);
+
+    // The marker it just wrote is current, so a second run is a no-op.
+    await command.handler("", ctx);
+    assert.equal(readFileSync(guidePath, "utf8"), regenerated);
+    assert.deepEqual(notes.slice(1), ["AGENTS.md is current; /init will not modify it."]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("init --refine sends exactly one refinement request", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-init-refine-"));
+  const sentMessages = [];
+  const sentOptions = [];
+  let command;
+  try {
+    initExtension({
+      registerCommand(_name, definition) { command = definition; },
+      sendUserMessage(message, options) { sentMessages.push(message); sentOptions.push(options); },
+    });
+    const ctx = { cwd: root, ui: { notify() {} } };
+
+    await command.handler("--refine", ctx);
+    assert.equal(sentMessages.length, 1);
+    const prompt = sentMessages[0];
+    assert.match(prompt, new RegExp(join(root, "AGENTS.md").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    const marker = readFileSync(join(root, "AGENTS.md"), "utf8").match(/<!-- opl-init:fp \S+ -->/)[0];
+    assert.ok(prompt.includes(marker), "the prompt pins the marker the model must keep");
+    assert.doesNotMatch(prompt, /Directory tree/, "the crawl is not duplicated into the prompt");
+    // Mid-session safety: no deliverAs makes Pi throw while a turn is streaming.
+    assert.deepEqual(sentOptions, [{ deliverAs: "followUp" }]);
+
+    // A refine on an already-current guide still asks the model, without rewriting the file.
+    const before = readFileSync(join(root, "AGENTS.md"), "utf8");
+    await command.handler("--refine", ctx);
+    assert.equal(sentMessages.length, 2);
+    assert.equal(readFileSync(join(root, "AGENTS.md"), "utf8"), before);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("crawls workspace members beyond the root depth budget and caps directories", () => {
   const root = mkdtempSync(join(tmpdir(), "opl-init-crawl-"));
   try {
