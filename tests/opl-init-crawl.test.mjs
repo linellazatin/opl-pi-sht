@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { mkdtempSync, existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import initExtension, { crawl } from "../extensions/opl-init/index.ts";
+import initExtension, { crawl, fingerprint } from "../extensions/opl-init/index.ts";
 
 function fakePi() {
   const commands = {};
@@ -52,10 +52,12 @@ test("successful refine: fenced + smuggled-marker output is finalized and reload
   try {
     writeFileSync(join(root, "a.ts"), "export {};\n");
     let reloads = 0;
+    const notes = [];
     let calledWith = null;
     const ctx = idleCtx(root, {
       model: { provider: "fake", id: "fake-model" },
       reload: async () => { reloads++; },
+      ui: { notify: (m) => notes.push(m) },
       modelRegistry: {
         streamSimple(model, context, options) {
           calledWith = { model, context, options };
@@ -73,6 +75,8 @@ test("successful refine: fenced + smuggled-marker output is finalized and reload
     await runInit(ctx);
     assert.equal(calledWith.model.id, "fake-model", "refine uses ctx.model");
     assert.match(calledWith.context.systemPrompt, /Return ONLY the final Markdown document/);
+    assert.ok(calledWith.options?.signal instanceof AbortSignal, "refine call is bounded by a timeout signal");
+    assert.match(notes[0], /refining/, "progress is shown before the model call, not only after");
     const guide = readFileSync(join(root, "AGENTS.md"), "utf8");
     assert.match(guide, /Crafted prose\./);
     assert.doesNotMatch(guide, /9999999999999999/);
@@ -84,36 +88,64 @@ test("successful refine: fenced + smuggled-marker output is finalized and reload
   }
 });
 
-test("stale guide with a streaming agent: waits for idle, recalculates, then writes", async () => {
+test("stale guide with a streaming agent: waits for idle and fingerprints the settled tree", async () => {
   const root = mkdtempSync(join(tmpdir(), "opl-init-idle-"));
   try {
-    const guidePath = join(root, "AGENTS.md");
     let idle = false;
     let waits = 0;
     const ctx = {
       cwd: root,
       model: undefined,
       isIdle: () => idle,
-      waitForIdle: async () => { waits++; idle = true; },
+      waitForIdle: async () => {
+        waits++;
+        // The settling run mutates the tree *during* the wait.
+        writeFileSync(join(root, "busy-work.ts"), "export const touched = true;\n");
+        idle = true;
+      },
       reload: async () => {},
       ui: { notify() {} },
     };
-    await runInitWithBusy(ctx, root);
+    await runInit(ctx);
     assert.ok(waits >= 1);
-    assert.ok(existsSync(guidePath));
+    const guide = readFileSync(join(root, "AGENTS.md"), "utf8");
+    assert.equal(
+      guide.match(/<!-- opl-init:fp (\S+) -->/)[1],
+      fingerprint(root),
+      "marker must reflect the post-settle tree, not the pre-wait snapshot",
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-async function runInitWithBusy(ctx, root) {
-  const pi = fakePi();
-  initExtension(pi);
-  const promise = pi.commands.init.handler("", ctx);
-  await new Promise((r) => setTimeout(r, 0));
-  writeFileSync(join(root, "busy-work.ts"), "export const touched = true;\n");
-  await promise;
-}
+test("settling run makes the guide current: /init writes nothing and reloads nothing", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-init-idle-current-"));
+  try {
+    let idle = false;
+    let reloads = 0;
+    const notes = [];
+    const ctx = {
+      cwd: root,
+      model: undefined,
+      isIdle: () => idle,
+      waitForIdle: async () => {
+        writeFileSync(join(root, "settled.ts"), "export {};\n");
+        const fp = fingerprint(root);
+        writeFileSync(join(root, "AGENTS.md"), `# Repository Guide\n\nsettled by the run.\n<!-- opl-init:fp ${fp} -->\n`);
+        idle = true;
+      },
+      reload: async () => { reloads++; },
+      ui: { notify: (m) => notes.push(m) },
+    };
+    await runInit(ctx);
+    assert.equal(reloads, 0, "a run that settled into 'current' must not write or reload");
+    assert.match(readFileSync(join(root, "AGENTS.md"), "utf8"), /settled by the run\./);
+    assert.ok(notes.includes("AGENTS.md is current; /init will not modify it."));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("crawls workspace members beyond the root depth budget and caps directories", () => {
   const root = mkdtempSync(join(tmpdir(), "opl-init-crawl-"));

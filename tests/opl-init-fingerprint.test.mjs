@@ -56,6 +56,23 @@ test("fingerprint hashes untracked content and distinguishes root vs subdir AGEN
   }
 });
 
+test("subdirectory session fingerprints dirty content of files under the cwd", () => {
+  const root = makeRepo();
+  try {
+    mkdirSync(join(root, "pkg"));
+    writeFileSync(join(root, "pkg", "f.ts"), "a\n");
+    git(root, "add", ".");
+    git(root, "commit", "-q", "-m", "pkg");
+    const sub = join(root, "pkg");
+    writeFileSync(join(sub, "f.ts"), "b\n");
+    const fp1 = fingerprint(sub);
+    writeFileSync(join(sub, "f.ts"), "c-entirely-different\n");
+    assert.notEqual(fingerprint(sub), fp1, "content edits under a subdir cwd must move the fingerprint");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("non-git fingerprint reacts to content changes", () => {
   const root = mkdtempSync(join(tmpdir(), "opl-init-nogit-"));
   try {

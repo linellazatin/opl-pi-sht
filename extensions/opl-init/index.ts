@@ -20,7 +20,6 @@ const MANIFESTS = new Set([
 const MAX_DEPTH = 3;
 const MAX_MEMBER_DEPTH = 3;
 const MAX_TREE_LINES = 300;
-const MAX_MANIFEST_BYTES = 2048;
 const MAX_MANIFEST_PARSE_BYTES = 262144;
 const MAX_DIR_ENTRIES = 40;
 // Bumping this constant is how generator upgrades invalidate every
@@ -48,7 +47,10 @@ function fingerprintGit(root: string): string | null {
   const head = gitOutput(root, ["rev-parse", "HEAD"]);
   if (head === null) return null;
   const hash = createHash("sha256").update(`schema:${GUIDE_SCHEMA_VERSION}\0head:${head}\0`);
-  for (const path of (gitOutput(root, ["diff", "HEAD", "--name-only", "-z"]) ?? "").split("\0")) {
+  // --relative keeps diff paths cwd-relative and cwd-scoped, matching
+  // ls-files --others and the crawl; without it a subdirectory session would
+  // resolve every dirty path to a nonexistent file and hash "DELETED".
+  for (const path of (gitOutput(root, ["diff", "HEAD", "--name-only", "-z", "--relative"]) ?? "").split("\0")) {
     if (!path || path === "AGENTS.md") continue;
     hash.update(`${path}\0`).update(hashFile(join(root, path))).update("\0");
   }
@@ -343,36 +345,52 @@ function buildGuide(root: string, crawlResult: Crawl, marker: string): string {
   return `# Repository Guide\n\n## What this is\n\nRepository at \`${root}\`. Use the repository files as the source of truth; the top-level inventory includes ${topLevel || "(not available)"}.\n\n## Commands\n\n${commandBlock}\n\n## Repository inventory\n\n- File types: ${[...crawlResult.extCounts.entries()].map(([extension, count]) => `${extension} (${count})`).join(", ") || "none detected"}.\n- Inspect specific files before changing behavior; this guide is a starting point, not a substitute for reading the code.\n\n## Agent workflow\n\nKeep changes focused on the requested behavior, preserve existing interfaces, and run the narrowest relevant test before the full suite. Keep secrets and generated output out of tracked configuration.\n${marker}\n`;
 }
 
-// One out-of-band completion's worth of evidence: the deterministic stand-in
-// for the tools the refine call does not have. The model cannot open files,
-// so bounded file heads ride along under a hard byte budget.
 const MAX_EVIDENCE_BYTES = 24576;
 const MAX_README_HEAD_BYTES = 2048;
 
-function evidencePacket(root: string, baseline: string, members: string[]): string {
+// Evidence the model cannot fetch itself: the deterministic stand-in for the
+// tools the refine call does not have, under a hard byte budget. The spec's
+// three parts: baseline guide, full per-package scripts blocks, readme heads.
+function evidencePacket(
+  root: string,
+  baseline: string,
+  crawlResult: { manifests: { path: string; content: string }[]; workspaceMembers: string[] },
+): string {
   const parts = [baseline];
   let used = Buffer.byteLength(baseline, "utf8");
-  const candidates = ["README.md", "readme.md", "README", "CLAUDE.md"];
-  const paths = [...candidates, ...members.flatMap((m) => candidates.map((c) => `${m}/${c}`))];
-  for (const rel of paths) {
-    if (used >= MAX_EVIDENCE_BYTES) {
+  const push = (block: string): boolean => {
+    const bytes = Buffer.byteLength(block, "utf8") + 1;
+    if (used + bytes > MAX_EVIDENCE_BYTES) {
       parts.push("(evidence truncated)");
-      break;
+      return false;
     }
+    used += bytes;
+    parts.push(block);
+    return true;
+  };
+  for (const manifest of crawlResult.manifests) {
+    if (!manifest.path.endsWith("package.json")) continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(manifest.content);
+    } catch {
+      continue;
+    }
+    const scripts = parsed?.scripts;
+    if (!scripts || typeof scripts !== "object") continue;
+    const block = `=== scripts: ${manifest.path} ===\n${Object.entries(scripts).map(([name, command]) => `${name}: ${command}`).join("\n")}`;
+    if (!push(block)) return parts.join("\n");
+  }
+  const candidates = ["README.md", "readme.md", "README", "CLAUDE.md"];
+  const paths = [...candidates, ...crawlResult.workspaceMembers.flatMap((m) => candidates.map((c) => `${m}/${c}`))];
+  for (const rel of paths) {
     let head: string;
     try {
       head = readFileSync(join(root, rel), "utf8").slice(0, MAX_README_HEAD_BYTES);
     } catch {
       continue;
     }
-    const bytes = Buffer.byteLength(head, "utf8");
-    if (used + bytes > MAX_EVIDENCE_BYTES) {
-      parts.push(`=== ${rel} ===`);
-      parts.push("(evidence truncated)");
-      break;
-    }
-    used += bytes;
-    parts.push(`=== ${rel} ===`, head);
+    if (!push(`=== ${rel} ===\n${head}`)) break;
   }
   return parts.join("\n");
 }
@@ -390,21 +408,30 @@ const REFINE_SYSTEM_PROMPT = [
 // and the extension's exact marker is appended as the final line.
 function finalizeRefinedGuide(text: string, marker: string): string {
   let body = text.trim();
-  body = body.replace(/^```[a-zA-Z]*\s*\n/, "").replace(/\n```\s*$/, "");
+  // Strip a wrapper fence only when it opens *and* closes; a guide ending in
+  // a legitimate code block keeps its closing fence.
+  if (/^```[a-zA-Z]*\s*\n/.test(body)) {
+    body = body.replace(/^```[a-zA-Z]*\s*\n/, "").replace(/\n```\s*$/, "");
+  }
   body = body.replace(/<!-- opl-init:fp \S+ -->/g, "").trimEnd();
   return `${body}\n${marker}\n`;
 }
 
 // One out-of-band completion on the current model. No tools, no session
 // message: any failure returns null and the caller writes the baseline.
+// Bounded so a stalled provider cannot leave /init hanging with no UI signal
+// (the old injected turn was Esc-cancellable; this replaces that escape hatch).
+const REFINE_TIMEOUT_MS = 120000;
+
 async function refineGuide(ctx: any, evidence: string, marker: string): Promise<string | null> {
   const model = ctx.model;
   if (!model || typeof ctx.modelRegistry?.streamSimple !== "function") return null;
+  ctx.ui?.notify?.("opl-init: refining the guide with the current model...", "info");
   try {
     const stream = ctx.modelRegistry.streamSimple(
       model,
-      { systemPrompt: REFINE_SYSTEM_PROMPT, messages: [{ role: "user", content: evidence }], tools: [] },
-      { reasoning: false },
+      { systemPrompt: REFINE_SYSTEM_PROMPT, messages: [{ role: "user", content: evidence, timestamp: Date.now() }], tools: [] },
+      { reasoning: false, signal: AbortSignal.timeout(REFINE_TIMEOUT_MS) },
     );
     const result = await stream.result();
     if (!result || result.stopReason === "error" || result.stopReason === "aborted") return null;
@@ -457,7 +484,7 @@ export default function (pi: ExtensionAPI) {
       // repository's version control is the recovery path.
       const crawlResult = crawl(root);
       const baseline = buildGuide(root, crawlResult, marker);
-      const refined = await refineGuide(ctx, evidencePacket(root, baseline, crawlResult.workspaceMembers), marker);
+      const refined = await refineGuide(ctx, evidencePacket(root, baseline, crawlResult), marker);
 
       try {
         writeFileSync(agentsPath, refined ?? baseline, "utf8");

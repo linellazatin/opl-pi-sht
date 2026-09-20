@@ -10,7 +10,7 @@ Generates or refreshes a repository-specific `AGENTS.md` guide through `/init`.
 ## Extension features
 
 - Produces a deterministic repository guide with package commands and a file-type inventory, then refines it with **one** `ctx.modelRegistry.streamSimple()` call on the current model (pi >= 0.86.0). The refinement never enters the conversation: no synthetic user message, no turn in the transcript, no `write` tool needed, and read-only/chat/plan modes refine identically.
-- The model only sees a bounded evidence packet (the baseline guide plus the first ~2 KB of each root/workspace `README`/`CLAUDE.md`, hard 24 KB budget with an explicit truncation line). The crawl is the only explorer.
+- The model only sees a bounded evidence packet (the baseline guide, every `package.json`'s full scripts block, and the first ~2 KB of each root/workspace `README`/`CLAUDE.md`, hard 24 KB budget with an explicit truncation line). The crawl is the only explorer.
 - The extension owns the fingerprint marker: model output is stripped of fences and any `opl-init:fp` comment, and the exact marker is appended as the final line. A model can never corrupt or fake a "current" guide.
 - Refine failure (no model, no auth, provider error, empty output) writes the deterministic baseline and notifies `refine failed` - `/init` only fails to write if the write itself fails.
 - Mid-session `/init` waits for the agent to settle (`ctx.waitForIdle()`), recomputes the fingerprint, and only then crawls. It never steers or interrupts the task in flight.
