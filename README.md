@@ -76,6 +76,7 @@ Copy mode overwrites matching destinations. Link mode skips existing destination
 | [`opl-webaccess`](extensions/opl-webaccess/README.md)         | Search plus readable URL/PDF retrieval with session recovery.                                                                                                                                                                | `web_search`, `fetch_content`, `get_search_content`; `opl-webaccess.json`.                                     |
 | [`opl-browser`](extensions/opl-browser/README.md)             | Chromium automation via Playwright with structured extraction of rendered pages; single dispatcher tool replacing the chrome-devtools MCP.                                                                                   | `browser` (action-based); `opl-browser.json`.                                                                  |
 | [`opl-ctxtrim`](extensions/opl-ctxtrim/README.md)             | Trims verbose`ctx_*` tool-schema descriptions on outbound provider requests (~67% smaller schema, ~4,700-6,300 tokens/request). Built specifically for the [context-mode](https://github.com/mksglu/context-mode) extension. | No commands/tools; no config.                                                                                  |
+| [`opl-guardian`](extensions/opl-guardian/README.md)           | Drops malformed assistant tool calls before session persistence or replay, with project-local JSONL evidence. | No commands/tools; no config.                                                                                  |
 | [`opl-todo`](extensions/opl-todo/README.md)                   | Branch-aware task tool, overlay, and task list.                                                                                                                                                                              | `todo`, `/todos`; `opl-todo.json`.                                                                             |
 | [`opl-questionnaire`](extensions/opl-questionnaire/README.md) | Interactive structured-choice tool.                                                                                                                                                                                          | `questionnaire`; no config.                                                                                    |
 | [`opl-input`](extensions/opl-input/README.md)                 | Configurable replacement editor - enhanced [pikit chat-input](https://github.com/adrianapan/pikit) (because pet is life, and configurable). ![pet](images/ss-input-pet.png)                                                                                   | No commands/tools;`opl-input.json`.                                                                            |
@@ -107,6 +108,7 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 - **`opl-modes`** chat and plan modes swap the active toolset for read-only lists and gate Bash to safe inspection patterns **per shell segment**, so `cat f && node -e '...'`, `cat x & rm -rf /tmp/x`, and `echo "$(node -e ...)"` can no longer ride the first command's allowance. Destructive checks still fire inside otherwise-safe commands (anchored to command position, so `du -sh` and `find . -name '*.sh'` stay allowed; `find -delete`, `find -fprint`, `git log --output`, `sort -o`, `npm audit fix`, `git clean`, `sudo`, and quote-obfuscated `r"m"`/`-del"ete"` are blocked; `env`/`printenv` are not safe-listed). The plan to execute lifecycle keeps exploration and mutation cleanly separated. Add custom modes (like below) for your workflow needs.
 ![custom mode sample](images/ss-mode-custom.png)
 - `load_tools` activation is bounded by the current mode, so a read-only mode cannot be tricked into enabling a write-capable tool.
+- **`opl-guardian`** stops a malformed provider tool-call record from poisoning the session: it removes calls missing an ID or name before Pi persists or replays them, while preserving dropped records in `err/guardian.jsonl` for an upstream report.
 
 
 ### Move through work faster
@@ -137,7 +139,7 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 | If you want to...                  | Install                                                         |
 | ---------------------------------- | --------------------------------------------------------------- |
 | Cut token cost with minimal change | `opl-ctxtrim`, `opl-modes`                                      |
-| Run the agent safely on real repos | `opl-modes` (pulls in the `opl-input` + `opl-footer` UI bundle) |
+| Run the agent safely on real repos | `opl-modes` (pulls in the `opl-input` + `opl-footer` UI bundle), `opl-guardian` |
 | Research and drive the web         | `opl-webaccess`, `opl-browser`                                  |
 | Choose models with data            | `opl-simplebench`                                               |
 | The full, coordinated experience   | all ten                                                         |
@@ -161,6 +163,7 @@ Installing extensions adds tool schemas (name + description + JSON parameters) t
 | `opl-init` | command only (no tool) | ~0 |
 | `opl-input` | UI only | ~0 |
 | `opl-footer` | UI only | ~0 |
+| `opl-guardian` | none (session-integrity guard) | ~0 |
 | `opl-ctxtrim` | none (payload transformer) | net negative |
 
 Command descriptions add roughly another ~120 tokens collectively, and only if your build surfaces them in the prompt or help block.
@@ -218,4 +221,4 @@ A Pi package (npm or Git) still needs the one-time `npx playwright install chrom
 npm test
 ```
 
-Run one extension suite with `npm run test:opl-<name>` for `browser`, `footer`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, `simplebench`, or `ctxtrim`. Every helper, functional, and selected-entrypoint smoke check uses Bun's named-test reporter; output includes per-test status, timings, and pass/fail totals. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.
+Run one extension suite with `npm run test:opl-<name>` for `browser`, `footer`, `guardian`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, `simplebench`, or `ctxtrim`. Every helper, functional, and selected-entrypoint smoke check uses Bun's named-test reporter; output includes per-test status, timings, and pass/fail totals. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.

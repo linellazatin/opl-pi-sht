@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2] - 2026-09-21
+
+### Added
+
+- **`opl-guardian`**: removes assistant tool calls with blank IDs or names at Pi's `message_end` boundary before they persist or replay. Each removal is recorded in `<cwd>/err/guardian.jsonl`; valid sibling calls continue, while invalid-only responses become a clean stop that can be followed by another prompt.
+  - This is the first feature that opl-guardian can do for now. If I happen to encounter another error/issue that can be (possibly) fixed via extensions, I might add that up in this extension.
+
 ## [0.2.1] - 2026-09-20
 
 ### MAJOR CHANGE - opl-init: single flagless /init, out-of-band model refinement
