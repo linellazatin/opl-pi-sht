@@ -14,6 +14,14 @@
 
 A portable collection of various Pi coding agent extensions. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
 
+<div align="center">
+
+>
+> ## v0.2.3 (22 Sept 2026) - updated `opl-modes` extension compatibility with latest pi release [now requires pi >= 0.87.0]<br/>see [CHANGELOG.md](CHANGELOG.md) for more details.
+>
+
+</div>
+
 ## Installation
 
 ### Pi package
@@ -105,7 +113,7 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 
 ### Run the agent without babysitting it
 
-- **`opl-modes`** chat and plan modes swap the active toolset for read-only lists and gate Bash to safe inspection patterns **per shell segment**, so `cat f && node -e '...'`, `cat x & rm -rf /tmp/x`, and `echo "$(node -e ...)"` can no longer ride the first command's allowance. Destructive checks still fire inside otherwise-safe commands (anchored to command position, so `du -sh` and `find . -name '*.sh'` stay allowed; `find -delete`, `find -fprint`, `git log --output`, `sort -o`, `npm audit fix`, `git clean`, `sudo`, and quote-obfuscated `r"m"`/`-del"ete"` are blocked; `env`/`printenv` are not safe-listed). The plan to execute lifecycle keeps exploration and mutation cleanly separated. Add custom modes (like below) for your workflow needs.
+- **`opl-modes`** chat and plan modes swap the active toolset for read-only lists and gate Bash to safe inspection patterns **per shell segment**, so `cat f && node -e '...'`, `cat x & rm -rf /tmp/x`, and `echo "$(node -e ...)"` can no longer ride the first command's allowance. Destructive checks still fire inside otherwise-safe commands (anchored to command position, so `du -sh` and `find . -name '*.sh'` stay allowed; `find -delete`, `find -fprint`, `git log --output`, `sort -o`, `npm audit fix`, `git clean`, `sudo`, and quote-obfuscated `r"m"`/`-del"ete"` are blocked; `env`/`printenv` are not safe-listed). The plan to execute lifecycle keeps exploration and mutation cleanly separated. Add custom modes (like below) for your workflow needs. Execute-mode auto-exit needs pi >= 0.87.0 (the `agent_before_settle` boundary).
 ![custom mode sample](images/ss-mode-custom.png)
 - `load_tools` activation is bounded by the current mode, so a read-only mode cannot be tricked into enabling a write-capable tool.
 - **`opl-guardian`** stops a malformed provider tool-call record from poisoning the session: it removes calls missing an ID or name before Pi persists or replays them, while preserving dropped records in `err/guardian.jsonl` for an upstream report.
