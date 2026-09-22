@@ -23,6 +23,7 @@ import type {
   ToolCallEventResult,
   ToolResultEvent,
   AgentEndEvent,
+  AgentBeforeSettleEvent,
 } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
@@ -668,26 +669,23 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     enterOffMode(ctx, "Plan implemented. Plan mode OFF.");
   });
 
-  // ─── Event: agent_end (extract plan text in PLAN mode; auto-exit execute) ───
+  // ─── Event: agent_before_settle (auto-exit execute when the run is truly done) ───
+
+  // Pi 0.87 boundary: fires after any automatic retry, compaction-and-retry, or queued
+  // follow-up work, so execute mode is not dropped mid-plan at an intermediate agent_end.
+  pi.on("agent_before_settle", async (event: AgentBeforeSettleEvent, ctx: ExtensionContext) => {
+    // If plan_complete was never called, exit execute mode automatically once Pi has fully
+    // settled. (If it was called, mode is already "off" here — this check is a no-op.)
+    // "aborted" (ESC) and "error" (provider failure) are pauses, not finished executions;
+    // only a completed run exits execute mode.
+    if (getMode() === "execute" && event.outcome === "completed") {
+      enterOffMode(ctx, "Execution complete. Mode OFF.");
+    }
+  });
+
+  // ─── Event: agent_end (extract plan text in PLAN mode) ───
 
   pi.on("agent_end", async (event: AgentEndEvent, ctx: ExtensionContext) => {
-    // If plan_complete was never called, exit execute mode automatically.
-    // (If it was called, mode is already "off" here — this check is a no-op.)
-    if (getMode() === "execute") {
-      // An aborted turn (ESC) is a pause, not a finished execution: stay in execute mode
-      // so the plan can be resumed instead of silently dropping out mid-plan. Pi emits an
-      // assistant message with stopReason "aborted" even when the abort lands before the
-      // first token, so there is always a message to read here.
-      const lastAssistant = [...event.messages].reverse().find((m) => m.role === "assistant") as
-        | { stopReason?: string }
-        | undefined;
-      // Only a turn that actually finished counts as done: "aborted"/"error" (and a missing
-      // assistant message) are pauses, so execute mode survives ESC and provider failures.
-      const reason = lastAssistant?.stopReason;
-      if (reason && reason !== "aborted" && reason !== "error") enterOffMode(ctx, "Execution complete. Mode OFF.");
-      return;
-    }
-
     if (getMode() !== "plan") return;
     if (!ctx.hasUI) return;
 

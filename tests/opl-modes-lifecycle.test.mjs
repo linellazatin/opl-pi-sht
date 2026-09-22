@@ -1,5 +1,5 @@
 // Lifecycle tests for opl-modes: they mount the real extension against a fake Pi host so the
-// tool/model snapshot behaviour and the agent_end auto-exit rule are exercised end to end.
+// tool/model snapshot behaviour and the agent_before_settle auto-exit rule are exercised end to end.
 // Run: bun test tests/opl-modes-lifecycle.test.mjs
 import assert from "node:assert/strict";
 import { test, beforeEach, afterEach } from "bun:test";
@@ -214,7 +214,7 @@ test("OFF's own model replaces the pending restore point", async () => {
   assert.deepEqual(getRestoringModel(), null);
 });
 
-test("execute mode survives an aborted or failed turn and exits on a completed one", async () => {
+test("execute mode survives aborted/error outcomes and exits on a completed one", async () => {
   const h = mount({
     tools: BASE_TOOLS,
     active: ["read", "bash"],
@@ -223,21 +223,18 @@ test("execute mode survives an aborted or failed turn and exits on a completed o
       { type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: null, restoreModel: null } },
     ],
   });
-  const endWith = async (messages) => { await h.fire("agent_end", { messages }); await tick(); };
+  const settleWith = async (outcome) => { await h.fire("agent_before_settle", { outcome }); await tick(); };
 
   await h.fire("session_start", { reason: "startup" });
   assert.equal(getMode(), "execute", "resume re-enters execute mode");
   assert.ok(h.active().includes("plan_complete"), "resume re-arms plan_complete");
 
-  await endWith([{ role: "assistant", stopReason: "aborted" }]);
+  await settleWith("aborted");
   assert.equal(getMode(), "execute", "ESC is a pause, not a finished execution");
 
-  await endWith([{ role: "assistant", stopReason: "error" }]);
+  await settleWith("error");
   assert.equal(getMode(), "execute", "a provider failure keeps the plan resumable");
 
-  await endWith([{ role: "user", content: "hi" }]);
-  assert.equal(getMode(), "execute", "no assistant message means the turn never completed");
-
-  await endWith([{ role: "assistant", stopReason: "endTurn" }]);
-  assert.equal(getMode(), "off", "a completed turn exits execute mode");
+  await settleWith("completed");
+  assert.equal(getMode(), "off", "a completed run exits execute mode");
 });
