@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.3] - 2026-09-22
+
+### Changed
+
+- **`opl-modes`** (Pi **0.87.0** compatibility): `execute-mode` auto-exit moved from `agent_end` to the new `agent_before_settle` boundary. 
+  - In Pi 0.87.0 `agent_end` fires when the low-level run ends but Pi may still auto-retry, auto-compact and retry, or continue with queued follow-up messages, so exiting execute mode there could drop the session out of execute mode early. 
+  - `agent_before_settle` fires only after that automatic work settles, so execute mode now survives retries/recovery and queued follow-ups and exits on the final `outcome === "completed"`. 
+  - Plan-text extraction stays on `agent_end` (it needs `event.messages`, which the settle boundary does not expose).
+
+### Tests
+
+- **`opl-modes-lifecycle.tests.mjs`** (Pi **0.87.0** compatibility): Renamed/focused the test to fire agent_before_settle with outcome: "aborted" | "error" | "completed" instead of fake `agent_end` message payloads.
+  - Dropped the obsolete "no assistant message" case (tied to the old stopReason read).
+
 ## [0.2.2] - 2026-09-21
 
 ### Added
