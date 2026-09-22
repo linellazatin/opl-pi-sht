@@ -17,7 +17,7 @@ A portable collection of various Pi coding agent extensions. Repository director
 <div align="center">
 
 >
-> ## v0.2.3 (22 Sept 2026) - updated `opl-modes` extension compatibility with latest pi release [now requires pi >= 0.87.0]<br/>see [CHANGELOG.md](CHANGELOG.md) for more details.
+> ## v0.2.4 (22 Sept 2026) - Pi 0.87 host-loader smoke test now runs in CI<br/>see [CHANGELOG.md](CHANGELOG.md) for more details.
 >
 
 </div>
@@ -229,4 +229,4 @@ A Pi package (npm or Git) still needs the one-time `npx playwright install chrom
 npm test
 ```
 
-Run one extension suite with `npm run test:opl-<name>` for `browser`, `footer`, `guardian`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, `simplebench`, or `ctxtrim`. Every helper, functional, and selected-entrypoint smoke check uses Bun's named-test reporter; output includes per-test status, timings, and pass/fail totals. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.
+Run one extension suite with `npm run test:opl-<name>` for `browser`, `footer`, `guardian`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, `simplebench`, or `ctxtrim`. `npm run test:pi-host` uses Pi 0.87.0's real extension loader to load every entrypoint and assert no loader errors. Every helper, functional, and selected-entrypoint smoke check uses Bun's named-test reporter; output includes per-test status, timings, and pass/fail totals. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.
