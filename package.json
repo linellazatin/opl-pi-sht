@@ -1,6 +1,6 @@
 {
   "name": "@openlines/opl-pi-sht",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "opl-pi-sht (shouldHaveThat) Pi coding-agent extension kit: token-efficient context, safe modes, fingerprinted /init, model benchmarking, web access, and browser automation.",
   "repository": {
     "type": "git",
@@ -40,7 +40,7 @@
   },
   "type": "module",
   "scripts": {
-    "test": "npm run test:opl-browser && npm run test:opl-footer && npm run test:opl-guardian && npm run test:opl-init && npm run test:opl-input && npm run test:opl-modes && npm run test:opl-questionnaire && npm run test:opl-todo && npm run test:opl-webaccess && npm run test:opl-simplebench && npm run test:opl-ctxtrim",
+    "test": "npm run test:opl-browser && npm run test:opl-footer && npm run test:opl-guardian && npm run test:opl-init && npm run test:opl-input && npm run test:opl-modes && npm run test:opl-questionnaire && npm run test:opl-todo && npm run test:opl-webaccess && npm run test:opl-simplebench && npm run test:opl-ctxtrim && npm run test:pi-host",
     "test:opl-browser": "bun test tests/opl-browser-helpers.test.mjs && OPL_EXTENSION=opl-browser bun test tests/extension-smoke.test.mjs",
     "test:opl-footer": "bun test tests/opl-footer-helpers.test.mjs && OPL_EXTENSION=opl-footer bun test tests/extension-smoke.test.mjs",
     "test:opl-guardian": "bun test tests/opl-guardian.test.mjs && OPL_EXTENSION=opl-guardian bun test tests/extension-smoke.test.mjs",
@@ -51,6 +51,10 @@
     "test:opl-todo": "bun test tests/opl-todo-config.test.mjs tests/opl-todo-render.test.mjs && OPL_EXTENSION=opl-todo bun test tests/extension-smoke.test.mjs",
     "test:opl-webaccess": "bun test tests/opl-webaccess-helpers.test.mjs && OPL_EXTENSION=opl-webaccess bun test tests/extension-smoke.test.mjs",
     "test:opl-simplebench": "bun test tests/opl-simplebench.test.ts && OPL_EXTENSION=opl-simplebench bun test tests/extension-smoke.test.mjs",
-    "test:opl-ctxtrim": "bun test tests/opl-ctxtrim.test.ts && OPL_EXTENSION=opl-ctxtrim bun test tests/extension-smoke.test.mjs"
+    "test:opl-ctxtrim": "bun test tests/opl-ctxtrim.test.ts && OPL_EXTENSION=opl-ctxtrim bun test tests/extension-smoke.test.mjs",
+    "test:pi-host": "bun test tests/pi-host-loader.test.mjs"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.87.0"
   }
 }

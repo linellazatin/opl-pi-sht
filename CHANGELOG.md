@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.4] - 2026-09-22
+
+### Added
+
+- **Pi 0.87.0 host-loader smoke:** `npm run test:pi-host` loads all 11 package extension entrypoints through Pi's real `discoverAndLoadExtensions()` API and fails on any loader error. The test is part of `npm test`, so it runs in CI and release validation.
+
+### Changed
+
+- Added `@earendil-works/pi-coding-agent` **0.87.0** as a development-only dependency for the real-loader smoke. Distributed package host peers remain `"*"`, as Pi's package documentation requires.
+
 ## [0.2.3] - 2026-09-22
 
 ### Changed
