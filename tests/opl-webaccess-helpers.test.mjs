@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { errorMessage, isAbortError, truncate, isPdfUrl, isPdfContentType, assertHttpUrl } from "../extensions/opl-webaccess/utils.ts";
+import { errorMessage, isAbortError, truncate, isPdfUrl, isPdfContentType, assertHttpUrl, paginateContent, continuationNotice } from "../extensions/opl-webaccess/utils.ts";
 import { generateId, storeResult, getResult, clearStore } from "../extensions/opl-webaccess/storage.ts";
+import { resolveCaps, DEFAULT_MAX_CONTENT_CHARS, DEFAULT_MAX_RETRIEVAL_CHARS } from "../extensions/opl-webaccess/config.ts";
 
 test("classifies web errors and truncates retrieval content", () => {
   assert.equal(errorMessage(new Error("boom")), "boom");
@@ -16,6 +17,35 @@ test("classifies web errors and truncates retrieval content", () => {
   assert.ok(truncated.startsWith("hello"), "keeps the first maxChars");
   assert.ok(truncated.includes("Content truncated"), "adds truncation notice");
   assert.ok(truncated.includes("get_search_content"), "notice mentions retrieval tool");
+});
+
+test("paginates retrieval content with continuation offsets", () => {
+  const page = paginateContent("abcdefghij", 3, 4);
+  assert.equal(page.text, "defg", "starts at offset");
+  assert.equal(page.offset, 3);
+  assert.equal(page.totalChars, 10);
+  assert.equal(page.nextOffset, 7, "points past the returned slice");
+  assert.ok(continuationNotice(page).includes("offset=7"), "notice tells the model how to continue");
+
+  const last = paginateContent("abcdefghij", 8, 4);
+  assert.equal(last.text, "ij", "final slice is short");
+  assert.equal(last.nextOffset, null, "no continuation past the end");
+  assert.equal(continuationNotice(last), "", "no notice when complete");
+
+  const clamped = paginateContent("abc", 99, 4);
+  assert.equal(clamped.text, "", "offset past the end yields empty text");
+  assert.equal(clamped.nextOffset, null);
+});
+
+test("resolves configurable content limits with defaults", () => {
+  assert.equal(DEFAULT_MAX_CONTENT_CHARS, 30000);
+  assert.equal(DEFAULT_MAX_RETRIEVAL_CHARS, 60000);
+  const defaults = resolveCaps({});
+  assert.equal(defaults.maxContentChars, 30000);
+  assert.equal(defaults.maxRetrievalChars, 60000);
+  const custom = resolveCaps({ maxContentChars: 1234, maxRetrievalChars: 42 });
+  assert.equal(custom.maxContentChars, 1234);
+  assert.equal(custom.maxRetrievalChars, 42);
 });
 
 test("recognizes PDF URLs and content types", () => {

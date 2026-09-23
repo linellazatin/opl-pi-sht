@@ -18,6 +18,21 @@ export interface ProviderConfig {
 export interface WebAccessConfig {
   provider: string;
   providers: Record<string, ProviderConfig>;
+  /** Cap on the initial web_search/fetch_content body (chars). */
+  maxContentChars?: number;
+  /** Cap on one get_search_content retrieval page (chars). */
+  maxRetrievalChars?: number;
+}
+
+export const DEFAULT_MAX_CONTENT_CHARS = 30_000;
+export const DEFAULT_MAX_RETRIEVAL_CHARS = 60_000;
+
+/** Resolve configurable content caps, falling back to defaults. */
+export function resolveCaps(cfg: Pick<WebAccessConfig, "maxContentChars" | "maxRetrievalChars">) {
+  return {
+    maxContentChars: cfg.maxContentChars ?? DEFAULT_MAX_CONTENT_CHARS,
+    maxRetrievalChars: cfg.maxRetrievalChars ?? DEFAULT_MAX_RETRIEVAL_CHARS,
+  };
 }
 
 const CONFIG_PATH = join(getAgentDir(), "configs", "opl-webaccess.json");
