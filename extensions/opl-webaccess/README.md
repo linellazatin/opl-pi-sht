@@ -7,7 +7,7 @@ Provides configurable web search and readable URL/PDF retrieval with session-bac
 - Tools: `web_search`, `fetch_content`, and `get_search_content`.
 - `web_search` accepts `query` or parallel `queries`.
 - `fetch_content` accepts `url` or `urls` with at most three requests in flight.
-- `get_search_content` uses a prior `responseId`, with `queryIndex`, `urlIndex`, or exact `url` selection.
+- `get_search_content` uses a prior `responseId`, with `queryIndex`, `urlIndex`, or exact `url` selection. It returns one bounded page; pass `offset` to continue a truncated retrieval.
 - No slash commands or shortcuts.
 
 ## Extension features
@@ -15,7 +15,8 @@ Provides configurable web search and readable URL/PDF retrieval with session-bac
 - Searches through `gemini`, `tavily`, `ddgs`, `searxng`, or `exa`; multiple queries run concurrently and results include citations where available.
 - Extracts HTML with Readability and Markdown conversion, falls back to full-document Turndown conversion, passes PDF responses to the PDF extractor, and returns plain text, Markdown, and JSON directly.
 - Restricts `fetch_content` to http/https, caps each response at 10 MB, and applies a 30s timeout; Gemini keys are sent via the `x-goog-api-key` header rather than the query string.
-- Caps initial tool output at 30,000 characters, then keeps it for retrieval for one hour or until the session ends.
+- Caps initial tool output at a configurable length (default 30,000 characters), then keeps it for retrieval for one hour or until the session ends.
+- Pages `get_search_content` results (default 30,000 characters per page) with `offset` continuation, so a model never loads the whole stored body in one call.
 - Honors abort signals and returns provider, HTTP, and per-result failures through the tool boundary rather than throwing.
 
 ## Configuration
@@ -33,6 +34,13 @@ Copy [`configs/opl-webaccess.json.sample`](../../configs/opl-webaccess.json.samp
 ```
 
 Provider fields include `apiKeyEnv`, `apiUrl`, `baseUrl`, `model`, `maxResults`, `instanceUrl`, `categories`, `safeSearch`, `searchType`, and `includeSummary`. API keys are read only from named environment variables. Missing or invalid config falls back to Gemini defaults; an unknown provider returns an error.
+
+Optional top-level caps control how much content reaches the model:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `maxContentChars` | `30000` | Cap on the initial `web_search`/`fetch_content` body. |
+| `maxRetrievalChars` | `30000` | Cap on one `get_search_content` page. Pass `offset` to continue. |
 
 Install extraction dependencies before use:
 
