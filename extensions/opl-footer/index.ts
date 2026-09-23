@@ -278,15 +278,12 @@ export default function footer(pi: ExtensionAPI) {
       ? thinkingEvents.reduce((_, e) => e.thinkingLevel ?? "off", "off")
       : null;
 
-    const lastAssistant = completedMessages.at(-1);
-
-    // Calculate context percentage
-    const contextTokens = lastAssistant
-      ? lastAssistant.usage.input + lastAssistant.usage.output +
-        lastAssistant.usage.cacheRead + lastAssistant.usage.cacheWrite
-      : 0;
-    const contextWindow = ctx.model?.contextWindow || 0;
-    const contextPercent = contextWindow > 0 ? (contextTokens / contextWindow) * 100 : 0;
+    // Prefer Pi's canonical context usage (0.87), which is null when usage is unknown
+    // (e.g. right after compaction, before the next assistant reply) or after a context
+    // edit. Fall back to the model's window when unavailable.
+    const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
+    const contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
+    const contextPercent = usage?.percent ?? null;
 
     // Get git status (cached). Skip the probes entirely when no visible row renders the
     // git segment — otherwise an unused cell keeps spawning git once per second.

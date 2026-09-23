@@ -46,6 +46,9 @@ function positionColor(
 export const contextPctSegment = {
   id: "context_pct" as const,
   render(ctx: SegmentContext): RenderedSegment {
+    if (ctx.contextPercent === null) {
+      return { content: color(ctx, "contextLabel", "(--%)"), visible: true };
+    }
     const pct = DEBUG_PCT ?? ctx.contextPercent;
     const barOpts = ctx.options.contextBar ?? {};
 
