@@ -17,7 +17,7 @@ A portable collection of various Pi coding agent extensions. Repository director
 <div align="center">
 
 >
-> ## v0.2.4 (22 Sept 2026) - Pi 0.87 host-loader smoke test now runs in CI<br/>see [CHANGELOG.md](CHANGELOG.md) for more details.
+> ### v0.2.5 (24 Sept 2026) - **Dev dependency floor**: `@earendil-works/pi-coding-agent` is now `^0.87.0` <br/>see [CHANGELOG.md](CHANGELOG.md) for more details.
 >
 
 </div>

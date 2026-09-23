@@ -1,6 +1,21 @@
 # Changelog
 
-## [0.2.4] - 2026-09-22
+## [0.2.5] - 2026-09-24
+
+### Added
+
+- **`opl-webaccess` configurable content caps**: `maxContentChars` caps the initial `web_search`/`fetch_content` body (default 30000), and `maxRetrievalChars` caps one `get_search_content` page (default 30000). `get_search_content` gains an `offset` parameter and returns continuation metadata, so a single retrieval no longer dumps the whole stored body into context.
+- **`opl-browser` configurable retrieval cap**: `getChars` limits one `action: get` page (default 30000), with an `offset` parameter and continuation metadata for paged retrieval.
+
+### Changed
+
+- **`opl-footer`** `context_pct` now reads Pi's canonical `ctx.getContextUsage()` and renders an explicit `(--%)` when usage is unknown (right after compaction or a context edit), instead of reconstructing a possibly-stale percentage from the last assistant usage.
+- **`opl-modes`** plan loading now appends a TUI-only custom entry via `registerEntryRenderer`, keeping the plan out of the model context; the execute-mode system prompt remains the single model-facing copy.
+- **Dev dependency floor**: `@earendil-works/pi-coding-agent` is now `^0.87.0` (was pinned to `0.87.0`).
+
+### Tests
+
+- **`opl-footer`** git-probe back-off test now injects a clock via `setClock` and asserts TTL invariants instead of a wall-clock-sensitive probe count, making it deterministic.
 
 ### Added
 
