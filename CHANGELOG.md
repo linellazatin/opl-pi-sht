@@ -17,6 +17,8 @@
 
 - **`opl-footer`** git-probe back-off test now injects a clock via `setClock` and asserts TTL invariants instead of a wall-clock-sensitive probe count, making it deterministic.
 
+## [0.2.4] - 2026-09-22
+
 ### Added
 
 - **Pi 0.87.0 host-loader smoke:** `npm run test:pi-host` loads all 11 package extension entrypoints through Pi's real `discoverAndLoadExtensions()` API and fails on any loader error. The test is part of `npm test`, so it runs in CI and release validation.
