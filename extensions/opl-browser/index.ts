@@ -3,6 +3,7 @@ import { Type } from "typebox";
 
 import { loadUserConfig } from "./config.js";
 import { runAction, closeBrowser, type BrowserParams } from "./browser.js";
+import { paginateStored, continuationNotice } from "./paging.js";
 
 // ponytail: in-memory store with 1h TTL. Large outputs (snapshot, console,
 // network, evaluate) are kept out of context; only a preview + id are returned.
@@ -52,15 +53,20 @@ export default function (pi: ExtensionAPI) {
       width: Type.Optional(Type.Number({ description: "resize: viewport width" })),
       height: Type.Optional(Type.Number({ description: "resize: viewport height" })),
       responseId: Type.Optional(Type.String({ description: "get: id from a previous large result" })),
+      offset: Type.Optional(Type.Number({ description: "get: character offset to continue a truncated retrieval" })),
     }),
     async execute(_toolCallId, params) {
-      const p = params as BrowserParams & { responseId?: string };
+      const p = params as BrowserParams & { responseId?: string; offset?: number };
 
       if (p.action === "get") {
         if (!p.responseId) return err("get requires responseId");
         const hit = STORE.get(p.responseId);
         if (!hit) return err(`No stored result for ${p.responseId} (expires after 1h or on browser close).`);
-        return { content: [{ type: "text", text: hit.text }], details: { responseId: hit.id, action: hit.action } };
+        const page = paginateStored(hit.text, p.offset ?? 0, cfg.getChars);
+        return {
+          content: [{ type: "text", text: page.text + continuationNotice(page) }],
+          details: { responseId: hit.id, action: hit.action, chars: hit.text.length, offset: page.offset },
+        };
       }
 
       let result;

@@ -8,6 +8,7 @@ export interface BrowserConfig {
   height: number;
   navigationTimeoutMs: number;
   previewChars: number;
+  getChars: number;
 }
 
 export const DEFAULT_CONFIG: BrowserConfig = {
@@ -16,6 +17,7 @@ export const DEFAULT_CONFIG: BrowserConfig = {
   height: 800,
   navigationTimeoutMs: 30000,
   previewChars: 4000,
+  getChars: 60000,
 };
 
 const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "configs", "opl-browser.json");
@@ -33,5 +35,6 @@ export function loadUserConfig(configPath = CONFIG_PATH): BrowserConfig {
     height: user.height ?? DEFAULT_CONFIG.height,
     navigationTimeoutMs: user.navigationTimeoutMs ?? DEFAULT_CONFIG.navigationTimeoutMs,
     previewChars: user.previewChars ?? DEFAULT_CONFIG.previewChars,
+    getChars: user.getChars ?? DEFAULT_CONFIG.getChars,
   };
 }
