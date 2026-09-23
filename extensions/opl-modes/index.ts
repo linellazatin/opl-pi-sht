@@ -853,23 +853,19 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     const filePath = join(process.cwd(), PLAN_DIR, filename);
     if (existsSync(filePath)) {
       const planContent = readFileSync(filePath, "utf-8");
-      pi.sendMessage({
-        customType: "plan-mode",
-        content: planContent,
-        display: true,
-        details: { title: `Active plan: ${displayName}` },
-      });
+      pi.appendEntry("plan-mode", { title: displayName, plan: planContent });
     }
   }
 
-  // ─── Message renderer for plan messages ────────────────────────────────────
+  // ─── Entry renderer for TUI-only plan cards (never sent to the model) ──────
 
-  pi.registerMessageRenderer("plan-mode", (message, _options, theme) => {
+  pi.registerEntryRenderer("plan-mode", (entry, _options, theme) => {
+    const data = (entry.data ?? {}) as { title?: string; plan?: string };
     const border = new DynamicBorder((s: string) => theme.fg("border", s));
     const container = new Container();
     container.addChild(border);
-    container.addChild(new Text(theme.fg("text", "📄 " + (message.content as string).split("\n")[0])));
-    const body = (message.content as string).split("\n").slice(1).join("\n");
+    container.addChild(new Text(theme.fg("text", "📄 " + (data.title ?? ""))));
+    const body = (data.plan ?? "").split("\n").slice(1).join("\n");
     if (body) {
       container.addChild(new Spacer());
       container.addChild(new Text(body));

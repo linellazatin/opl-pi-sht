@@ -38,6 +38,20 @@ test("renders each agent status with its theme color", () => {
   assert.deepEqual(renderSegment("status", { ...ctx, agentStatus: "ready" }), { content: "[success]Ready", visible: true });
 });
 
+test("context_pct renders an explicit unknown state when usage is unavailable", () => {
+  const ctx = { theme: { fg: (_c, s) => s }, colors: {}, options: {}, contextPercent: null, contextWindow: 128000 };
+  const seg = renderSegment("context_pct", ctx);
+  assert.equal(seg.visible, true);
+  assert.equal(seg.content, "(--%)");
+});
+
+test("context_pct renders a percentage when usage is known", () => {
+  const ctx = { theme: { fg: (_c, s) => s }, colors: {}, options: {}, contextPercent: 42.5, contextWindow: 128000 };
+  const seg = renderSegment("context_pct", ctx);
+  assert.equal(seg.visible, true);
+  assert.match(seg.content, /\(42\.50%\)/, "shows the percentage and tokens");
+});
+
 test("derives footer status from agent and parallel Pi tool lifecycles", () => {
   const tracker = statusSegmentModule.createAgentStatusTracker();
   assert.equal(tracker.status(), "ready");
@@ -200,22 +214,43 @@ test("git probes back off outside a repository and recover on invalidation", asy
   process.env.OPL_GIT_LOG = log;
   const calls = () => (readFileSync(log, "utf8").match(/\n/g) || []).length;
 
-  try {
-    const git = await import("../extensions/opl-footer/git-status.ts");
-    // Render for long enough that the 1s/500ms TTLs would expire repeatedly without a back-off.
-    for (let i = 0; i < 8; i++) {
-      git.getGitStatus(null);
-      await new Promise((r) => setTimeout(r, 150));
-    }
-    const firstBurst = calls();
-    assert.ok(firstBurst >= 1, "expected at least one git call");
-    assert.ok(firstBurst <= 4, `expected one probe burst, saw ${firstBurst}`);
+  const settle = () => new Promise((r) => setTimeout(r, 300));
+  let git;
 
-    git.invalidateGitStatus(); // what `git init` in-session triggers via the tool_result matcher
+  try {
+    git = await import("../extensions/opl-footer/git-status.ts");
+    let fakeNow = 0;
+    git.setClock(() => fakeNow);
+
+    // First probe from a non-repository armed the 30s back-off.
     git.getGitStatus(null);
-    await new Promise((r) => setTimeout(r, 150));
-    assert.ok(calls() > firstBurst, "invalidation clears the back-off so a new repo is picked up");
+    await settle();
+    await settle();
+    const burst = calls();
+    assert.ok(burst >= 1, "expected at least one git call");
+
+    // Within the back-off window, no amount of rendering re-probes.
+    for (let i = 0; i < 6; i++) {
+      fakeNow += 3_000;
+      git.getGitStatus(null);
+    }
+    assert.equal(calls(), burst, "back-off suppresses probes within its window");
+
+    // Past the window the back-off expires and probing resumes.
+    fakeNow += 29_000;
+    git.getGitStatus(null);
+    await settle();
+    assert.ok(calls() > burst, "an expired back-off re-probes");
+
+    // Invalidation clears the back-off so a just-created repo is re-discovered.
+    const afterExpiry = calls();
+    git.invalidateGitStatus();
+    fakeNow += 1;
+    git.getGitStatus(null);
+    await settle();
+    assert.ok(calls() > afterExpiry, "invalidation clears the back-off");
   } finally {
+    git?.setClock();
     process.chdir(prevCwd);
     process.env.PATH = prevPath;
     if (prevLog === undefined) delete process.env.OPL_GIT_LOG;

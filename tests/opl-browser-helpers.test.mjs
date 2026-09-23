@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "bun:test";
 import { extractMarkdown } from "../extensions/opl-browser/extract.ts";
 import { assertHttpUrl, safeScreenshotPath } from "../extensions/opl-browser/validate.ts";
+import { paginateStored, continuationNotice } from "../extensions/opl-browser/paging.ts";
+import { DEFAULT_CONFIG, loadUserConfig } from "../extensions/opl-browser/config.ts";
 
 const ARTICLE_HTML = `<!DOCTYPE html><html><head><title>My Post — SiteName</title></head><body>
 <nav><a href="/">Home</a><a href="/login">LoginPlaceholder</a><a href="/about">About</a></nav>
@@ -46,6 +48,27 @@ test("raw mode keeps every sibling in a selector-scoped fragment", () => {
   for (const stat of ["94M", "Over 9M Filipinos", "6M merchants", "200+", "3M+", "Over 3M borrowers"]) {
     assert.ok(markdown.includes(stat), `raw mode keeps every stat card: ${stat}`);
   }
+});
+
+test("browser get paginates stored output", () => {
+  const page = paginateStored("abcdefghij", 4, 3);
+  assert.equal(page.text, "efg");
+  assert.equal(page.offset, 4);
+  assert.equal(page.totalChars, 10);
+  assert.equal(page.nextOffset, 7);
+  assert.ok(continuationNotice(page).includes("offset=7"), "notice explains how to continue");
+  assert.ok(continuationNotice(page).includes("action:get"), "notice names the retrieval action");
+
+  const last = paginateStored("abcdefghij", 9, 3);
+  assert.equal(last.text, "j");
+  assert.equal(last.nextOffset, null);
+  assert.equal(continuationNotice(last), "", "no notice on the final page");
+});
+
+test("browser config exposes a configurable retrieval cap", () => {
+  assert.equal(DEFAULT_CONFIG.getChars, 30000);
+  assert.equal(loadUserConfig("/nonexistent/opl-browser.json").getChars, 30000);
+  assert.equal(loadUserConfig("/nonexistent/opl-browser.json").previewChars, 4000, "existing default preserved");
 });
 
 test("browser guards reject non-http URLs and escaping screenshot paths", () => {

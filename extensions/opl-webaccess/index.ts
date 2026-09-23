@@ -8,12 +8,14 @@ import {
   getResult,
   persistResult,
   restoreFromSession,
-  MAX_CONTENT_CHARS,
 } from "./storage.js";
-import { truncate, errorMessage } from "./utils.js";
+import { truncate, errorMessage, paginateContent, continuationNotice } from "./utils.js";
+import { loadConfig, resolveCaps } from "./config.js";
 import type { StoredData } from "./types.js";
 
 export default function (pi: ExtensionAPI) {
+  const caps = resolveCaps(loadConfig());
+
   pi.on("session_start", async (_event, ctx) => {
     restoreFromSession(ctx);
   });
@@ -67,7 +69,7 @@ export default function (pi: ExtensionAPI) {
         return `## Query: "${r.query}"\n\n${r.answer}${sources}`;
       });
 
-      const body = truncate(sections.join("\n\n---\n\n"), MAX_CONTENT_CHARS);
+      const body = truncate(sections.join("\n\n---\n\n"), caps.maxContentChars);
       return {
         content: [{ type: "text", text: `${body}\n\n*responseId: ${id}*` }],
         details: { responseId: id, queryCount: results.length },
@@ -120,7 +122,7 @@ export default function (pi: ExtensionAPI) {
         return `## ${r.url}\n\n${title}${r.content}`;
       });
 
-      const body = truncate(sections.join("\n\n---\n\n"), MAX_CONTENT_CHARS);
+      const body = truncate(sections.join("\n\n---\n\n"), caps.maxContentChars);
       return {
         content: [{ type: "text", text: `${body}\n\n*responseId: ${id}*` }],
         details: { responseId: id, urlCount: results.length },
@@ -147,6 +149,9 @@ export default function (pi: ExtensionAPI) {
       ),
       url: Type.Optional(
         Type.String({ description: "Retrieve content for a specific URL (fetch_content)" })
+      ),
+      offset: Type.Optional(
+        Type.Number({ description: "Character offset to continue a truncated retrieval" })
       ),
     }),
     async execute(_toolCallId, params) {
@@ -184,8 +189,13 @@ export default function (pi: ExtensionAPI) {
             ? "\n\n**Sources:**\n" +
               result.results.map((s, i) => `${i + 1}. [${s.title}](${s.url})`).join("\n")
             : "";
+        const page = paginateContent(
+          `## Query: "${result.query}"\n\n${result.answer}${sources}`,
+          params.offset ?? 0,
+          caps.maxRetrievalChars,
+        );
         return {
-          content: [{ type: "text", text: `## Query: "${result.query}"\n\n${result.answer}${sources}` }],
+          content: [{ type: "text", text: page.text + continuationNotice(page) }],
           details: { responseId: params.responseId },
         };
       }
@@ -216,8 +226,13 @@ export default function (pi: ExtensionAPI) {
           };
         }
         const title = result.title ? `**${result.title}**\n\n` : "";
+        const page = paginateContent(
+          `## ${result.url}\n\n${title}${result.content}`,
+          params.offset ?? 0,
+          caps.maxRetrievalChars,
+        );
         return {
-          content: [{ type: "text", text: `## ${result.url}\n\n${title}${result.content}` }],
+          content: [{ type: "text", text: page.text + continuationNotice(page) }],
           details: { responseId: params.responseId },
         };
       }

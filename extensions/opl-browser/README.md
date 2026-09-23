@@ -37,8 +37,9 @@ Full action set: `navigate` (url, or `back`/`forward`/`reload`), `snapshot`,
   ~29 per-tool schemas. Keeps the cached prefix small.
 - **Handle + preview output.** Large results (snapshots, console/network logs,
   evaluate output) are kept out of context: the tool returns a truncated preview
-  plus a `responseId`; call `action: "get"` with that id for the full text.
-  Screenshots are written to a file, never inlined as base64.
+  plus a `responseId`; call `action: "get"` with that id to page through the full
+  text (`getChars` per page, pass `offset` to continue). Screenshots are written to
+  a file, never inlined as base64.
 - **Structured extraction.** `extract` runs Readability + Turndown over the
   *rendered* (post-JS) DOM — the complement to `opl-webaccess`'s `fetch_content`,
   which only sees raw HTTP HTML. Static pages: `fetch_content`; rendered or
@@ -66,6 +67,7 @@ Optional `~/.pi/agent/configs/opl-browser.json` (see `opl-browser.json.sample`):
 | `width` / `height` | `1280` / `800` | Initial viewport. |
 | `navigationTimeoutMs` | `30000` | Default navigation and `wait_for` timeout. |
 | `previewChars` | `4000` | Inline threshold; larger outputs are stored and previewed. |
+| `getChars` | `30000` | Characters returned by one `action: "get"` page. |
 
 ### Dependencies
 
@@ -87,6 +89,7 @@ browser.ts   Playwright driver: browser/context/page lifecycle, per-page console
              and network buffers, and the action switch.
 validate.ts  URL/path guards: http/https-only navigation, screenshot path confined
              to the project directory.
+paging.ts    Bounded `get` pagination and continuation metadata.
 extract.ts   Pure rendered-HTML → markdown pipeline (linkedom + Readability +
              turndown), duplicated from opl-webaccess to keep installs independent.
 config.ts    DEFAULT_CONFIG + loadUserConfig (user overrides win via ??).

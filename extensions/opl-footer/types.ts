@@ -118,7 +118,7 @@ export interface SegmentContext {
   thinkingLevel: string;
   sessionId: string | undefined;
   usageStats: UsageStats;
-  contextPercent: number;
+  contextPercent: number | null;
   contextWindow: number;
   usingSubscription: boolean;
   sessionStartTime: number;

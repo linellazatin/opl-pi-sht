@@ -15,6 +15,33 @@ export function truncate(text: string, maxChars: number): string {
   );
 }
 
+export interface ContentPage {
+  text: string;
+  offset: number;
+  totalChars: number;
+  nextOffset: number | null;
+}
+
+/** Slice stored content to one bounded page. Offsets past the end yield empty text. */
+export function paginateContent(text: string, offset: number, maxChars: number): ContentPage {
+  const totalChars = text.length;
+  const safeOffset = Number.isFinite(offset) ? Math.floor(offset) : 0;
+  const start = Math.min(Math.max(0, safeOffset), totalChars);
+  const end = Math.min(start + maxChars, totalChars);
+  return {
+    text: text.slice(start, end),
+    offset: start,
+    totalChars,
+    nextOffset: end < totalChars ? end : null,
+  };
+}
+
+/** Model-facing continuation metadata, empty when the page was complete. */
+export function continuationNotice(page: ContentPage): string {
+  if (page.nextOffset === null) return "";
+  return `\n\n[Content truncated at ${page.offset + page.text.length} of ${page.totalChars} chars. Continue with get_search_content offset=${page.nextOffset}.]`;
+}
+
 export function isPdfUrl(url: string): boolean {
   try {
     return new URL(url).pathname.toLowerCase().endsWith(".pdf");

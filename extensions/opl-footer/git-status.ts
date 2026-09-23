@@ -29,9 +29,16 @@ let branchInvalidationCounter = 0;
 let repoAbsentUntil = 0;
 let repoCheckInFlight = false;
 
+let clock: () => number = () => Date.now();
+
+/** Test seam: override the time source so TTL/back-off behaviour is deterministic. */
+export function setClock(fn?: () => number): void {
+  clock = fn ?? (() => Date.now());
+}
+
 /** Assume "not a repo" immediately, then confirm asynchronously so a real repo recovers. */
 function noteProbeFailure(): void {
-  repoAbsentUntil = Date.now() + NOT_A_REPO_TTL_MS;
+  repoAbsentUntil = clock() + NOT_A_REPO_TTL_MS;
   if (repoCheckInFlight) return;
   repoCheckInFlight = true;
   void runGit(["rev-parse", "--is-inside-work-tree"]).then((out) => {
@@ -41,7 +48,7 @@ function noteProbeFailure(): void {
 }
 
 function repoAbsent(): boolean {
-  return Date.now() < repoAbsentUntil;
+  return clock() < repoAbsentUntil;
 }
 
 function parseGitStatusOutput(output: string): { staged: number; unstaged: number; untracked: number } {
@@ -122,7 +129,7 @@ async function fetchGitStatus(): Promise<{ staged: number; unstaged: number; unt
 }
 
 export function getCurrentBranch(providerBranch: string | null): string | null {
-  const now = Date.now();
+  const now = clock();
 
   if (now < repoAbsentUntil) {
     return cachedBranch ? cachedBranch.branch : providerBranch;
@@ -141,7 +148,7 @@ export function getCurrentBranch(providerBranch: string | null): string | null {
         if (result === null) noteProbeFailure();
         cachedBranch = {
           branch: result,
-          timestamp: Date.now(),
+          timestamp: clock(),
         };
       }
       pendingBranchFetch = null;
@@ -152,7 +159,7 @@ export function getCurrentBranch(providerBranch: string | null): string | null {
 }
 
 export function getGitStatus(providerBranch: string | null): GitStatus {
-  const now = Date.now();
+  const now = clock();
 
   if (now < repoAbsentUntil) {
     const branch = cachedBranch ? cachedBranch.branch : providerBranch;
@@ -180,8 +187,8 @@ export function getGitStatus(providerBranch: string | null): GitStatus {
       if (fetchId === invalidationCounter) {
         if (result === null) noteProbeFailure();
         cachedStatus = result
-          ? { staged: result.staged, unstaged: result.unstaged, untracked: result.untracked, timestamp: Date.now() }
-          : { staged: 0, unstaged: 0, untracked: 0, timestamp: Date.now() };
+          ? { staged: result.staged, unstaged: result.unstaged, untracked: result.untracked, timestamp: clock() }
+          : { staged: 0, unstaged: 0, untracked: 0, timestamp: clock() };
       }
       pendingFetch = null;
     });

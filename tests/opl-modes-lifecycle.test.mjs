@@ -3,7 +3,8 @@
 // Run: bun test tests/opl-modes-lifecycle.test.mjs
 import assert from "node:assert/strict";
 import { test, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
 
 // Pi's extension host package ships with the running `pi` binary and is deliberately not a
 // dependency of this repo, so `extensions/opl-modes/index.ts` cannot be imported directly here.
@@ -45,6 +46,8 @@ function mount({ tools = [], active, models = [], current, journal = [] } = {}) 
     journal: journal.map((entry) => ({ ...entry })),
     modelChanges: [],
     userMessages: [],
+    sentMessages: [],
+    entryRenderers: [],
   };
   const events = new Map();
   const commands = new Map();
@@ -60,6 +63,7 @@ function mount({ tools = [], active, models = [], current, journal = [] } = {}) 
     registerFlag() {},
     registerShortcut() {},
     registerMessageRenderer() {},
+    registerEntryRenderer(type, renderer) { host.entryRenderers.push({ type, renderer }); },
     getActiveTools: () => [...host.active],
     // Pi silently drops names it does not know; mirror that so the test sees the real set.
     setActiveTools(names) { host.active = names.filter((n) => tools.includes(n)); },
@@ -72,7 +76,7 @@ function mount({ tools = [], active, models = [], current, journal = [] } = {}) 
     },
     appendEntry(type, data) { host.journal.push({ type: "custom", customType: type, data }); },
     sendUserMessage(text) { host.userMessages.push(text); },
-    sendMessage() {},
+    sendMessage(message) { host.sentMessages.push(message); },
     events: { emit() {} },
   };
 
@@ -237,4 +241,25 @@ test("execute mode survives aborted/error outcomes and exits on a completed one"
 
   await settleWith("completed");
   assert.equal(getMode(), "off", "a completed run exits execute mode");
+});
+
+test("loading a plan appends a TUI-only entry, not a model-facing message", async () => {
+  const planDir = join(process.cwd(), ".pi", "plans");
+  mkdirSync(planDir, { recursive: true });
+  const planPath = join(planDir, "plan-test-plan.md");
+  writeFileSync(planPath, "# Plan: Test Plan\n\n- step one\n- step two\n");
+  try {
+    const h = mount({ tools: BASE_TOOLS, active: ["read"], models: [MODEL_A] });
+    h.ctx.ui.custom = async () => "save"; // exit the post-load action menu
+    await h.run("plan", "test-plan");
+
+    const planEntries = h.host.journal.filter((e) => e.customType === "plan-mode");
+    assert.equal(planEntries.length, 1, "exactly one plan-mode entry is appended");
+    assert.equal(planEntries[0].data.title, "Test Plan");
+    assert.match(planEntries[0].data.plan, /step one/);
+    assert.equal(h.host.sentMessages.length, 0, "the plan is never a model-facing message");
+    assert.equal(h.host.entryRenderers.filter((e) => e.type === "plan-mode").length, 1, "a plan-mode entry renderer is registered");
+  } finally {
+    rmSync(planPath, { force: true });
+  }
 });

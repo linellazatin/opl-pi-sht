@@ -1,4 +1,7 @@
 {
+  "_comment_limits": "Optional top-level caps: maxContentChars caps the initial web_search/fetch_content body (default 30000); maxRetrievalChars caps one get_search_content page (default 30000). Pass offset=N to get_search_content to continue a truncated retrieval.",
+  "maxContentChars": 30000,
+  "maxRetrievalChars": 30000,
   "provider": "searxng",
   "providers": {
     "gemini": {

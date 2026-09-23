@@ -4,8 +4,6 @@ import type { StoredData } from "./types.js";
 const CUSTOM_TYPE = "web-access-results";
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-export const MAX_CONTENT_CHARS = 30_000;
-
 const store = new Map<string, StoredData>();
 
 /** Evict expired entries to prevent unbounded growth. */
