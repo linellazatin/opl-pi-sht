@@ -66,8 +66,8 @@ test("browser get paginates stored output", () => {
 });
 
 test("browser config exposes a configurable retrieval cap", () => {
-  assert.equal(DEFAULT_CONFIG.getChars, 60000);
-  assert.equal(loadUserConfig("/nonexistent/opl-browser.json").getChars, 60000);
+  assert.equal(DEFAULT_CONFIG.getChars, 30000);
+  assert.equal(loadUserConfig("/nonexistent/opl-browser.json").getChars, 30000);
   assert.equal(loadUserConfig("/nonexistent/opl-browser.json").previewChars, 4000, "existing default preserved");
 });
 

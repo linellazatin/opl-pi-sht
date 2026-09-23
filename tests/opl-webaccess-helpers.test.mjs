@@ -39,10 +39,10 @@ test("paginates retrieval content with continuation offsets", () => {
 
 test("resolves configurable content limits with defaults", () => {
   assert.equal(DEFAULT_MAX_CONTENT_CHARS, 30000);
-  assert.equal(DEFAULT_MAX_RETRIEVAL_CHARS, 60000);
+  assert.equal(DEFAULT_MAX_RETRIEVAL_CHARS, 30000);
   const defaults = resolveCaps({});
   assert.equal(defaults.maxContentChars, 30000);
-  assert.equal(defaults.maxRetrievalChars, 60000);
+  assert.equal(defaults.maxRetrievalChars, 30000);
   const custom = resolveCaps({ maxContentChars: 1234, maxRetrievalChars: 42 });
   assert.equal(custom.maxContentChars, 1234);
   assert.equal(custom.maxRetrievalChars, 42);

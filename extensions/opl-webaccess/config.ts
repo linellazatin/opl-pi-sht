@@ -25,7 +25,7 @@ export interface WebAccessConfig {
 }
 
 export const DEFAULT_MAX_CONTENT_CHARS = 30_000;
-export const DEFAULT_MAX_RETRIEVAL_CHARS = 60_000;
+export const DEFAULT_MAX_RETRIEVAL_CHARS = 30_000;
 
 /** Resolve configurable content caps, falling back to defaults. */
 export function resolveCaps(cfg: Pick<WebAccessConfig, "maxContentChars" | "maxRetrievalChars">) {
