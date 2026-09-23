@@ -4,5 +4,6 @@
   "width": 1280,
   "height": 800,
   "navigationTimeoutMs": 30000,
-  "previewChars": 4000
+  "previewChars": 4000,
+  "getChars": 30000
 }
