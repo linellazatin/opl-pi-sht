@@ -1,3 +1,5 @@
+import { estimateTokens } from "@earendil-works/pi-coding-agent";
+
 import type { RenderedSegment, SegmentContext } from "../types.js";
 import { applyColor, resolveColorToRgb } from "../theme.js";
 import { color } from "./helpers.js";
@@ -17,6 +19,14 @@ const DEFAULT_MID_FRAC = 0.55; // 0–1: where MID sits along the gradient
 
 export function lerp(a: number, b: number, t: number): number {
   return Math.round(a + (b - a) * t);
+}
+
+export function estimateContextUsage(
+  messages: Parameters<typeof estimateTokens>[0][],
+  contextWindow: number,
+): { tokens: number; percent: number } {
+  const tokens = messages.reduce((total, message) => total + estimateTokens(message), 0);
+  return { tokens, percent: (tokens / contextWindow) * 100 };
 }
 
 function positionColor(
@@ -75,7 +85,9 @@ export const contextPctSegment = {
 
     // Show: (00.00%) 99999 / 99999
     const used = Math.round((pct / 100) * ctx.contextWindow);
-    const pctLabel = `(${pct.toFixed(2)}%) ${formatTokens(used)} / ${formatTokens(ctx.contextWindow)}`;
+    const pctLabel = ctx.contextEstimated
+      ? `≈${pct.toFixed(2)}%  ≈${formatTokens(used)} / ${formatTokens(ctx.contextWindow)}`
+      : `(${pct.toFixed(2)}%) ${formatTokens(used)} / ${formatTokens(ctx.contextWindow)}`;
     const pctStr = color(ctx, "contextLabel", pctLabel);
 
     return { content: `${bar} ${pctStr}`, visible: true };
