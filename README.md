@@ -17,7 +17,7 @@ A portable collection of various Pi coding agent extensions. Repository director
 <div align="center">
 
 >
-> ### v0.2.5 (24 Sept 2026) - **Dev dependency floor**: `@earendil-works/pi-coding-agent` is now `^0.87.0` <br/>see [CHANGELOG.md](CHANGELOG.md) for more details.
+> ### v0.2.6 (24 Sept 2026) - **Post-compaction context estimate**: `opl-footer` keeps the context bar visible with explicitly approximate values until Pi reports fresh usage. <br/>see [CHANGELOG.md](CHANGELOG.md) for more details.
 >
 
 </div>

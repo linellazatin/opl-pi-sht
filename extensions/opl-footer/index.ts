@@ -5,6 +5,7 @@ import type { TUI } from "@earendil-works/pi-tui";
 
 import type { SegmentContext, StatusLineSegmentId, UsageStats, SessionStats, SessionEvent, ThinkingLevelEvent, AssistantMessageEvent, ToolResultEvent, UserBashEvent } from "./types.js";
 import { renderSegment } from "./segments/index.js";
+import { estimateContextUsage } from "./segments/context.js";
 import { createAgentStatusTracker } from "./segments/status.js";
 import { getGitStatus, invalidateGitStatus, invalidateGitBranch } from "./git-status.js";
 import { getEffectiveConfig } from "./config.js";
@@ -278,12 +279,16 @@ export default function footer(pi: ExtensionAPI) {
       ? thinkingEvents.reduce((_, e) => e.thinkingLevel ?? "off", "off")
       : null;
 
-    // Prefer Pi's canonical context usage (0.87), which is null when usage is unknown
-    // (e.g. right after compaction, before the next assistant reply) or after a context
-    // edit. Fall back to the model's window when unavailable.
+    // Prefer Pi's canonical context usage (0.87). Immediately after compaction it is
+    // null until the next assistant reply, so estimate the rebuilt projection instead.
     const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
     const contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
-    const contextPercent = usage?.percent ?? null;
+    const projectedMessages = ctx.sessionManager?.buildSessionProjection?.().messages;
+    const estimatedContextUsage = usage?.percent === null && contextWindow > 0 && projectedMessages
+      ? estimateContextUsage(projectedMessages, contextWindow)
+      : null;
+    const contextPercent = usage?.percent ?? estimatedContextUsage?.percent ?? null;
+    const contextEstimated = estimatedContextUsage !== null;
 
     // Get git status (cached). Skip the probes entirely when no visible row renders the
     // git segment — otherwise an unused cell keeps spawning git once per second.
@@ -322,6 +327,7 @@ export default function footer(pi: ExtensionAPI) {
       sessionId: ctx.sessionManager?.getSessionId?.(),
       usageStats,
       contextPercent,
+      contextEstimated,
       contextWindow,
       usingSubscription,
       sessionStartTime,

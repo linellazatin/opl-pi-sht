@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.6] - 2026-09-25
+
+### Changed
+
+- **`opl-footer` post-compaction context UX**: when Pi intentionally reports `ctx.getContextUsage().percent` as unknown immediately after a manual, threshold, or overflow-recovery compaction, `context_pct` now estimates the rebuilt active projection with Pi’s `estimateTokens()`. 
+  - The gradient bar remains visible and the percentage plus used-token figure are marked with `≈` until the next assistant response supplies exact provider-backed usage. 
+  - It still renders `(--%)` if no active projection is available, never a stale pre-compaction percentage.
+
+### Tests
+
+- **`opl-footer`**: added regression coverage for the `≈` display and projected-context token estimation.
+
 ## [0.2.5] - 2026-09-24
 
 ### Added

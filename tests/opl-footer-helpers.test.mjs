@@ -4,7 +4,7 @@ import { formatTokens, withIcon } from "../extensions/opl-footer/segments/helper
 import { formatMs, sessionStatsSegment } from "../extensions/opl-footer/segments/session-stats.ts";
 import { renderSegment } from "../extensions/opl-footer/segments/index.ts";
 import * as statusSegmentModule from "../extensions/opl-footer/segments/status.ts";
-import { lerp } from "../extensions/opl-footer/segments/context.ts";
+import * as contextSegmentModule from "../extensions/opl-footer/segments/context.ts";
 import { modeSwitcherSegment } from "../extensions/opl-footer/segments/mode-switcher.ts";
 import { nextTabIndex, restoreSelectedItem } from "../extensions/opl-footer/configure-navigation.ts";
 import { applyColor, resolveColorToRgb } from "../extensions/opl-footer/theme.ts";
@@ -50,6 +50,21 @@ test("context_pct renders a percentage when usage is known", () => {
   const seg = renderSegment("context_pct", ctx);
   assert.equal(seg.visible, true);
   assert.match(seg.content, /\(42\.50%\)/, "shows the percentage and tokens");
+});
+
+test("context_pct marks estimated usage as approximate", () => {
+  const ctx = { theme: { fg: (_c, s) => s }, colors: {}, options: {}, contextPercent: 42.5, contextWindow: 128000, contextEstimated: true };
+  const seg = renderSegment("context_pct", ctx);
+  assert.equal(seg.visible, true);
+  assert.match(seg.content, /≈42\.50%/, "labels the percentage as an estimate");
+});
+
+test("estimates post-compaction usage from projected messages", () => {
+  const messages = [
+    { role: "system", content: "a".repeat(40) },
+    { role: "user", content: "b".repeat(40) },
+  ];
+  assert.deepEqual(contextSegmentModule.estimateContextUsage(messages, 100), { tokens: 20, percent: 20 });
 });
 
 test("derives footer status from agent and parallel Pi tool lifecycles", () => {
@@ -178,11 +193,11 @@ test("restores the active configurator selection after updates", () => {
 test("renders footer helpers and mode color precedence", () => {
   assert.equal(withIcon("*", "text"), "* text");
   assert.equal(withIcon("", "text"), "text", "empty icon omits the space");
-  assert.equal(lerp(0, 100, 0), 0, "t=0 returns start");
-  assert.equal(lerp(0, 100, 1), 100, "t=1 returns end");
-  assert.equal(lerp(0, 100, 0.5), 50, "midpoint");
-  assert.equal(lerp(0, 10, 0.25), 3, "rounds (2.5 -> 3)");
-  assert.equal(lerp(0xf2, 0xd6, 1), 0xd6, "color channel interpolation");
+  assert.equal(contextSegmentModule.lerp(0, 100, 0), 0, "t=0 returns start");
+  assert.equal(contextSegmentModule.lerp(0, 100, 1), 100, "t=1 returns end");
+  assert.equal(contextSegmentModule.lerp(0, 100, 0.5), 50, "midpoint");
+  assert.equal(contextSegmentModule.lerp(0, 10, 0.25), 3, "rounds (2.5 -> 3)");
+  assert.equal(contextSegmentModule.lerp(0xf2, 0xd6, 1), 0xd6, "color channel interpolation");
 
   const theme = { fg: (color, text) => `[${color}]${text}` };
   const segmentCtx = { theme, config: { colors: {} } };
