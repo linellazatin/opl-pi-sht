@@ -17,7 +17,7 @@ A portable collection of various Pi coding agent extensions. Repository director
 <div align="center">
 
 >
-> ### v0.2.6 (24 Sept 2026) - **Post-compaction context estimate**: `opl-footer` keeps the context bar visible with explicitly approximate values until Pi reports fresh usage. <br/>see [CHANGELOG.md](CHANGELOG.md) for more details.
+> ### v0.2.7 (29 Sept 2026) - **Unified `opl-guardian` safety**: adds configurable Bash confirmations, symlink-aware protected file-tool paths, destructive-session confirmations, and malformed-call filtering. <br/>See [CHANGELOG.md](CHANGELOG.md) for details.
 >
 
 </div>
@@ -84,7 +84,7 @@ Copy mode overwrites matching destinations. Link mode skips existing destination
 | [`opl-webaccess`](extensions/opl-webaccess/README.md)         | Search plus readable URL/PDF retrieval with session recovery.                                                                                                                                                                | `web_search`, `fetch_content`, `get_search_content`; `opl-webaccess.json`.                                     |
 | [`opl-browser`](extensions/opl-browser/README.md)             | Chromium automation via Playwright with structured extraction of rendered pages; single dispatcher tool replacing the chrome-devtools MCP.                                                                                   | `browser` (action-based); `opl-browser.json`.                                                                  |
 | [`opl-ctxtrim`](extensions/opl-ctxtrim/README.md)             | Trims verbose`ctx_*` tool-schema descriptions on outbound provider requests (~67% smaller schema, ~4,700-6,300 tokens/request). Built specifically for the [context-mode](https://github.com/mksglu/context-mode) extension. | No commands/tools; no config.                                                                                  |
-| [`opl-guardian`](extensions/opl-guardian/README.md)           | Drops malformed assistant tool calls before session persistence or replay, with project-local JSONL evidence. | No commands/tools; no config.                                                                                  |
+| [`opl-guardian`](extensions/opl-guardian/README.md)           | Configurable tool and session safety: dangerous-Bash confirmation, protected paths, destructive-session confirmation, and malformed-call filtering. | No commands/tools; `opl-guardian.json`. |
 | [`opl-todo`](extensions/opl-todo/README.md)                   | Branch-aware task tool, overlay, and task list.                                                                                                                                                                              | `todo`, `/todos`; `opl-todo.json`.                                                                             |
 | [`opl-questionnaire`](extensions/opl-questionnaire/README.md) | Interactive structured-choice tool.                                                                                                                                                                                          | `questionnaire`; no config.                                                                                    |
 | [`opl-input`](extensions/opl-input/README.md)                 | Configurable replacement editor - enhanced [pikit chat-input](https://github.com/adrianapan/pikit) (because pet is life, and configurable). ![pet](images/ss-input-pet.png)                                                                                   | No commands/tools;`opl-input.json`.                                                                            |
@@ -116,7 +116,7 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 - **`opl-modes`** chat and plan modes swap the active toolset for read-only lists and gate Bash to safe inspection patterns **per shell segment**, so `cat f && node -e '...'`, `cat x & rm -rf /tmp/x`, and `echo "$(node -e ...)"` can no longer ride the first command's allowance. Destructive checks still fire inside otherwise-safe commands (anchored to command position, so `du -sh` and `find . -name '*.sh'` stay allowed; `find -delete`, `find -fprint`, `git log --output`, `sort -o`, `npm audit fix`, `git clean`, `sudo`, and quote-obfuscated `r"m"`/`-del"ete"` are blocked; `env`/`printenv` are not safe-listed). The plan to execute lifecycle keeps exploration and mutation cleanly separated. Add custom modes (like below) for your workflow needs. Execute-mode auto-exit needs pi >= 0.87.0 (the `agent_before_settle` boundary).
 ![custom mode sample](images/ss-mode-custom.png)
 - `load_tools` activation is bounded by the current mode, so a read-only mode cannot be tricked into enabling a write-capable tool.
-- **`opl-guardian`** stops a malformed provider tool-call record from poisoning the session: it removes calls missing an ID or name before Pi persists or replays them, while preserving dropped records in `err/guardian.jsonl` for an upstream report.
+- **`opl-guardian`** combines configurable safety checks in one extension: it confirms dangerous Bash commands in the terminal or over RPC, blocks configured protected paths for file tools (including symlink targets), and confirms session clear/switch-with-pending-work/fork actions. Without a UI, configured dangerous commands and session actions block by default. It also removes malformed provider tool calls before persistence or replay and records incidents in `err/guardian.jsonl`. Protected-path Bash matching is literal best-effort, not shell sandboxing.
 
 
 ### Move through work faster
@@ -150,7 +150,7 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 | Run the agent safely on real repos | `opl-modes` (pulls in the `opl-input` + `opl-footer` UI bundle), `opl-guardian` |
 | Research and drive the web         | `opl-webaccess`, `opl-browser`                                  |
 | Choose models with data            | `opl-simplebench`                                               |
-| The full, coordinated experience   | all ten                                                         |
+| The full, coordinated experience   | all eleven                                                      |
 
 Selecting `opl-footer`, `opl-input`, or `opl-modes` installs all three, because they share active-mode state.
 
@@ -171,7 +171,7 @@ Installing extensions adds tool schemas (name + description + JSON parameters) t
 | `opl-init` | command only (no tool) | ~0 |
 | `opl-input` | UI only | ~0 |
 | `opl-footer` | UI only | ~0 |
-| `opl-guardian` | none (session-integrity guard) | ~0 |
+| `opl-guardian` | none (tool/session safety; no added tool schemas) | ~0 |
 | `opl-ctxtrim` | none (payload transformer) | net negative |
 
 Command descriptions add roughly another ~120 tokens collectively, and only if your build surfaces them in the prompt or help block.
@@ -195,9 +195,10 @@ The fixed cost of a full install is small and paid once per session, then cached
 
 Copy applicable files from [`configs/`](configs/) to `~/.pi/agent/configs/`. For a Pi package installation, the source directory is `~/.pi/agent/npm/node_modules/@openlines/opl-pi-sht/configs/` (npm) or `~/.pi/agent/git/github.com/linellazatin/opl-pi-sht/configs/` (Git):
 
-- `opl-footer.json`, `opl-input.json`, `opl-modes.json`, `opl-todo.json`, `opl-webaccess.json`
+- `opl-footer.json`, `opl-input.json`, `opl-modes.json`, `opl-todo.json`, `opl-webaccess.json`, `opl-guardian.json`
 - `opl-browser` has optional configuration (`opl-browser.json`); all fields default, so it works without any config file.
 - `opl-simplebench` has optional `opl-simplebench.json`; copy `configs/opl-simplebench.json.sample` to configure DDGS/SearXNG research and llama metadata endpoints.
+- `opl-guardian` has an optional `opl-guardian.json`; copy `configs/opl-guardian.json.sample` and manually migrate any old permission-gate or protected-path settings. It does not load legacy files. Configured `permissionGate.patterns` replace the defaults, so copied live patterns do not automatically inherit later default-rule updates.
 - `opl-init` and `opl-questionnaire` have no external configuration.
 - Config files must be valid JSON, with no comments or trailing commas beyond deliberate `_comment` keys.
 - `opl-modes` owns active-mode appearance. Each mode's `appearance.prefix`, `prefixColor`, and `borderColor` style `opl-input`; `appearance.modeColor` styles `opl-footer`'s unified mode label. Renderers retain hardcoded fallbacks.
