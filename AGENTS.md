@@ -62,7 +62,7 @@ Extension implementations live under `extensions/`. The currently represented ex
 - `opl-simplebench`
 - `opl-ctxtrim`
 
-Their behavior is exercised by extension-specific tests and shared smoke tests in `tests/extension-smoke.test.mjs`. Optional extension configuration is kept separately in `configs/`.
+Their behavior is exercised by extension-specific tests and shared smoke tests in `tests/extension-smoke.test.mjs`. Optional extension configuration is kept separately in `configs/`. `opl-guardian` owns dangerous-Bash confirmation, protected paths, destructive-session confirmations, and malformed tool-call filtering; its unified example config is `configs/opl-guardian.json.sample`, and malformed-call evidence is written under the project's `err/guardian.jsonl`.
 
 ## Configuration and installation
 

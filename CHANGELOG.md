@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.7] - 2026-09-29
+
+### Added
+
+- **`opl-guardian`**: consolidates [dangerous-Bash confirmations, protected paths, destructive-session prompts](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/examples/extensions), and malformed-call filtering under `opl-guardian.json`. Confirmation works in TUI and RPC; configured actions block without UI by default.
+- File-tool path checks follow symlinks and fail closed when protected targets cannot be resolved. Session-switch prompts consider only the active branch. Default recursive-delete matching covers reordered and separate `-r`/`-f` flags.
+- Bash protected-path checks remain literal best-effort, not shell confinement. Existing custom pattern lists replace defaults and must be updated manually.
+
 ## [0.2.6] - 2026-09-25
 
 ### Changed
@@ -58,7 +66,7 @@
 ### Added
 
 - **`opl-guardian`**: removes assistant tool calls with blank IDs or names at Pi's `message_end` boundary before they persist or replay. Each removal is recorded in `<cwd>/err/guardian.jsonl`; valid sibling calls continue, while invalid-only responses become a clean stop that can be followed by another prompt.
-  - This is the first feature that opl-guardian can do for now. If I happen to encounter another error/issue that can be (possibly) fixed via extensions, I might add that up in this extension.
+  - This initial capability established the malformed-call filtering and incident-log behavior that remains part of the consolidated extension.
 
 ## [0.2.1] - 2026-09-20
 
