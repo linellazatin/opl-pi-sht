@@ -30,6 +30,10 @@ test(`bundles ${extension} extension entrypoint`, () => {
     assert.match(source, /registerCommand\("configure-opl"/);
   }
 
+  if (extension === "opl-guardian") {
+    JSON.parse(readFileSync("configs/opl-guardian.json.sample", "utf8"));
+  }
+
   if (extension === "opl-modes") {
     const source = readFileSync(`extensions/${extension}/index.ts`, "utf8");
     assert.match(source, /executeHandoffAllowed/);

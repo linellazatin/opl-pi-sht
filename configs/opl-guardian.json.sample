@@ -1,0 +1,28 @@
+{
+  "_comment": "Copy to ~/.pi/agent/configs/opl-guardian.json and customize. This replaces standalone permission-gate, protected-paths, and confirm-destructive settings.",
+  "permissionGate": {
+    "patterns": [
+      "\\brm\\s+(?:(?:-[a-z]+|--[a-z-]+)\\s+)*(?:-[a-z]*r[a-z]*|--recursive)(?=\\s|$)",
+      "\\bsudo\\b",
+      "\\b(chmod|chown)\\s+(?:-[a-z]+\\s+)*777(?:\\b|$)",
+      "\\bprintenv\\b",
+      "(^|\\s)env(\\s|$)"
+    ],
+    "blockWithoutUI": true
+  },
+  "protectedPaths": {
+    "paths": [
+      { "path": ".env", "deny": ["read", "write", "edit", "bash"] },
+      { "path": ".git/", "deny": ["read", "write", "edit"] },
+      { "path": "node_modules/", "deny": ["write", "edit"] },
+      { "path": "~/.pi/agent/auth.json", "deny": ["read", "write", "edit", "bash"] }
+    ]
+  },
+  "confirmDestructive": {
+    "clearSession": true,
+    "switchWithUnsavedWork": true,
+    "forkSession": true,
+    "blockWithoutUI": true
+  },
+  "dropMalformedToolCalls": true
+}
