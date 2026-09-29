@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "bun:test";
 import { errorMessage, isAbortError, truncate, isPdfUrl, isPdfContentType, assertHttpUrl, paginateContent, continuationNotice } from "../extensions/opl-webaccess/utils.ts";
 import { generateId, storeResult, getResult, clearStore } from "../extensions/opl-webaccess/storage.ts";
-import { resolveCaps, DEFAULT_MAX_CONTENT_CHARS, DEFAULT_MAX_RETRIEVAL_CHARS } from "../extensions/opl-webaccess/config.ts";
+import { resolveCaps, DEFAULT_MAX_CONTENT_CHARS, DEFAULT_MAX_RETRIEVAL_CHARS, DEFAULT_MAX_SEARCH_QUERIES, DEFAULT_MAX_FETCH_URLS } from "../extensions/opl-webaccess/config.ts";
 import { fetchAllContent, MAX_FETCH_URLS } from "../extensions/opl-webaccess/extract.ts";
 
 test("classifies web errors and truncates retrieval content", () => {
@@ -41,18 +41,26 @@ test("paginates retrieval content with continuation offsets", () => {
 test("resolves configurable content limits with defaults", () => {
   assert.equal(DEFAULT_MAX_CONTENT_CHARS, 30000);
   assert.equal(DEFAULT_MAX_RETRIEVAL_CHARS, 30000);
+  assert.equal(DEFAULT_MAX_SEARCH_QUERIES, 10);
+  assert.equal(DEFAULT_MAX_FETCH_URLS, 20);
   const defaults = resolveCaps({});
   assert.equal(defaults.maxContentChars, 30000);
   assert.equal(defaults.maxRetrievalChars, 30000);
-  const custom = resolveCaps({ maxContentChars: 1234, maxRetrievalChars: 42 });
+  assert.equal(defaults.maxSearchQueries, 10);
+  assert.equal(defaults.maxFetchUrls, 20);
+  const custom = resolveCaps({ maxContentChars: 1234, maxRetrievalChars: 42, maxSearchQueries: 5, maxFetchUrls: 8 });
   assert.equal(custom.maxContentChars, 1234);
   assert.equal(custom.maxRetrievalChars, 42);
+  assert.equal(custom.maxSearchQueries, 5);
+  assert.equal(custom.maxFetchUrls, 8);
   // Malformed caps (non-number, infinite, non-positive) fall back to defaults.
   assert.equal(resolveCaps({ maxContentChars: "abc" }).maxContentChars, 30000);
   assert.equal(resolveCaps({ maxRetrievalChars: NaN }).maxRetrievalChars, 30000);
   assert.equal(resolveCaps({ maxContentChars: 0, maxRetrievalChars: -5 }).maxContentChars, 30000);
   assert.equal(resolveCaps({ maxContentChars: 0, maxRetrievalChars: -5 }).maxRetrievalChars, 30000);
   assert.equal(resolveCaps({ maxContentChars: Infinity }).maxContentChars, 30000);
+  assert.equal(resolveCaps({ maxSearchQueries: "many", maxFetchUrls: -1 }).maxSearchQueries, 10);
+  assert.equal(resolveCaps({ maxSearchQueries: "many", maxFetchUrls: -1 }).maxFetchUrls, 20);
 });
 
 test("recognizes PDF URLs and content types", () => {

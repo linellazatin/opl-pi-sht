@@ -22,6 +22,10 @@ export interface WebAccessConfig {
   maxContentChars?: number;
   /** Cap on one get_search_content retrieval page (chars). */
   maxRetrievalChars?: number;
+  /** Cap on the number of queries a single web_search call may run. */
+  maxSearchQueries?: number;
+  /** Cap on the number of URLs a single fetch_content call may fetch. */
+  maxFetchUrls?: number;
   /** Allow fetch_content to reach private/link-local ranges (loopback is always
    *  allowed; cloud metadata is always blocked). Default false. */
   allowPrivateNetwork?: boolean;
@@ -29,19 +33,25 @@ export interface WebAccessConfig {
 
 export const DEFAULT_MAX_CONTENT_CHARS = 30_000;
 export const DEFAULT_MAX_RETRIEVAL_CHARS = 30_000;
+export const DEFAULT_MAX_SEARCH_QUERIES = 10;
+export const DEFAULT_MAX_FETCH_URLS = 20;
 
 /** Coerce an unknown value into a positive integer, else the fallback. */
 function positiveInt(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-/** Resolve configurable content caps, falling back to defaults when a cap is
- *  missing or not a positive finite number (a string/negative/zero cap would
- *  otherwise make truncate/slice produce empty or inverted output). */
-export function resolveCaps(cfg: Pick<WebAccessConfig, "maxContentChars" | "maxRetrievalChars">) {
+/** Resolve configurable caps, falling back to defaults when a cap is missing or not
+ *  a positive finite number (a string/negative/zero cap would otherwise make
+ *  truncate/slice produce empty, inverted, or unbounded output). */
+export function resolveCaps(
+  cfg: Pick<WebAccessConfig, "maxContentChars" | "maxRetrievalChars" | "maxSearchQueries" | "maxFetchUrls">,
+) {
   return {
     maxContentChars: positiveInt(cfg.maxContentChars, DEFAULT_MAX_CONTENT_CHARS),
     maxRetrievalChars: positiveInt(cfg.maxRetrievalChars, DEFAULT_MAX_RETRIEVAL_CHARS),
+    maxSearchQueries: positiveInt(cfg.maxSearchQueries, DEFAULT_MAX_SEARCH_QUERIES),
+    maxFetchUrls: positiveInt(cfg.maxFetchUrls, DEFAULT_MAX_FETCH_URLS),
   };
 }
 
@@ -93,6 +103,8 @@ function normalizeConfig(parsed: unknown): WebAccessConfig {
     providers,
     maxContentChars: record.maxContentChars as number | undefined,
     maxRetrievalChars: record.maxRetrievalChars as number | undefined,
+    maxSearchQueries: record.maxSearchQueries as number | undefined,
+    maxFetchUrls: record.maxFetchUrls as number | undefined,
     allowPrivateNetwork: record.allowPrivateNetwork === true,
   };
 }

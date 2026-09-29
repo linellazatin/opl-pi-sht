@@ -47,9 +47,10 @@ async function readBufferCapped(response: Response, maxBytes: number): Promise<A
 export async function fetchAllContent(
   urls: string[],
   signal?: AbortSignal,
-  opts: HttpUrlOptions = {}
+  opts: HttpUrlOptions = {},
+  maxUrls: number = MAX_FETCH_URLS,
 ): Promise<ExtractedContent[]> {
-  const bounded = urls.slice(0, MAX_FETCH_URLS);
+  const bounded = urls.slice(0, maxUrls);
   const results: ExtractedContent[] = [];
   for (let i = 0; i < bounded.length; i += CONCURRENT_LIMIT) {
     if (signal?.aborted) break;

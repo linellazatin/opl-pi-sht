@@ -41,6 +41,8 @@ Optional top-level caps control how much content reaches the model:
 |---|---|---|
 | `maxContentChars` | `30000` | Cap on the initial `web_search`/`fetch_content` body. |
 | `maxRetrievalChars` | `30000` | Cap on one `get_search_content` page. Pass `offset` to continue. |
+| `maxSearchQueries` | `10` | Cap on how many queries one `web_search` call runs. Excess queries are skipped and reported. |
+| `maxFetchUrls` | `20` | Cap on how many URLs one `fetch_content` call fetches. Excess URLs are skipped and reported. |
 | `allowPrivateNetwork` | `false` | Allow `fetch_content` to reach private/link-local ranges (loopback is always allowed; cloud metadata is always blocked). Provider API endpoints (e.g. `ddgs.apiUrl`, `searxng.instanceUrl`) are excluded from this guard. |
 
 Install extraction dependencies before use:
