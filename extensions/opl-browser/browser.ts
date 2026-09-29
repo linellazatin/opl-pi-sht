@@ -12,22 +12,37 @@ let activeIndex = 0;
 const consoleBuf = new WeakMap<Page, string[]>();
 const networkBuf = new WeakMap<Page, string[]>();
 
+/** Cap on per-page console/network log lines kept in memory. */
+export const MAX_LOG_ENTRIES = 200;
+
+/** Push one log line, trimming the oldest entries past the cap. */
+export function pushLogEntry(entries: string[], entry: string, max = MAX_LOG_ENTRIES): string[] {
+  entries.push(entry);
+  if (entries.length > max) entries.splice(0, entries.length - max);
+  return entries;
+}
+
 function track(page: Page, cfg: BrowserConfig): void {
   consoleBuf.set(page, []);
   networkBuf.set(page, []);
   page.setDefaultNavigationTimeout(cfg.navigationTimeoutMs);
-  page.on("console", (m: ConsoleMessage) => consoleBuf.get(page)?.push(`[${m.type()}] ${m.text()}`));
+  page.on("console", (m: ConsoleMessage) => {
+    const buf = consoleBuf.get(page);
+    if (buf) pushLogEntry(buf, `[${m.type()}] ${m.text()}`);
+  });
   page.on("requestfinished", async (req) => {
     try {
       const res = await req.response();
-      networkBuf.get(page)?.push(`${req.method()} ${res?.status() ?? "?"} ${req.url()}`);
+      const buf = networkBuf.get(page);
+      if (buf) pushLogEntry(buf, `${req.method()} ${res?.status() ?? "?"} ${req.url()}`);
     } catch {
       /* response unavailable */
     }
   });
-  page.on("requestfailed", (req) =>
-    networkBuf.get(page)?.push(`${req.method()} FAILED ${req.url()} (${req.failure()?.errorText ?? "unknown"})`),
-  );
+  page.on("requestfailed", (req) => {
+    const buf = networkBuf.get(page);
+    if (buf) pushLogEntry(buf, `${req.method()} FAILED ${req.url()} (${req.failure()?.errorText ?? "unknown"})`);
+  });
 }
 
 async function ensure(cfg: BrowserConfig): Promise<BrowserContext> {
@@ -99,10 +114,15 @@ async function runActionInternal(p: BrowserParams, cfg: BrowserConfig): Promise<
   switch (p.action) {
     case "navigate": {
       const url = p.url ?? "";
-      if (url === "back") { await page().goBack(); }
-      else if (url === "forward") { await page().goForward(); }
-      else if (url === "reload") { await page().reload(); }
-      else if (url) { await gotoAllowed(page(), url, cfg); }
+      if (url === "back" || url === "forward") {
+        // Playwright returns null (no throw) when history is exhausted; report it
+        // clearly instead of silently returning the unchanged page.
+        const moved = url === "back" ? await page().goBack() : await page().goForward();
+        if (!moved) return { text: `(no history to go ${url})` };
+        return { text: `${page().url()} — ${await page().title()}` };
+      }
+      if (url === "reload") await page().reload();
+      else if (url) await gotoAllowed(page(), url, cfg);
       else throw new Error("navigate requires url (or back|forward|reload)");
       return { text: `${page().url()} — ${await page().title()}` };
     }
@@ -112,9 +132,18 @@ async function runActionInternal(p: BrowserParams, cfg: BrowserConfig): Promise<
     }
     case "extract": {
       const selector = p.selector;
-      const html = selector
-        ? await page().locator(selector).evaluate((el: Element) => el.outerHTML)
-        : await page().content();
+      let html: string;
+      if (selector) {
+        const loc = page().locator(selector);
+        const count = await loc.count();
+        if (count === 0) return { text: `(no elements match "${selector}")` };
+        if (count > 1) {
+          throw new Error(`extract selector "${selector}" matched ${count} elements; use a more specific selector`);
+        }
+        html = await loc.evaluate((el: Element) => el.outerHTML);
+      } else {
+        html = await page().content();
+      }
       const { markdown } = extractMarkdown(html, { raw: Boolean(selector) });
       return { text: markdown || "(empty extraction)" };
     }
@@ -156,11 +185,13 @@ async function runActionInternal(p: BrowserParams, cfg: BrowserConfig): Promise<
     }
     case "console": {
       const msgs = consoleBuf.get(page()) ?? [];
-      return { text: msgs.length ? msgs.join("\n") : "(no console messages)" };
+      const suffix = msgs.length >= MAX_LOG_ENTRIES ? `\n… (showing last ${MAX_LOG_ENTRIES} entries)` : "";
+      return { text: msgs.length ? msgs.join("\n") + suffix : "(no console messages)" };
     }
     case "network": {
       const reqs = networkBuf.get(page()) ?? [];
-      return { text: reqs.length ? reqs.join("\n") : "(no network requests)" };
+      const suffix = reqs.length >= MAX_LOG_ENTRIES ? `\n… (showing last ${MAX_LOG_ENTRIES} requests)` : "";
+      return { text: reqs.length ? reqs.join("\n") + suffix : "(no network requests)" };
     }
     case "wait_for": {
       const timeout = p.timeoutMs ?? cfg.navigationTimeoutMs;

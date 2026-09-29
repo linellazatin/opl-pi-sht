@@ -7,6 +7,7 @@ import { extractMarkdown } from "../extensions/opl-browser/extract.ts";
 import { assertHttpUrl, safeScreenshotPath } from "../extensions/opl-browser/validate.ts";
 import { paginateStored, continuationNotice } from "../extensions/opl-browser/paging.ts";
 import { DEFAULT_CONFIG, loadUserConfig } from "../extensions/opl-browser/config.ts";
+import { MAX_LOG_ENTRIES, pushLogEntry } from "../extensions/opl-browser/browser.ts";
 
 const ARTICLE_HTML = `<!DOCTYPE html><html><head><title>My Post — SiteName</title></head><body>
 <nav><a href="/">Home</a><a href="/login">LoginPlaceholder</a><a href="/about">About</a></nav>
@@ -117,4 +118,12 @@ test("safeScreenshotPath requires an image extension and refuses to overwrite", 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("pushLogEntry trims the oldest entries past the cap", () => {
+  const entries = [];
+  for (let i = 0; i < MAX_LOG_ENTRIES + 50; i++) pushLogEntry(entries, `line-${i}`);
+  assert.equal(entries.length, MAX_LOG_ENTRIES);
+  assert.equal(entries[0], "line-50");
+  assert.equal(entries.at(-1), `line-${MAX_LOG_ENTRIES + 49}`);
 });

@@ -45,7 +45,9 @@ Full action set: `navigate` (url, or `back`/`forward`/`reload`), `snapshot`,
   which only sees raw HTTP HTML. Static pages: `fetch_content`; rendered or
   interacted-with pages: `browser:extract`. With a `selector`, the matched element
   is converted verbatim (no article detection): Readability's candidate scoring is
-  a whole-document heuristic and mispicks inside small subtrees.
+  a whole-document heuristic and mispicks inside small subtrees. A selector that
+  matches multiple elements returns a clear error instead of a strict-mode crash,
+  and a selector with no match reports `(no elements match ...)`.
 - **Real Chromium via Playwright.** Navigation with `domcontentloaded` waits,
   CSS-selector interaction, viewport control, multi-page management.
 - **Scheme + path guards.** `navigate`/`new_page` accept http(s) only; `file:`,
@@ -58,7 +60,10 @@ Full action set: `navigate` (url, or `back`/`forward`/`reload`), `snapshot`,
   bad action cannot overwrite or plant arbitrary files.
 - **Per-page capture.** Console messages and network requests are buffered per
   page as they occur; `console` and `network` actions return the active page's
-  buffer.
+  buffer, capped at the most recent `200` entries per page so an active
+  long-running page cannot grow the buffer without bound. `navigate: back`/
+  `forward` on a fresh session reports `(no history to go back/forward)` instead of
+  silently returning the unchanged page.
 - **One reused browser per session.** Launched on first use, closed automatically
   on `session_shutdown`, or on demand via `action: "close"`.
 
