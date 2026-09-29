@@ -92,8 +92,9 @@ test("builds an incident record containing only metadata and removed calls", () 
     cwd: "/tmp/project",
   }, removedToolCalls);
 
-  assert.deepEqual(incident, {
-    timestamp: new Date(0).toISOString(),
+  assert.doesNotThrow(() => new Date(incident.timestamp).toISOString());
+  assert.deepEqual({ ...incident, timestamp: "<ts>" }, {
+    timestamp: "<ts>",
     kind: "malformed_tool_call",
     sessionId: "session-test",
     cwd: "/tmp/project",
@@ -103,6 +104,16 @@ test("builds an incident record containing only metadata and removed calls", () 
     action: "dropped",
     removedToolCalls,
   });
+});
+
+test("incident record falls back to a valid timestamp when missing or zero", () => {
+  const base = assistantWith([]);
+  for (const timestamp of [undefined, 0, NaN]) {
+    const incident = buildIncidentRecord({ ...base, timestamp }, { sessionId: "s", cwd: "/p" }, []);
+    assert.doesNotThrow(() => new Date(incident.timestamp).toISOString());
+    assert.ok(Number.isFinite(new Date(incident.timestamp).getTime()), `timestamp ${timestamp}`);
+    assert.notEqual(incident.timestamp, new Date(0).toISOString(), `zero timestamp must not become epoch: ${timestamp}`);
+  }
 });
 
 test("keeps only replayable calls with non-empty OpenAI function names", () => {
@@ -142,7 +153,13 @@ test("mixed responses log the dropped calls and retain valid calls", async () =>
     const replacement = await guardMessageEnd(message, { cwd, sessionId: "session-test" });
     assert.equal(replacement.message.stopReason, "toolUse");
     assert.equal(replacement.message.content.some(isMalformedToolCall), false);
-    assert.match(replacement.message.content.at(-1).text, /err\/guardian\.jsonl/);
+    // Diagnostic is prepended (text before tool calls), not appended after them.
+    assert.equal(replacement.message.content[0].type, "text");
+    assert.match(replacement.message.content[0].text, /err\/guardian\.jsonl/);
+    assert.deepEqual(
+      replacement.message.content.slice(1).map((b) => (b.type === "toolCall" ? b.name : b.type)),
+      ["read"],
+    );
     const log = await readFile(join(cwd, "err", "guardian.jsonl"), "utf8");
     assert.equal(JSON.parse(log).removedToolCalls[0].id, "call_bad");
   } finally {
@@ -392,8 +409,8 @@ test("Bash protected-path lookup preserves literal command matching", () => {
 });
 
 function fakeToolContext({ hasUI = true, choice = "yes" } = {}) {
-  const state = { prompts: 0, notifications: [] };
-  const theme = { fg: (_color, text) => text };
+  const state = { prompts: 0, notifications: [], options: null };
+  const selected = { yes: "Yes", no: "No", null: undefined }[choice];
   return {
     state,
     context: {
@@ -401,19 +418,23 @@ function fakeToolContext({ hasUI = true, choice = "yes" } = {}) {
       hasUI,
       ui: {
         notify: (message, level) => state.notifications.push({ message, level }),
-        setToolsExpanded() {},
-        getToolsExpanded: () => false,
-        custom: async (factory) => {
+        select: async (_title, options) => {
           state.prompts++;
-          let result;
-          factory({ requestRender() {} }, theme, { matches: () => false }, (value) => { result = value; });
-          result = choice;
-          return result;
+          state.options = options;
+          return selected;
         },
       },
     },
   };
 }
+
+test("tool-call policy blocks malformed tool calls with a blank id or name", async () => {
+  const { config } = parseGuardianConfig({});
+  const handler = createToolCallHandler(config);
+  const { context } = fakeToolContext();
+  assert.equal((await handler({ type: "tool_call", toolCallId: "", toolName: "read", input: { path: "x" } }, context)).block, true);
+  assert.equal((await handler({ type: "tool_call", toolCallId: "call_test", toolName: "", input: {} }, context)).block, true);
+});
 
 test("tool-call policy lets ordinary Bash commands pass without prompting", async () => {
   const { config } = parseGuardianConfig({ permissionGate: { patterns: ["danger"] }, protectedPaths: { paths: [] } });
@@ -421,6 +442,14 @@ test("tool-call policy lets ordinary Bash commands pass without prompting", asyn
   const { context, state } = fakeToolContext();
   assert.equal(await handler({ type: "tool_call", toolCallId: "call_test", toolName: "bash", input: { command: "echo hello" } }, context), undefined);
   assert.equal(state.prompts, 0);
+});
+
+test("tool-call policy presents a fail-closed default for dangerous commands", async () => {
+  const config = parseGuardianConfig({ permissionGate: { patterns: ["danger"] }, protectedPaths: { paths: [] } }).config;
+  const handler = createToolCallHandler(config);
+  const { context, state } = fakeToolContext({ choice: "no" });
+  assert.equal((await handler({ type: "tool_call", toolCallId: "call_test", toolName: "bash", input: { command: "run danger" } }, context)).block, true);
+  assert.deepEqual(state.options, ["No", "Yes"]);
 });
 
 test("tool-call policy allows a dangerous Bash command only after affirmative confirmation", async () => {
@@ -447,7 +476,6 @@ test("RPC dangerous Bash approval uses a supported dialog", async () => {
   const event = { type: "tool_call", toolCallId: "rpc", toolName: "bash", input: { command: "danger" } };
   let dialogs = 0;
   const ctx = { cwd: "/project", mode: "rpc", hasUI: true, ui: {
-    custom: async () => { throw new Error("RPC does not support custom UI"); },
     select: async () => { dialogs++; return "Yes"; },
   } };
   assert.equal(await createToolCallHandler(config)(event, ctx), undefined);

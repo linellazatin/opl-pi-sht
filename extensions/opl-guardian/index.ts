@@ -8,8 +8,6 @@ import {
   type SessionBeforeSwitchEvent,
   type ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
-import { DynamicBorder } from "@earendil-works/pi-coding-agent";
-import { Container, SelectList, Spacer, Text, type SelectItem } from "@earendil-works/pi-tui";
 import { appendFile, chmod, mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -50,9 +48,14 @@ function diagnostic(removed: number, logError?: unknown): string {
 }
 
 function appendDiagnostic(message: AssistantMessage, text: string, invalidOnly: boolean): AssistantMessage {
+  // For a mixed response (valid tool calls remain), prepend the notice rather than
+  // appending a trailing text block after toolCall blocks: providers such as Anthropic
+  // require each tool_use to be followed by a tool_result, so a trailing text block does
+  // not round-trip through the wire format. Text-before-tool-calls is the standard
+  // assistant shape. convertToLlm passes assistant messages through as-is.
   const content = invalidOnly
     ? [{ type: "text" as const, text: `${text} No tool was executed; send another prompt to continue.` }]
-    : [...message.content, { type: "text" as const, text }];
+    : [{ type: "text" as const, text }, ...message.content];
   return { ...message, content, stopReason: invalidOnly ? "stop" : "toolUse" };
 }
 
@@ -80,6 +83,14 @@ export async function guardMessageEnd(
 
 export function createToolCallHandler(config: GuardianConfig) {
   return async (event: ToolCallEvent, ctx: ExtensionContext) => {
+    // Defense in depth: createMessageEndHandler already drops malformed tool calls
+    // (blank id or name) before they reach execution, but block any that still get
+    // here anyway (e.g. a replay path or a provider that streamed them directly).
+    // Optional chaining tolerates a *missing* id/name, not just a blank string.
+    if (!event.toolCallId?.trim() || !event.toolName?.trim()) {
+      return { block: true, reason: "[opl-guardian] Blocked a malformed tool call with a blank id or name." };
+    }
+
     let toolPath: string | undefined;
     if (isToolCallEventType("read", event)) toolPath = event.input.path;
     else if (isToolCallEventType("write", event)) toolPath = event.input.path;
@@ -106,10 +117,14 @@ export function createToolCallHandler(config: GuardianConfig) {
     }
 
     const command = event.input.command;
+    const preview = command.replace(/\s+/g, " ").trim();
+    // Fail closed: order "No" first so an accidental confirmation (or a replayed
+    // input event hitting a freshly-focused dialog) denies instead of approves.
+    // Only an explicit "Yes" selection approves the command.
+    const options = ["No", "Yes"];
     if (ctx.mode === "rpc") {
-      const preview = command.replace(/\s+/g, " ").trim();
       try {
-        const choice = await ctx.ui.select(`Dangerous command: ${preview.slice(0, 256)}\nAllow?`, ["Yes", "No"]);
+        const choice = await ctx.ui.select(`Dangerous command: ${preview.slice(0, 256)}\nAllow?`, options);
         if (choice === "Yes") return undefined;
       } catch {
         // A failed RPC dialog is not approval.
@@ -117,53 +132,8 @@ export function createToolCallHandler(config: GuardianConfig) {
       return { block: true, reason: "[opl-guardian] Command blocked; confirmation was declined or unavailable." };
     }
 
-    const items: SelectItem[] = [
-      { value: "yes", label: "Yes" },
-      { value: "no", label: "No" },
-    ];
-    const choice = await ctx.ui.custom<string | null>((tui, theme, keybindings, done) => {
-      const border = new DynamicBorder((text: string) => theme.fg("border", text));
-      const label = new Text(theme.fg("text", "Dangerous command detected:"), 1, 0);
-      const preview = command.replace(/\s+/g, " ").trim();
-      const commandText = new Text(theme.fg("error", preview.length > 256 ? `${preview.slice(0, 256)}…` : preview), 1, 0);
-      const question = new Text(theme.fg("text", "Allow this command?"), 1, 0);
-      const selectList = new SelectList(items, Math.min(items.length, 10), {
-        selectedPrefix: (text) => theme.fg("accent", text),
-        selectedText: (text) => theme.fg("accent", text),
-        description: (text) => theme.fg("muted", text),
-        scrollInfo: (text) => theme.fg("dim", text),
-        noMatch: (text) => theme.fg("warning", text),
-      });
-      selectList.onSelect = (item) => done(item.value);
-      selectList.onCancel = () => done(null);
-
-      const container = new Container();
-      container.addChild(border);
-      container.addChild(new Spacer());
-      container.addChild(label);
-      container.addChild(commandText);
-      container.addChild(new Spacer());
-      container.addChild(question);
-      container.addChild(selectList);
-      container.addChild(new Spacer());
-      container.addChild(new Text(theme.fg("dim", "↑↓ navigate  enter select  esc cancel"), 1, 0));
-      container.addChild(border);
-
-      return {
-        render(width: number) { return container.render(width); },
-        invalidate() { container.invalidate(); },
-        handleInput(data: string) {
-          if (keybindings.matches(data, "app.tools.expand")) {
-            ctx.ui.setToolsExpanded(!ctx.ui.getToolsExpanded());
-            return;
-          }
-          selectList.handleInput(data);
-          tui.requestRender();
-        },
-      };
-    });
-
-    if (choice === "yes") return undefined;
+    const choice = await ctx.ui.select(`Dangerous command: ${preview.slice(0, 256)}\nAllow?`, options);
+    if (choice === "Yes") return undefined;
     const reason = "[opl-guardian] Command blocked by user because it matches a dangerous pattern.";
     ctx.ui.notify(reason, "warning");
     return { block: true, reason };

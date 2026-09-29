@@ -41,7 +41,12 @@ export async function searchGemini(
     return { query, answer: "", results: [], error: errorMessage(err) };
   }
 
-  const data = (await response.json()) as GeminiResponse;
+  let data: GeminiResponse;
+  try {
+    data = (await response.json()) as GeminiResponse;
+  } catch {
+    return { query, answer: "", results: [], error: `Gemini API error: HTTP ${response.status} (non-JSON response)` };
+  }
 
   if (!response.ok) {
     const msg = data.error?.message ?? `HTTP ${response.status}`;

@@ -27,14 +27,39 @@ import {
 	type RenderOption,
 } from "./types.js";
 
-function errorResult(
+/** Build an error tool result. Marked as an error (not a cancellation) so the
+ *  result card renders the message instead of mislabeling it "Cancelled". */
+export function errorResult(
 	message: string,
-	questions: Question[] = [],
-): { content: { type: "text"; text: string }[]; details: QuestionnaireResult } {
+): { content: { type: "text"; text: string }[]; isError: true; details: QuestionnaireResult } {
 	return {
 		content: [{ type: "text", text: message }],
-		details: { questions, answers: [], cancelled: true },
+		isError: true,
+		details: { questions: [], answers: [], cancelled: false },
 	};
+}
+
+/** Validate the question list. Returns the first error message, or null when valid.
+ *  Blank ids are rejected (answers are keyed by id and "" would produce an empty key),
+ *  as are duplicate ids and questions with nothing selectable. */
+export function validateQuestions(questions: Question[]): string | null {
+	const seenIds = new Set<string>();
+	for (const q of questions) {
+		if (q.id.trim() === "") {
+			return "Error: Question id must be a non-empty string";
+		}
+		if (seenIds.has(q.id)) {
+			return `Error: Duplicate question id "${q.id}" — question ids must be unique`;
+		}
+		seenIds.add(q.id);
+	}
+	for (const q of questions) {
+		const allowOther = q.allowOther !== false;
+		if (q.options.length === 0 && !allowOther) {
+			return `Error: Question "${q.id}" has no options and allowOther is false — nothing is selectable`;
+		}
+	}
+	return null;
 }
 
 export default function questionnaire(pi: ExtensionAPI) {
@@ -58,23 +83,9 @@ export default function questionnaire(pi: ExtensionAPI) {
 				return errorResult("Error: No questions provided");
 			}
 
-			// Reject duplicate ids — answers are keyed by id and would silently collide.
-			const seenIds = new Set<string>();
-			for (const q of params.questions) {
-				if (seenIds.has(q.id)) {
-					return errorResult(`Error: Duplicate question id "${q.id}" — question ids must be unique`);
-				}
-				seenIds.add(q.id);
-			}
-
-			// Reject unselectable questions (no options and no free-text fallback).
-			for (const q of params.questions) {
-				const allowOther = q.allowOther !== false;
-				if (q.options.length === 0 && !allowOther) {
-					return errorResult(
-						`Error: Question "${q.id}" has no options and allowOther is false — nothing is selectable`,
-					);
-				}
+			const validationError = validateQuestions(params.questions);
+			if (validationError) {
+				return errorResult(validationError);
 			}
 
 			// Normalize questions with defaults
@@ -424,6 +435,10 @@ export default function questionnaire(pi: ExtensionAPI) {
 		},
 
 		renderResult(result, _options, theme, _context) {
+			if (result.isError) {
+				const text = result.content[0];
+				return new Text(theme.fg("error", text?.type === "text" ? text.text : ""), 0, 0);
+			}
 			const details = result.details as QuestionnaireResult | undefined;
 			if (!details) {
 				const text = result.content[0];

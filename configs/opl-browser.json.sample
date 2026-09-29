@@ -1,9 +1,10 @@
 {
-  "_comment": "Optional. Copy to ~/.pi/agent/configs/opl-browser.json. All fields optional; defaults shown.",
+  "_comment": "Optional. Copy to ~/.pi/agent/configs/opl-browser.json. All fields optional; defaults shown. allowPrivateNetwork (default false) blocks navigate/new_page from reaching private/link-local ranges; loopback (localhost) is always allowed for local development, and cloud-metadata endpoints are always blocked.",
   "headless": true,
   "width": 1280,
   "height": 800,
   "navigationTimeoutMs": 30000,
   "previewChars": 4000,
-  "getChars": 30000
+  "getChars": 30000,
+  "allowPrivateNetwork": false
 }

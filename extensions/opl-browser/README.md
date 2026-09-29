@@ -45,15 +45,25 @@ Full action set: `navigate` (url, or `back`/`forward`/`reload`), `snapshot`,
   which only sees raw HTTP HTML. Static pages: `fetch_content`; rendered or
   interacted-with pages: `browser:extract`. With a `selector`, the matched element
   is converted verbatim (no article detection): Readability's candidate scoring is
-  a whole-document heuristic and mispicks inside small subtrees.
+  a whole-document heuristic and mispicks inside small subtrees. A selector that
+  matches multiple elements returns a clear error instead of a strict-mode crash,
+  and a selector with no match reports `(no elements match ...)`.
 - **Real Chromium via Playwright.** Navigation with `domcontentloaded` waits,
   CSS-selector interaction, viewport control, multi-page management.
 - **Scheme + path guards.** `navigate`/`new_page` accept http(s) only; `file:`,
-  `data:`, and `javascript:` are rejected. Screenshot paths are confined to the
-  project directory, so a bad `path` cannot overwrite arbitrary files.
+  `data:`, and `javascript:` are rejected, private-range and link-local hosts are
+  blocked by default, and cloud-metadata endpoints are always blocked (SSRF guard).
+  Loopback (`localhost`/`127.0.0.0/8`/`::1`) is allowed by default for local
+  development; set `allowPrivateNetwork: true` for private ranges. Redirect targets
+  are re-checked on the final URL. Screenshot paths must use `.png`/`.jpg`, stay
+  inside the project directory, and are refused when the file already exists, so a
+  bad action cannot overwrite or plant arbitrary files.
 - **Per-page capture.** Console messages and network requests are buffered per
   page as they occur; `console` and `network` actions return the active page's
-  buffer.
+  buffer, capped at the most recent `200` entries per page so an active
+  long-running page cannot grow the buffer without bound. `navigate: back`/
+  `forward` on a fresh session reports `(no history to go back/forward)` instead of
+  silently returning the unchanged page.
 - **One reused browser per session.** Launched on first use, closed automatically
   on `session_shutdown`, or on demand via `action: "close"`.
 
@@ -68,6 +78,7 @@ Optional `~/.pi/agent/configs/opl-browser.json` (see `opl-browser.json.sample`):
 | `navigationTimeoutMs` | `30000` | Default navigation and `wait_for` timeout. |
 | `previewChars` | `4000` | Inline threshold; larger outputs are stored and previewed. |
 | `getChars` | `30000` | Characters returned by one `action: "get"` page. |
+| `allowPrivateNetwork` | `false` | Allow `navigate`/`new_page` to reach private/link-local ranges (loopback is always allowed; cloud metadata is always blocked). |
 
 ### Dependencies
 
@@ -86,7 +97,8 @@ npx playwright install chromium
 index.ts     Pi wiring: registers the single `browser` tool, TTL result store,
              preview/handle logic, and session_shutdown cleanup.
 browser.ts   Playwright driver: browser/context/page lifecycle, per-page console
-             and network buffers, and the action switch.
+             and network buffers, and the action switch. Tool calls are serialized
+             on the single shared context.
 validate.ts  URL/path guards: http/https-only navigation, screenshot path confined
              to the project directory.
 paging.ts    Bounded `get` pagination and continuation metadata.
@@ -98,4 +110,6 @@ config.ts    DEFAULT_CONFIG + loadUserConfig (user overrides win via ??).
 Interaction is CSS-selector based. Snapshot-uid interaction (referencing elements
 by ids returned from `snapshot`) is intentionally not implemented; use CSS
 selectors, which are simpler and robust. The in-memory result store expires
-entries after one hour or when the browser is closed.
+entries after one hour or when the browser is closed; expiry is checked on read,
+not only when another result is stored, so an idle entry past its TTL is never
+served.

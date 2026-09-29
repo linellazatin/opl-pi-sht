@@ -12,22 +12,37 @@ let activeIndex = 0;
 const consoleBuf = new WeakMap<Page, string[]>();
 const networkBuf = new WeakMap<Page, string[]>();
 
+/** Cap on per-page console/network log lines kept in memory. */
+export const MAX_LOG_ENTRIES = 200;
+
+/** Push one log line, trimming the oldest entries past the cap. */
+export function pushLogEntry(entries: string[], entry: string, max = MAX_LOG_ENTRIES): string[] {
+  entries.push(entry);
+  if (entries.length > max) entries.splice(0, entries.length - max);
+  return entries;
+}
+
 function track(page: Page, cfg: BrowserConfig): void {
   consoleBuf.set(page, []);
   networkBuf.set(page, []);
   page.setDefaultNavigationTimeout(cfg.navigationTimeoutMs);
-  page.on("console", (m: ConsoleMessage) => consoleBuf.get(page)?.push(`[${m.type()}] ${m.text()}`));
+  page.on("console", (m: ConsoleMessage) => {
+    const buf = consoleBuf.get(page);
+    if (buf) pushLogEntry(buf, `[${m.type()}] ${m.text()}`);
+  });
   page.on("requestfinished", async (req) => {
     try {
       const res = await req.response();
-      networkBuf.get(page)?.push(`${req.method()} ${res?.status() ?? "?"} ${req.url()}`);
+      const buf = networkBuf.get(page);
+      if (buf) pushLogEntry(buf, `${req.method()} ${res?.status() ?? "?"} ${req.url()}`);
     } catch {
       /* response unavailable */
     }
   });
-  page.on("requestfailed", (req) =>
-    networkBuf.get(page)?.push(`${req.method()} FAILED ${req.url()} (${req.failure()?.errorText ?? "unknown"})`),
-  );
+  page.on("requestfailed", (req) => {
+    const buf = networkBuf.get(page);
+    if (buf) pushLogEntry(buf, `${req.method()} FAILED ${req.url()} (${req.failure()?.errorText ?? "unknown"})`);
+  });
 }
 
 async function ensure(cfg: BrowserConfig): Promise<BrowserContext> {
@@ -44,6 +59,13 @@ function page(): Page {
   const pages = context!.pages();
   if (!pages.length) throw new Error("no open pages");
   return pages[activeIndex] ?? pages[pages.length - 1];
+}
+
+/** Navigate with the host validated both before the request and on the final URL, so a
+ *  public URL that redirects to a private/link-local host is rejected. */
+async function gotoAllowed(target: Page, url: string, cfg: BrowserConfig): Promise<void> {
+  await target.goto(assertHttpUrl(url, { allowPrivateNetwork: cfg.allowPrivateNetwork }), { waitUntil: "domcontentloaded" });
+  assertHttpUrl(target.url(), { allowPrivateNetwork: cfg.allowPrivateNetwork });
 }
 
 export interface BrowserActionResult {
@@ -67,9 +89,23 @@ export interface BrowserParams {
   height?: number;
 }
 
-export async function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<BrowserActionResult> {
+let last: Promise<unknown> = Promise.resolve();
+/** Serialize state-mutating browser work: a single shared context cannot service
+ *  concurrent tool calls safely (activeIndex, page(), ensure() all race). Each new
+ *  action is queued behind the previous one, and failures never break the chain. */
+function serialize<T>(task: () => Promise<T>): Promise<T> {
+  const run = last.then(task, task);
+  last = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+export function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<BrowserActionResult> {
+  return serialize(() => runActionInternal(p, cfg));
+}
+
+async function runActionInternal(p: BrowserParams, cfg: BrowserConfig): Promise<BrowserActionResult> {
   if (p.action === "close") {
-    await closeBrowser();
+    await closeBrowserInternal();
     return { text: "Browser closed." };
   }
 
@@ -78,10 +114,15 @@ export async function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<B
   switch (p.action) {
     case "navigate": {
       const url = p.url ?? "";
-      if (url === "back") { await page().goBack(); }
-      else if (url === "forward") { await page().goForward(); }
-      else if (url === "reload") { await page().reload(); }
-      else if (url) { await page().goto(assertHttpUrl(url), { waitUntil: "domcontentloaded" }); }
+      if (url === "back" || url === "forward") {
+        // Playwright returns null (no throw) when history is exhausted; report it
+        // clearly instead of silently returning the unchanged page.
+        const moved = url === "back" ? await page().goBack() : await page().goForward();
+        if (!moved) return { text: `(no history to go ${url})` };
+        return { text: `${page().url()} — ${await page().title()}` };
+      }
+      if (url === "reload") await page().reload();
+      else if (url) await gotoAllowed(page(), url, cfg);
       else throw new Error("navigate requires url (or back|forward|reload)");
       return { text: `${page().url()} — ${await page().title()}` };
     }
@@ -91,9 +132,18 @@ export async function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<B
     }
     case "extract": {
       const selector = p.selector;
-      const html = selector
-        ? await page().locator(selector).evaluate((el: Element) => el.outerHTML)
-        : await page().content();
+      let html: string;
+      if (selector) {
+        const loc = page().locator(selector);
+        const count = await loc.count();
+        if (count === 0) return { text: `(no elements match "${selector}")` };
+        if (count > 1) {
+          throw new Error(`extract selector "${selector}" matched ${count} elements; use a more specific selector`);
+        }
+        html = await loc.evaluate((el: Element) => el.outerHTML);
+      } else {
+        html = await page().content();
+      }
       const { markdown } = extractMarkdown(html, { raw: Boolean(selector) });
       return { text: markdown || "(empty extraction)" };
     }
@@ -130,15 +180,18 @@ export async function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<B
     case "evaluate": {
       if (!p.script) throw new Error("evaluate requires script");
       const value = await page().evaluate(p.script);
-      return { text: typeof value === "string" ? value : JSON.stringify(value, null, 2) };
+      if (value === undefined) return { text: "(undefined result)" };
+      return { text: typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? "(undefined result)") };
     }
     case "console": {
       const msgs = consoleBuf.get(page()) ?? [];
-      return { text: msgs.length ? msgs.join("\n") : "(no console messages)" };
+      const suffix = msgs.length >= MAX_LOG_ENTRIES ? `\n… (showing last ${MAX_LOG_ENTRIES} entries)` : "";
+      return { text: msgs.length ? msgs.join("\n") + suffix : "(no console messages)" };
     }
     case "network": {
       const reqs = networkBuf.get(page()) ?? [];
-      return { text: reqs.length ? reqs.join("\n") : "(no network requests)" };
+      const suffix = reqs.length >= MAX_LOG_ENTRIES ? `\n… (showing last ${MAX_LOG_ENTRIES} requests)` : "";
+      return { text: reqs.length ? reqs.join("\n") + suffix : "(no network requests)" };
     }
     case "wait_for": {
       const timeout = p.timeoutMs ?? cfg.navigationTimeoutMs;
@@ -155,7 +208,7 @@ export async function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<B
       const pg = await ctx.newPage();
       track(pg, cfg);
       activeIndex = ctx.pages().length - 1;
-      if (p.url) await pg.goto(assertHttpUrl(p.url), { waitUntil: "domcontentloaded" });
+      if (p.url) await gotoAllowed(pg, p.url, cfg);
       return { text: `Opened page [${activeIndex}] ${pg.url()}` };
     }
     case "select_page": {
@@ -182,7 +235,11 @@ export async function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<B
   }
 }
 
-export async function closeBrowser(): Promise<void> {
+export function closeBrowser(): Promise<void> {
+  return serialize(closeBrowserInternal);
+}
+
+async function closeBrowserInternal(): Promise<void> {
   try {
     await context?.close();
     await browser?.close();

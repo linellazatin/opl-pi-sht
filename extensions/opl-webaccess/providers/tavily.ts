@@ -39,7 +39,12 @@ export async function searchTavily(
     return { query, answer: "", results: [], error: errorMessage(err) };
   }
 
-  const data = (await response.json()) as TavilyResponse;
+  let data: TavilyResponse;
+  try {
+    data = (await response.json()) as TavilyResponse;
+  } catch {
+    return { query, answer: "", results: [], error: `Tavily API error: HTTP ${response.status} (non-JSON response)` };
+  }
 
   if (!response.ok) {
     return { query, answer: "", results: [], error: `Tavily API error: HTTP ${response.status}` };

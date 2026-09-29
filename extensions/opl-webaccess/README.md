@@ -5,8 +5,8 @@ Provides configurable web search and readable URL/PDF retrieval with session-bac
 ## Commands, flags, and shortcuts
 
 - Tools: `web_search`, `fetch_content`, and `get_search_content`.
-- `web_search` accepts `query` or parallel `queries`.
-- `fetch_content` accepts `url` or `urls` with at most three requests in flight.
+- `web_search` accepts `query` or parallel `queries` (at most 10 per call).
+- `fetch_content` accepts `url` or `urls` (at most 20 per call) with at most three requests in flight.
 - `get_search_content` uses a prior `responseId`, with `queryIndex`, `urlIndex`, or exact `url` selection. It returns one bounded page; pass `offset` to continue a truncated retrieval.
 - No slash commands or shortcuts.
 
@@ -14,8 +14,8 @@ Provides configurable web search and readable URL/PDF retrieval with session-bac
 
 - Searches through `gemini`, `tavily`, `ddgs`, `searxng`, or `exa`; multiple queries run concurrently and results include citations where available.
 - Extracts HTML with Readability and Markdown conversion, falls back to full-document Turndown conversion, passes PDF responses to the PDF extractor, and returns plain text, Markdown, and JSON directly.
-- Restricts `fetch_content` to http/https, caps each response at 10 MB, and applies a 30s timeout; Gemini keys are sent via the `x-goog-api-key` header rather than the query string.
-- Caps initial tool output at a configurable length (default 30,000 characters), then keeps it for retrieval for one hour or until the session ends.
+- Restricts `fetch_content` to http/https and blocks private-range, link-local, and reserved hosts by default, re-checks every redirect hop, and always blocks cloud-metadata endpoints (SSRF guard). Loopback (`localhost`/`127.0.0.0/8`/`::1`) is allowed by default for local development; set `allowPrivateNetwork: true` to reach private ranges. Caps each response at 10 MB and applies a 30s timeout; Gemini keys are sent via the `x-goog-api-key` header rather than the query string.
+- Caps initial tool output at a configurable length (default 30,000 characters), then keeps it for retrieval for one hour (expiry is enforced on read, not just on write) or until the session ends.
 - Pages `get_search_content` results (default 30,000 characters per page) with `offset` continuation, so a model never loads the whole stored body in one call.
 - Honors abort signals and returns provider, HTTP, and per-result failures through the tool boundary rather than throwing.
 
@@ -33,7 +33,7 @@ Copy [`configs/opl-webaccess.json.sample`](../../configs/opl-webaccess.json.samp
 }
 ```
 
-Provider fields include `apiKeyEnv`, `apiUrl`, `baseUrl`, `model`, `maxResults`, `instanceUrl`, `categories`, `safeSearch`, `searchType`, and `includeSummary`. API keys are read only from named environment variables. Missing or invalid config falls back to Gemini defaults; an unknown provider returns an error.
+Provider fields include `apiKeyEnv`, `apiUrl`, `baseUrl`, `model`, `maxResults`, `instanceUrl`, `categories`, `safeSearch`, `searchType`, and `includeSummary`. API keys are read only from named environment variables. Malformed config falls back to Gemini defaults - a non-object config, a non-string `provider`, a non-object `providers` map, or non-positive cap values (`maxContentChars`/`maxRetrievalChars`) are all treated as unset; an unknown provider returns an error.
 
 Optional top-level caps control how much content reaches the model:
 
@@ -41,6 +41,9 @@ Optional top-level caps control how much content reaches the model:
 |---|---|---|
 | `maxContentChars` | `30000` | Cap on the initial `web_search`/`fetch_content` body. |
 | `maxRetrievalChars` | `30000` | Cap on one `get_search_content` page. Pass `offset` to continue. |
+| `maxSearchQueries` | `10` | Cap on how many queries one `web_search` call runs. Excess queries are skipped and reported. |
+| `maxFetchUrls` | `20` | Cap on how many URLs one `fetch_content` call fetches. Excess URLs are skipped and reported. |
+| `allowPrivateNetwork` | `false` | Allow `fetch_content` to reach private/link-local ranges (loopback is always allowed; cloud metadata is always blocked). Provider API endpoints (e.g. `ddgs.apiUrl`, `searxng.instanceUrl`) are excluded from this guard. |
 
 Install extraction dependencies before use:
 

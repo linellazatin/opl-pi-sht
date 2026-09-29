@@ -17,7 +17,9 @@ A portable collection of various Pi coding agent extensions. Repository director
 <div align="center">
 
 >
-> ### v0.2.7 (29 Sept 2026) - **Unified `opl-guardian` safety**: adds configurable Bash confirmations, symlink-aware protected file-tool paths, destructive-session confirmations, and malformed-call filtering. <br/>See [CHANGELOG.md](CHANGELOG.md) for details.
+> ### v0.2.8 (29 Sept 2026) - **SSRF and tool-safety hardening**: `opl-webaccess` and `opl-browser` block private/link-local hosts by default and cloud metadata always (localhost stays available for dev), fetch redirects are re-checked per hop, screenshots refuse to overwrite existing files, and `evaluate` no longer crashes on `undefined`. <br/>See [CHANGELOG.md](CHANGELOG.md) for details.
+>
+> `Current project state also marked 'SAFE' for pi v0.99.0 release`<br/>*confirmed this because I was literally typing to push the patches when I noticed the release notif*
 >
 
 </div>
@@ -123,8 +125,8 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 
 - **`opl-init`** deterministically crawls and refines `AGENTS.md` with a single out-of-band model call (never a synthetic user message), writes it, and reloads context so the session runs on the new guide. A current fingerprint means zero model calls; mid-session invocations wait for the agent to settle instead of interrupting it. Needs pi >= 0.86.0.
 ![init](images/ss-init.png)
-- **`opl-browser`** gives full Chromium automation (navigate, snapshot, extract rendered-page markdown, interact, screenshot, console/network capture, evaluate) through a single tool, with handle+preview output for large results — navigation is http(s)-only and screenshots stay in the project directory.
-- **`opl-webaccess`** adds provider-backed search plus readable URL and PDF extraction, with session recovery of earlier results, an http(s)-only fetch, a 10 MB response cap, and a 30s timeout.
+- **`opl-browser`** gives full Chromium automation (navigate, snapshot, extract rendered-page markdown, interact, screenshot, console/network capture, evaluate) through a single tool, with handle+preview output for large results — navigation is http(s)-only, blocks private/link-local hosts by default and cloud metadata always (SSRF guard; localhost is allowed for dev), and screenshots must use `.png`/`.jpg`, stay in the project directory, and never overwrite an existing file.
+- **`opl-webaccess`** adds provider-backed search plus readable URL and PDF extraction, with session recovery of earlier results, an http(s)-only fetch that blocks private/link-local hosts by default and cloud metadata always, re-checks every redirect hop (SSRF guard; localhost is allowed for dev), a 10 MB response cap, and a 30s timeout.
 - **`opl-simplebench`** benchmarks models on deterministic closed-answer contracts, instruction-following, and tool-call generation so you pick a model on evidence, not vibes.
 ![simplebench](images/ss-simplebench.png)
 - **`opl-todo`** tracks branch-aware tasks that persist across a session and reconstruct from history.

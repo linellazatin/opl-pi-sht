@@ -23,8 +23,14 @@ export function storeResult(id: string, data: StoredData): void {
   evictExpired();
 }
 
-export function getResult(id: string): StoredData | null {
-  return store.get(id) ?? null;
+export function getResult(id: string, now: number = Date.now()): StoredData | null {
+  const data = store.get(id);
+  if (!data) return null;
+  if (now - data.timestamp >= CACHE_TTL_MS) {
+    store.delete(id);
+    return null;
+  }
+  return data;
 }
 
 export function clearStore(): void {

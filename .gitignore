@@ -8,6 +8,9 @@ opl-*.json
 research/
 docs/
 
+## tool outputs
+err/
+
 ## annoying
 .DS_Store
 node_modules/

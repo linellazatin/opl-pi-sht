@@ -14,7 +14,15 @@ import { loadConfig, resolveCaps } from "./config.js";
 import type { StoredData } from "./types.js";
 
 export default function (pi: ExtensionAPI) {
-  const caps = resolveCaps(loadConfig());
+  const config = loadConfig();
+  const caps = resolveCaps(config);
+  const allowPrivateNetwork = config.allowPrivateNetwork === true;
+
+  // Note shown to the model when the per-call URL/query cap drops some inputs.
+  const skippedNote = (dropped: number, limit: number, singular: string, plural: string) =>
+    dropped > 0
+      ? `\n\n*Note: ${dropped} additional ${dropped === 1 ? singular : plural} beyond the per-call limit of ${limit} ${dropped === 1 ? "was" : "were"} skipped.*`
+      : "";
 
   pi.on("session_start", async (_event, ctx) => {
     restoreFromSession(ctx);
@@ -34,18 +42,27 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
     async execute(_toolCallId, params, signal) {
-      const queryList = params.queries ?? (params.query ? [params.query] : null);
-      if (!queryList?.length) {
+      const rawQueries = params.queries ?? (params.query ? [params.query] : null);
+      if (!rawQueries?.length) {
         return {
           content: [{ type: "text", text: "Error: provide either query or queries." }],
           isError: true,
           details: {} as Record<string, unknown>,
         };
       }
+      const queryList = rawQueries.slice(0, caps.maxSearchQueries);
+      const dropped = rawQueries.length - queryList.length;
 
       let results;
       try {
-        results = await Promise.all(queryList.map((q) => searchWeb(q, signal)));
+        // allSettled so one provider's throw (non-JSON body, missing key) cannot
+        // discard the sibling queries' results.
+        const settled = await Promise.allSettled(queryList.map((q) => searchWeb(q, signal)));
+        results = settled.map((s, i) =>
+          s.status === "fulfilled"
+            ? s.value
+            : { query: queryList[i], answer: "", results: [], error: errorMessage(s.reason) }
+        );
       } catch (err) {
         return {
           content: [{ type: "text", text: `Error: ${errorMessage(err)}` }],
@@ -70,8 +87,9 @@ export default function (pi: ExtensionAPI) {
       });
 
       const body = truncate(sections.join("\n\n---\n\n"), caps.maxContentChars);
+      const note = skippedNote(dropped, caps.maxSearchQueries, "query", "queries");
       return {
-        content: [{ type: "text", text: `${body}\n\n*responseId: ${id}*` }],
+        content: [{ type: "text", text: `${body}${note}\n\n*responseId: ${id}*` }],
         details: { responseId: id, queryCount: results.length },
       };
     },
@@ -101,8 +119,9 @@ export default function (pi: ExtensionAPI) {
       }
 
       let results;
+      const dropped = urlList.length > caps.maxFetchUrls ? urlList.length - caps.maxFetchUrls : 0;
       try {
-        results = await fetchAllContent(urlList, signal);
+        results = await fetchAllContent(urlList, signal, { allowPrivateNetwork }, caps.maxFetchUrls);
       } catch (err) {
         return {
           content: [{ type: "text", text: `Error: ${errorMessage(err)}` }],
@@ -123,8 +142,9 @@ export default function (pi: ExtensionAPI) {
       });
 
       const body = truncate(sections.join("\n\n---\n\n"), caps.maxContentChars);
+      const note = skippedNote(dropped, caps.maxFetchUrls, "URL", "URLs");
       return {
-        content: [{ type: "text", text: `${body}\n\n*responseId: ${id}*` }],
+        content: [{ type: "text", text: `${body}${note}\n\n*responseId: ${id}*` }],
         details: { responseId: id, urlCount: results.length },
       };
     },

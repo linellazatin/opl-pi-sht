@@ -22,16 +22,36 @@ export interface WebAccessConfig {
   maxContentChars?: number;
   /** Cap on one get_search_content retrieval page (chars). */
   maxRetrievalChars?: number;
+  /** Cap on the number of queries a single web_search call may run. */
+  maxSearchQueries?: number;
+  /** Cap on the number of URLs a single fetch_content call may fetch. */
+  maxFetchUrls?: number;
+  /** Allow fetch_content to reach private/link-local ranges (loopback is always
+   *  allowed; cloud metadata is always blocked). Default false. */
+  allowPrivateNetwork?: boolean;
 }
 
 export const DEFAULT_MAX_CONTENT_CHARS = 30_000;
 export const DEFAULT_MAX_RETRIEVAL_CHARS = 30_000;
+export const DEFAULT_MAX_SEARCH_QUERIES = 10;
+export const DEFAULT_MAX_FETCH_URLS = 20;
 
-/** Resolve configurable content caps, falling back to defaults. */
-export function resolveCaps(cfg: Pick<WebAccessConfig, "maxContentChars" | "maxRetrievalChars">) {
+/** Coerce an unknown value into a positive integer, else the fallback. */
+function positiveInt(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+/** Resolve configurable caps, falling back to defaults when a cap is missing or not
+ *  a positive finite number (a string/negative/zero cap would otherwise make
+ *  truncate/slice produce empty, inverted, or unbounded output). */
+export function resolveCaps(
+  cfg: Pick<WebAccessConfig, "maxContentChars" | "maxRetrievalChars" | "maxSearchQueries" | "maxFetchUrls">,
+) {
   return {
-    maxContentChars: cfg.maxContentChars ?? DEFAULT_MAX_CONTENT_CHARS,
-    maxRetrievalChars: cfg.maxRetrievalChars ?? DEFAULT_MAX_RETRIEVAL_CHARS,
+    maxContentChars: positiveInt(cfg.maxContentChars, DEFAULT_MAX_CONTENT_CHARS),
+    maxRetrievalChars: positiveInt(cfg.maxRetrievalChars, DEFAULT_MAX_RETRIEVAL_CHARS),
+    maxSearchQueries: positiveInt(cfg.maxSearchQueries, DEFAULT_MAX_SEARCH_QUERIES),
+    maxFetchUrls: positiveInt(cfg.maxFetchUrls, DEFAULT_MAX_FETCH_URLS),
   };
 }
 
@@ -50,12 +70,43 @@ const DEFAULT_CONFIG: WebAccessConfig = {
 
 export function loadConfig(): WebAccessConfig {
   if (!existsSync(CONFIG_PATH)) return DEFAULT_CONFIG;
+  let parsed: unknown;
   try {
-    return JSON.parse(readFileSync(CONFIG_PATH, "utf-8")) as WebAccessConfig;
+    parsed = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
   } catch {
     console.error(`[opl-webaccess] failed to parse ${CONFIG_PATH}, using defaults`);
     return DEFAULT_CONFIG;
   }
+  return normalizeConfig(parsed);
+}
+
+/** Validate a parsed config so malformed fields fall back to defaults instead of
+ *  silently misbehaving downstream (a non-object config, a non-string provider, or
+ *  a non-object providers map are all treated as unset). Cap values are validated
+ *  in resolveCaps. */
+function normalizeConfig(parsed: unknown): WebAccessConfig {
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    console.error("[opl-webaccess] config is not a JSON object, using defaults");
+    return DEFAULT_CONFIG;
+  }
+  const record = parsed as Record<string, unknown>;
+  const provider =
+    typeof record.provider === "string" && record.provider.trim() !== ""
+      ? record.provider
+      : DEFAULT_CONFIG.provider;
+  const providers =
+    typeof record.providers === "object" && record.providers !== null && !Array.isArray(record.providers)
+      ? (record.providers as Record<string, ProviderConfig>)
+      : DEFAULT_CONFIG.providers;
+  return {
+    provider,
+    providers,
+    maxContentChars: record.maxContentChars as number | undefined,
+    maxRetrievalChars: record.maxRetrievalChars as number | undefined,
+    maxSearchQueries: record.maxSearchQueries as number | undefined,
+    maxFetchUrls: record.maxFetchUrls as number | undefined,
+    allowPrivateNetwork: record.allowPrivateNetwork === true,
+  };
 }
 
 export function getApiKey(cfg: ProviderConfig): string {

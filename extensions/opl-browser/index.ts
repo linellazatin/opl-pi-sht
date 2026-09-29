@@ -62,6 +62,11 @@ export default function (pi: ExtensionAPI) {
         if (!p.responseId) return err("get requires responseId");
         const hit = STORE.get(p.responseId);
         if (!hit) return err(`No stored result for ${p.responseId} (expires after 1h or on browser close).`);
+        // Enforce TTL on read, not just on the next store.
+        if (Date.now() - hit.timestamp > TTL_MS) {
+          STORE.delete(p.responseId);
+          return err(`No stored result for ${p.responseId} (expires after 1h or on browser close).`);
+        }
         const page = paginateStored(hit.text, p.offset ?? 0, cfg.getChars);
         return {
           content: [{ type: "text", text: page.text + continuationNotice(page) }],
@@ -76,15 +81,18 @@ export default function (pi: ExtensionAPI) {
         return err(`browser ${p.action}: ${e instanceof Error ? e.message : String(e)}`);
       }
 
+      // Defensive: never let a missing/invalid action text crash the size gate.
+      const text = String(result.text ?? "");
+
       // Small outputs return inline; large outputs are stored and previewed.
-      if (result.text.length <= cfg.previewChars) {
-        return { content: [{ type: "text", text: result.text }], details: result.file ? { file: result.file } : {} };
+      if (text.length <= cfg.previewChars) {
+        return { content: [{ type: "text", text }], details: result.file ? { file: result.file } : {} };
       }
-      const id = store(p.action, result.text);
-      const preview = result.text.slice(0, cfg.previewChars);
+      const id = store(p.action, text);
+      const preview = text.slice(0, cfg.previewChars);
       return {
         content: [{ type: "text", text: `${preview}\n\n… truncated. Full result via action:get responseId: ${id}` }],
-        details: { responseId: id, action: p.action, chars: result.text.length },
+        details: { responseId: id, action: p.action, chars: text.length },
       };
     },
   });
