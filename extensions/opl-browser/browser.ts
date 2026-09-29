@@ -74,9 +74,23 @@ export interface BrowserParams {
   height?: number;
 }
 
-export async function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<BrowserActionResult> {
+let last: Promise<unknown> = Promise.resolve();
+/** Serialize state-mutating browser work: a single shared context cannot service
+ *  concurrent tool calls safely (activeIndex, page(), ensure() all race). Each new
+ *  action is queued behind the previous one, and failures never break the chain. */
+function serialize<T>(task: () => Promise<T>): Promise<T> {
+  const run = last.then(task, task);
+  last = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+export function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<BrowserActionResult> {
+  return serialize(() => runActionInternal(p, cfg));
+}
+
+async function runActionInternal(p: BrowserParams, cfg: BrowserConfig): Promise<BrowserActionResult> {
   if (p.action === "close") {
-    await closeBrowser();
+    await closeBrowserInternal();
     return { text: "Browser closed." };
   }
 
@@ -190,7 +204,11 @@ export async function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<B
   }
 }
 
-export async function closeBrowser(): Promise<void> {
+export function closeBrowser(): Promise<void> {
+  return serialize(closeBrowserInternal);
+}
+
+async function closeBrowserInternal(): Promise<void> {
   try {
     await context?.close();
     await browser?.close();

@@ -62,6 +62,11 @@ export default function (pi: ExtensionAPI) {
         if (!p.responseId) return err("get requires responseId");
         const hit = STORE.get(p.responseId);
         if (!hit) return err(`No stored result for ${p.responseId} (expires after 1h or on browser close).`);
+        // Enforce TTL on read, not just on the next store.
+        if (Date.now() - hit.timestamp > TTL_MS) {
+          STORE.delete(p.responseId);
+          return err(`No stored result for ${p.responseId} (expires after 1h or on browser close).`);
+        }
         const page = paginateStored(hit.text, p.offset ?? 0, cfg.getChars);
         return {
           content: [{ type: "text", text: page.text + continuationNotice(page) }],

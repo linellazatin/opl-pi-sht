@@ -92,7 +92,8 @@ npx playwright install chromium
 index.ts     Pi wiring: registers the single `browser` tool, TTL result store,
              preview/handle logic, and session_shutdown cleanup.
 browser.ts   Playwright driver: browser/context/page lifecycle, per-page console
-             and network buffers, and the action switch.
+             and network buffers, and the action switch. Tool calls are serialized
+             on the single shared context.
 validate.ts  URL/path guards: http/https-only navigation, screenshot path confined
              to the project directory.
 paging.ts    Bounded `get` pagination and continuation metadata.
@@ -104,4 +105,6 @@ config.ts    DEFAULT_CONFIG + loadUserConfig (user overrides win via ??).
 Interaction is CSS-selector based. Snapshot-uid interaction (referencing elements
 by ids returned from `snapshot`) is intentionally not implemented; use CSS
 selectors, which are simpler and robust. The in-memory result store expires
-entries after one hour or when the browser is closed.
+entries after one hour or when the browser is closed; expiry is checked on read,
+not only when another result is stored, so an idle entry past its TTL is never
+served.

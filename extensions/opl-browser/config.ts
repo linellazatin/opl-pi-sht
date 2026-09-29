@@ -9,7 +9,8 @@ export interface BrowserConfig {
   navigationTimeoutMs: number;
   previewChars: number;
   getChars: number;
-  /** Allow navigate/new_page to reach private/loopback/link-local hosts (default false). */
+  /** Allow navigate/new_page to reach private/link-local ranges (loopback is always
+   *  allowed; cloud metadata is always blocked). Default false. */
   allowPrivateNetwork: boolean;
 }
 
