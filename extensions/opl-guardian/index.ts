@@ -80,6 +80,13 @@ export async function guardMessageEnd(
 
 export function createToolCallHandler(config: GuardianConfig) {
   return async (event: ToolCallEvent, ctx: ExtensionContext) => {
+    // Defense in depth: createMessageEndHandler already drops malformed tool calls
+    // (blank id or name) before they reach execution, but block any that still get
+    // here anyway (e.g. a replay path or a provider that streamed them directly).
+    if (event.toolCallId.trim() === "" || event.toolName.trim() === "") {
+      return { block: true, reason: "[opl-guardian] Blocked a malformed tool call with a blank id or name." };
+    }
+
     let toolPath: string | undefined;
     if (isToolCallEventType("read", event)) toolPath = event.input.path;
     else if (isToolCallEventType("write", event)) toolPath = event.input.path;

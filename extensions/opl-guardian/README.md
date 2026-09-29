@@ -31,7 +31,7 @@ Starting a new session, resuming another session with a pending user message, an
 
 ### Malformed provider tool calls
 
-A tool call is malformed when its ID or name is blank after trimming whitespace. The extension drops malformed calls before Pi persists or replays them, preserves valid sibling calls, and turns invalid-only responses into a text-only stop so the user can continue. Unfamiliar but non-empty tool names are not rejected.
+A tool call is malformed when its ID or name is blank after trimming whitespace. The extension drops malformed calls before Pi persists or replays them, preserves valid sibling calls, and turns invalid-only responses into a text-only stop so the user can continue. Unfamiliar but non-empty tool names are not rejected. As defense in depth, the `tool_call` boundary also blocks any blank-id/name call that slips through, so a malformed call can never execute even if the `message_end` filter is bypassed.
 
 ## Forensic JSONL
 

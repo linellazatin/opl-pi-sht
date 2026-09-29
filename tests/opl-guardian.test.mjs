@@ -415,6 +415,14 @@ function fakeToolContext({ hasUI = true, choice = "yes" } = {}) {
   };
 }
 
+test("tool-call policy blocks malformed tool calls with a blank id or name", async () => {
+  const { config } = parseGuardianConfig({});
+  const handler = createToolCallHandler(config);
+  const { context } = fakeToolContext();
+  assert.equal((await handler({ type: "tool_call", toolCallId: "", toolName: "read", input: { path: "x" } }, context)).block, true);
+  assert.equal((await handler({ type: "tool_call", toolCallId: "call_test", toolName: "", input: {} }, context)).block, true);
+});
+
 test("tool-call policy lets ordinary Bash commands pass without prompting", async () => {
   const { config } = parseGuardianConfig({ permissionGate: { patterns: ["danger"] }, protectedPaths: { paths: [] } });
   const handler = createToolCallHandler(config);
