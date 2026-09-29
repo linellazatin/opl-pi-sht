@@ -46,6 +46,12 @@ test("resolves configurable content limits with defaults", () => {
   const custom = resolveCaps({ maxContentChars: 1234, maxRetrievalChars: 42 });
   assert.equal(custom.maxContentChars, 1234);
   assert.equal(custom.maxRetrievalChars, 42);
+  // Malformed caps (non-number, infinite, non-positive) fall back to defaults.
+  assert.equal(resolveCaps({ maxContentChars: "abc" }).maxContentChars, 30000);
+  assert.equal(resolveCaps({ maxRetrievalChars: NaN }).maxRetrievalChars, 30000);
+  assert.equal(resolveCaps({ maxContentChars: 0, maxRetrievalChars: -5 }).maxContentChars, 30000);
+  assert.equal(resolveCaps({ maxContentChars: 0, maxRetrievalChars: -5 }).maxRetrievalChars, 30000);
+  assert.equal(resolveCaps({ maxContentChars: Infinity }).maxContentChars, 30000);
 });
 
 test("recognizes PDF URLs and content types", () => {
@@ -72,6 +78,11 @@ test("generates and expires stored web results", () => {
   storeResult("stale", { id: "stale", type: "search", timestamp: now - 61 * 60 * 1000 });
   assert.equal(getResult("stale"), null, "expired entry evicted on next store");
   assert.ok(getResult("fresh"), "fresh entry still present after eviction");
+  // TTL is also enforced on read even without a later store.
+  storeResult("idle", { id: "idle", type: "search", timestamp: now });
+  assert.ok(getResult("idle"), "fresh entry retained");
+  assert.equal(getResult("idle", now + 61 * 60 * 1000), null, "expired on read without a later store");
+  assert.equal(getResult("idle"), null, "expired entry stayed evicted");
   assert.equal(getResult("missing"), null, "unknown id returns null");
   clearStore();
   assert.equal(getResult("fresh"), null, "clearStore empties the store");

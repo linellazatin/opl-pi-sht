@@ -15,7 +15,7 @@ Provides configurable web search and readable URL/PDF retrieval with session-bac
 - Searches through `gemini`, `tavily`, `ddgs`, `searxng`, or `exa`; multiple queries run concurrently and results include citations where available.
 - Extracts HTML with Readability and Markdown conversion, falls back to full-document Turndown conversion, passes PDF responses to the PDF extractor, and returns plain text, Markdown, and JSON directly.
 - Restricts `fetch_content` to http/https and blocks private-range, link-local, and reserved hosts by default, re-checks every redirect hop, and always blocks cloud-metadata endpoints (SSRF guard). Loopback (`localhost`/`127.0.0.0/8`/`::1`) is allowed by default for local development; set `allowPrivateNetwork: true` to reach private ranges. Caps each response at 10 MB and applies a 30s timeout; Gemini keys are sent via the `x-goog-api-key` header rather than the query string.
-- Caps initial tool output at a configurable length (default 30,000 characters), then keeps it for retrieval for one hour or until the session ends.
+- Caps initial tool output at a configurable length (default 30,000 characters), then keeps it for retrieval for one hour (expiry is enforced on read, not just on write) or until the session ends.
 - Pages `get_search_content` results (default 30,000 characters per page) with `offset` continuation, so a model never loads the whole stored body in one call.
 - Honors abort signals and returns provider, HTTP, and per-result failures through the tool boundary rather than throwing.
 
@@ -33,7 +33,7 @@ Copy [`configs/opl-webaccess.json.sample`](../../configs/opl-webaccess.json.samp
 }
 ```
 
-Provider fields include `apiKeyEnv`, `apiUrl`, `baseUrl`, `model`, `maxResults`, `instanceUrl`, `categories`, `safeSearch`, `searchType`, and `includeSummary`. API keys are read only from named environment variables. Missing or invalid config falls back to Gemini defaults; an unknown provider returns an error.
+Provider fields include `apiKeyEnv`, `apiUrl`, `baseUrl`, `model`, `maxResults`, `instanceUrl`, `categories`, `safeSearch`, `searchType`, and `includeSummary`. API keys are read only from named environment variables. Malformed config falls back to Gemini defaults - a non-object config, a non-string `provider`, a non-object `providers` map, or non-positive cap values (`maxContentChars`/`maxRetrievalChars`) are all treated as unset; an unknown provider returns an error.
 
 Optional top-level caps control how much content reaches the model:
 
