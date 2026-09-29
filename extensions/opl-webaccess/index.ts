@@ -14,7 +14,9 @@ import { loadConfig, resolveCaps } from "./config.js";
 import type { StoredData } from "./types.js";
 
 export default function (pi: ExtensionAPI) {
-  const caps = resolveCaps(loadConfig());
+  const config = loadConfig();
+  const caps = resolveCaps(config);
+  const allowPrivateNetwork = config.allowPrivateNetwork === true;
 
   pi.on("session_start", async (_event, ctx) => {
     restoreFromSession(ctx);
@@ -45,7 +47,14 @@ export default function (pi: ExtensionAPI) {
 
       let results;
       try {
-        results = await Promise.all(queryList.map((q) => searchWeb(q, signal)));
+        // allSettled so one provider's throw (non-JSON body, missing key) cannot
+        // discard the sibling queries' results.
+        const settled = await Promise.allSettled(queryList.map((q) => searchWeb(q, signal)));
+        results = settled.map((s, i) =>
+          s.status === "fulfilled"
+            ? s.value
+            : { query: queryList[i], answer: "", results: [], error: errorMessage(s.reason) }
+        );
       } catch (err) {
         return {
           content: [{ type: "text", text: `Error: ${errorMessage(err)}` }],
@@ -102,7 +111,7 @@ export default function (pi: ExtensionAPI) {
 
       let results;
       try {
-        results = await fetchAllContent(urlList, signal);
+        results = await fetchAllContent(urlList, signal, { allowPrivateNetwork });
       } catch (err) {
         return {
           content: [{ type: "text", text: `Error: ${errorMessage(err)}` }],

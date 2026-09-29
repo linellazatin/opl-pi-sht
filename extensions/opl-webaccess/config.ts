@@ -22,6 +22,8 @@ export interface WebAccessConfig {
   maxContentChars?: number;
   /** Cap on one get_search_content retrieval page (chars). */
   maxRetrievalChars?: number;
+  /** Allow fetch_content to reach private/loopback/link-local hosts (default false). */
+  allowPrivateNetwork?: boolean;
 }
 
 export const DEFAULT_MAX_CONTENT_CHARS = 30_000;

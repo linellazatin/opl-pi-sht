@@ -1,5 +1,7 @@
 {
   "_comment_limits": "Optional top-level caps: maxContentChars caps the initial web_search/fetch_content body (default 30000); maxRetrievalChars caps one get_search_content page (default 30000). Pass offset=N to get_search_content to continue a truncated retrieval.",
+  "_comment_network": "allowPrivateNetwork defaults to false: fetch_content rejects private-range and link-local hosts. Loopback (localhost/127.0.0.1/::1) is always allowed for local development, and cloud-metadata endpoints are always blocked. Set allowPrivateNetwork true to reach private ranges (LAN servers). This does NOT affect provider API endpoints (ddgs.apiUrl / searxng.instanceUrl), which remain configurable.",
+  "allowPrivateNetwork": false,
   "maxContentChars": 30000,
   "maxRetrievalChars": 30000,
   "provider": "searxng",

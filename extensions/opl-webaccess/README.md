@@ -14,7 +14,7 @@ Provides configurable web search and readable URL/PDF retrieval with session-bac
 
 - Searches through `gemini`, `tavily`, `ddgs`, `searxng`, or `exa`; multiple queries run concurrently and results include citations where available.
 - Extracts HTML with Readability and Markdown conversion, falls back to full-document Turndown conversion, passes PDF responses to the PDF extractor, and returns plain text, Markdown, and JSON directly.
-- Restricts `fetch_content` to http/https, caps each response at 10 MB, and applies a 30s timeout; Gemini keys are sent via the `x-goog-api-key` header rather than the query string.
+- Restricts `fetch_content` to http/https and blocks private-range, link-local, and reserved hosts by default, re-checks every redirect hop, and always blocks cloud-metadata endpoints (SSRF guard). Loopback (`localhost`/`127.0.0.0/8`/`::1`) is allowed by default for local development; set `allowPrivateNetwork: true` to reach private ranges. Caps each response at 10 MB and applies a 30s timeout; Gemini keys are sent via the `x-goog-api-key` header rather than the query string.
 - Caps initial tool output at a configurable length (default 30,000 characters), then keeps it for retrieval for one hour or until the session ends.
 - Pages `get_search_content` results (default 30,000 characters per page) with `offset` continuation, so a model never loads the whole stored body in one call.
 - Honors abort signals and returns provider, HTTP, and per-result failures through the tool boundary rather than throwing.
@@ -41,6 +41,7 @@ Optional top-level caps control how much content reaches the model:
 |---|---|---|
 | `maxContentChars` | `30000` | Cap on the initial `web_search`/`fetch_content` body. |
 | `maxRetrievalChars` | `30000` | Cap on one `get_search_content` page. Pass `offset` to continue. |
+| `allowPrivateNetwork` | `false` | Allow `fetch_content` to reach private/link-local ranges (loopback is always allowed; cloud metadata is always blocked). Provider API endpoints (e.g. `ddgs.apiUrl`, `searxng.instanceUrl`) are excluded from this guard. |
 
 Install extraction dependencies before use:
 

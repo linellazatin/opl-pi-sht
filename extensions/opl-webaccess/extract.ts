@@ -2,12 +2,13 @@ import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
 import { extractPdfBuffer } from "./pdf.js";
-import { errorMessage, isAbortError, isPdfUrl, isPdfContentType, assertHttpUrl } from "./utils.js";
+import { errorMessage, isAbortError, isPdfUrl, isPdfContentType, assertHttpUrl, type HttpUrlOptions } from "./utils.js";
 import type { ExtractedContent } from "./types.js";
 
 const CONCURRENT_LIMIT = 3;
 const MAX_FETCH_BYTES = 10 * 1024 * 1024; // 10 MB response cap
 const FETCH_TIMEOUT_MS = 30_000;
+const MAX_REDIRECTS = 5;
 
 const td = new TurndownService({
   headingStyle: "atx",
@@ -43,31 +44,51 @@ async function readBufferCapped(response: Response, maxBytes: number): Promise<A
 
 export async function fetchAllContent(
   urls: string[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  opts: HttpUrlOptions = {}
 ): Promise<ExtractedContent[]> {
   const results: ExtractedContent[] = [];
   for (let i = 0; i < urls.length; i += CONCURRENT_LIMIT) {
     if (signal?.aborted) break;
     const batch = urls.slice(i, i + CONCURRENT_LIMIT);
-    const batchResults = await Promise.all(batch.map((url) => fetchOne(url, signal)));
+    const batchResults = await Promise.all(batch.map((url) => fetchOne(url, signal, opts)));
     results.push(...batchResults);
   }
   return results;
 }
 
-async function fetchOne(url: string, signal?: AbortSignal): Promise<ExtractedContent> {
+/**
+ * Fetch with redirects followed manually so each hop is re-validated. The native
+ * `redirect: "follow"` would let a public URL bounce to a private/link-local host
+ * past the `assertHttpUrl` check.
+ */
+async function fetchWithRedirectValidation(
+  url: string,
+  fetchSignal: AbortSignal,
+  opts: HttpUrlOptions
+): Promise<Response> {
+  let current = assertHttpUrl(url, opts);
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (compatible; pi-web-access/1.0)",
+    Accept: "text/html,application/xhtml+xml,application/pdf,*/*",
+  };
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const response = await fetch(current, { signal: fetchSignal, headers, redirect: "manual" });
+    if (response.status < 300 || response.status >= 400) return response;
+    const location = response.headers.get("location");
+    if (!location) return response; // 3xx without a Location: treat as final
+    await response.body?.cancel().catch(() => {});
+    current = assertHttpUrl(new URL(location, current).href, opts);
+  }
+  throw new Error(`Too many redirects (max ${MAX_REDIRECTS})`);
+}
+
+async function fetchOne(url: string, signal?: AbortSignal, opts: HttpUrlOptions = {}): Promise<ExtractedContent> {
   try {
-    const target = assertHttpUrl(url);
     const fetchSignal = signal
       ? AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)])
       : AbortSignal.timeout(FETCH_TIMEOUT_MS);
-    const response = await fetch(target, {
-      signal: fetchSignal,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; pi-web-access/1.0)",
-        Accept: "text/html,application/xhtml+xml,application/pdf,*/*",
-      },
-    });
+    const response = await fetchWithRedirectValidation(url, fetchSignal, opts);
 
     if (!response.ok) {
       return { url, title: "", content: "", error: `HTTP ${response.status}: ${url}` };

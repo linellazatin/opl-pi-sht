@@ -84,3 +84,49 @@ test("assertHttpUrl allows only http/https", () => {
   assert.throws(() => assertHttpUrl("ftp://example.com"), /http\/https/);
   assert.throws(() => assertHttpUrl("not a url"), /Invalid URL/);
 });
+
+test("assertHttpUrl allows loopback by default and blocks private/link-local ranges", () => {
+  // Loopback is allowed out of the box for local dev servers.
+  for (const url of [
+    "http://localhost",
+    "http://localhost:3000/app",
+    "http://foo.localhost/x",
+    "http://127.0.0.1/api",
+    "http://2130706433/", // integer form of 127.0.0.1
+    "http://[::1]/",
+  ]) {
+    assert.equal(assertHttpUrl(url), new URL(url).href, `should allow loopback: ${url}`);
+  }
+
+  for (const url of [
+    "http://10.0.0.5/",
+    "http://172.16.0.1/",
+    "http://172.31.255.255/",
+    "http://192.168.1.100/",
+    "http://100.64.0.1/",
+    "http://[fe80::1]/",
+    "http://[fd00::1]/",
+    "http://[::ffff:192.168.0.5]/",
+  ]) {
+    assert.throws(() => assertHttpUrl(url), /Blocked network host/, `should block: ${url}`);
+  }
+});
+
+test("assertHttpUrl hard-blocks cloud metadata even with private opt-in", () => {
+  for (const url of [
+    "http://169.254.169.254/latest/meta-data/",
+    "http://100.100.100.200/",
+    "http://metadata.google.internal/",
+    "http://instance-data/",
+    "http://[fd00:ec2::254]/",
+    "http://[::ffff:169.254.169.254]/",
+  ]) {
+    assert.throws(() => assertHttpUrl(url), /Blocked network host/, `should block: ${url}`);
+    assert.throws(() => assertHttpUrl(url, { allowPrivateNetwork: true }), /Blocked network host/, `should still block with opt-in: ${url}`);
+  }
+});
+
+test("assertHttpUrl opt-in allows private hosts", () => {
+  assert.equal(assertHttpUrl("http://192.168.1.100:8000", { allowPrivateNetwork: true }), "http://192.168.1.100:8000/");
+  assert.equal(assertHttpUrl("http://localhost:3000", { allowPrivateNetwork: true }), "http://localhost:3000/");
+});
