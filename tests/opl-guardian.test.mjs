@@ -409,8 +409,8 @@ test("Bash protected-path lookup preserves literal command matching", () => {
 });
 
 function fakeToolContext({ hasUI = true, choice = "yes" } = {}) {
-  const state = { prompts: 0, notifications: [] };
-  const theme = { fg: (_color, text) => text };
+  const state = { prompts: 0, notifications: [], options: null };
+  const selected = { yes: "Yes", no: "No", null: undefined }[choice];
   return {
     state,
     context: {
@@ -418,14 +418,10 @@ function fakeToolContext({ hasUI = true, choice = "yes" } = {}) {
       hasUI,
       ui: {
         notify: (message, level) => state.notifications.push({ message, level }),
-        setToolsExpanded() {},
-        getToolsExpanded: () => false,
-        custom: async (factory) => {
+        select: async (_title, options) => {
           state.prompts++;
-          let result;
-          factory({ requestRender() {} }, theme, { matches: () => false }, (value) => { result = value; });
-          result = choice;
-          return result;
+          state.options = options;
+          return selected;
         },
       },
     },
@@ -446,6 +442,14 @@ test("tool-call policy lets ordinary Bash commands pass without prompting", asyn
   const { context, state } = fakeToolContext();
   assert.equal(await handler({ type: "tool_call", toolCallId: "call_test", toolName: "bash", input: { command: "echo hello" } }, context), undefined);
   assert.equal(state.prompts, 0);
+});
+
+test("tool-call policy presents a fail-closed default for dangerous commands", async () => {
+  const config = parseGuardianConfig({ permissionGate: { patterns: ["danger"] }, protectedPaths: { paths: [] } }).config;
+  const handler = createToolCallHandler(config);
+  const { context, state } = fakeToolContext({ choice: "no" });
+  assert.equal((await handler({ type: "tool_call", toolCallId: "call_test", toolName: "bash", input: { command: "run danger" } }, context)).block, true);
+  assert.deepEqual(state.options, ["No", "Yes"]);
 });
 
 test("tool-call policy allows a dangerous Bash command only after affirmative confirmation", async () => {
@@ -472,7 +476,6 @@ test("RPC dangerous Bash approval uses a supported dialog", async () => {
   const event = { type: "tool_call", toolCallId: "rpc", toolName: "bash", input: { command: "danger" } };
   let dialogs = 0;
   const ctx = { cwd: "/project", mode: "rpc", hasUI: true, ui: {
-    custom: async () => { throw new Error("RPC does not support custom UI"); },
     select: async () => { dialogs++; return "Yes"; },
   } };
   assert.equal(await createToolCallHandler(config)(event, ctx), undefined);
