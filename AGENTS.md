@@ -1,27 +1,18 @@
-# Repository Guide
-
 ## What this is
 
-`opl-pi-sht` is a portable collection of Pi coding-agent extensions. Repository directories and configuration files use the `opl-` prefix, while established Pi-facing commands and tool names remain compatible.
-
-The repository includes extension code, tests, optional configuration files, documentation, research material, images, and project metadata. The top-level directories are:
-
-- `.github/`, `.nanomneme/`, `.pi/`, `.superpowers/`
-- `configs/`, `docs/`, `extensions/`, `images/`, `research/`, `tests/`
-
-Important root files include `README.md`, `AGENTS.md`, `CHANGELOG.md`, `LICENSE`, `install.sh`, and `package.json`.
+`opl-pi-sht` is a portable collection of coding-agent extensions for Pi, focused on cutting token cost, running the agent safely, and replacing MCP servers. Repository directories and config files use the `opl-` prefix; established Pi-facing commands and tool names stay compatible.
 
 ## Commands
 
-The test suite uses Bun. Run the full suite with:
+All tests run with `bun test`. The full suite is:
 
-```bash
+```
 npm test
 ```
 
-This invokes the extension-specific scripts in sequence:
+Each extension has a targeted script that runs its unit tests followed by a smoke test with `OPL_EXTENSION` set:
 
-```bash
+```
 npm run test:opl-browser
 npm run test:opl-footer
 npm run test:opl-guardian
@@ -33,65 +24,44 @@ npm run test:opl-todo
 npm run test:opl-webaccess
 npm run test:opl-simplebench
 npm run test:opl-ctxtrim
+npm run test:pi-host
 ```
 
-Each extension script runs focused tests and, where applicable, an extension smoke test using `OPL_EXTENSION`. Examples:
-
-```bash
-npm run test:opl-browser
-npm run test:opl-init
-npm run test:opl-todo
-npm run test:opl-ctxtrim
-```
-
-The focused test files are under `tests/`, including helper, lifecycle, configuration, rendering, crawl, fingerprint, packet, and TypeScript tests. The `extensions/opl-webaccess/package.json` script is only a placeholder and exits with an error; use the root `test:opl-webaccess` script instead.
+The `extensions/opl-webaccess/package.json` defines `test` as an error stub (`echo "Error: no test specified" && exit 1`); ignore that script and use the root-level `test:opl-webaccess` instead.
 
 ## Architecture
 
-Extension implementations live under `extensions/`. The currently represented extension names are:
+The repository is organized around individual Pi extensions, each with its own helpers and tests:
 
-- `opl-browser`
-- `opl-footer`
-- `opl-guardian`
-- `opl-init`
-- `opl-input`
-- `opl-modes`
-- `opl-questionnaire`
-- `opl-todo`
-- `opl-webaccess`
-- `opl-simplebench`
-- `opl-ctxtrim`
+- `opl-browser`, `opl-webaccess` — web access with SSRF/host blocking, per-hop redirect rechecking, screenshot safety, and `evaluate` hardening.
+- `opl-footer`, `opl-guardian`, `opl-input`, `opl-modes`, `opl-questionnaire`, `opl-todo` — agent UI/behavior extensions.
+- `opl-init` — crawling, fingerprinting, and packet handling.
+- `opl-simplebench`, `opl-ctxtrim` — TypeScript-based utilities (their tests are `.ts`).
+- `pi-host` — host loader; tested via `tests/pi-host-loader.test.mjs`.
 
-Their behavior is exercised by extension-specific tests and shared smoke tests in `tests/extension-smoke.test.mjs`. Optional extension configuration is kept separately in `configs/`. `opl-guardian` owns dangerous-Bash confirmation, protected paths, destructive-session confirmations, and malformed tool-call filtering; its unified example config is `configs/opl-guardian.json.sample`, and malformed-call evidence is written under the project's `err/guardian.jsonl`.
+The test layout mirrors the extension layout: most tests are `.mjs`, with `.ts` tests for the TypeScript extensions. A shared smoke test at `tests/extension-smoke.test.mjs` is parameterized by `OPL_EXTENSION`.
 
 ## Configuration and installation
 
-Install a versioned release from npm or GitHub, choosing one source per machine:
+Install a versioned release from npm or GitHub via:
 
 ```bash
 pi install npm:@openlines/opl-pi-sht@<version>
 pi install git:github.com/linellazatin/opl-pi-sht@<version.tag>
 ```
 
-Installing both sources causes Pi to treat them as separate packages and load every extension twice. npm installs track the latest published release when no version is supplied; Git refs remain pinned.
+Both sources ship identical content. Install from only one source per machine: Pi treats the npm and Git entries as separate packages, so installing both loads every extension twice. Omitting the version on the npm source tracks the latest published release; Git refs remain pinned.
 
-Pi installs the package below `~/.pi/agent/npm/node_modules/@openlines/opl-pi-sht` or the corresponding Git checkout and runs root `npm install`. Optional extension configuration is not installed automatically; copy only the required files from that checkout’s `configs/` directory to `~/.pi/agent/configs/`.
+## Operational notes
 
-`opl-browser` additionally requires Chromium to be installed once after package installation.
-
-## Testing and operational quirks
-
-Inspect the relevant extension and test files before changing behavior. Keep changes focused, preserve existing interfaces, and run the narrowest relevant test before `npm test`. Keep secrets and generated output out of tracked configuration.
+- Version v0.2.8 includes SSRF and tool-safety hardening for `opl-webaccess` and `opl-browser`: private/link-local hosts are blocked by default (localhost remains available for dev), cloud metadata is always blocked, screenshots refuse to overwrite existing files, and `evaluate` handles `undefined` without crashing.
+- Keep secrets and generated output out of tracked configuration.
+- Inspect specific files before changing behavior; the top-level inventory includes generated outputs such as `.log` files and `plan-path` entries that should not be treated as source of truth.
 
 ## Key files
 
-- `package.json` — root test scripts
-- `extensions/` — extension implementations and package metadata
-- `tests/` — extension-focused and smoke tests
-- `configs/` — optional Pi extension configuration
-- `README.md` — installation and package usage
-- `AGENTS.md` — repository agent guidance
-- `CHANGELOG.md` — project history
-- `install.sh` — installation script
-- `LICENSE` — license terms
-<!-- opl-init:fp 52f8ab5069bcbe59 -->
+- `package.json` — root scripts and test commands.
+- `CHANGELOG.md` — release history and safety changes.
+- `tests/extension-smoke.test.mjs` — shared smoke test used by all extension test scripts.
+- `extensions/opl-webaccess/package.json` — contains a non-functional stub test script; do not rely on it.
+<!-- opl-init:fp a766ea02db1e5882 -->
