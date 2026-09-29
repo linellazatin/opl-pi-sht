@@ -6,7 +6,7 @@
   },
   "shortcuts": {
     "_comment": "Shortcut that cycles through all enabled, visible modes in registry order. Default: ctrl+alt+m.",
-    "cycleMode": "shift+tab"
+    "cycleMode": "ctrl+alt+m"
   },
   "cleanup": {
     "_comment": "Set to true to delete the plan file automatically after plan_complete is called.",
