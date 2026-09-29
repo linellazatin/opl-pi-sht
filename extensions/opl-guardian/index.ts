@@ -88,7 +88,8 @@ export function createToolCallHandler(config: GuardianConfig) {
     // Defense in depth: createMessageEndHandler already drops malformed tool calls
     // (blank id or name) before they reach execution, but block any that still get
     // here anyway (e.g. a replay path or a provider that streamed them directly).
-    if (event.toolCallId.trim() === "" || event.toolName.trim() === "") {
+    // Optional chaining tolerates a *missing* id/name, not just a blank string.
+    if (!event.toolCallId?.trim() || !event.toolName?.trim()) {
       return { block: true, reason: "[opl-guardian] Blocked a malformed tool call with a blank id or name." };
     }
 
