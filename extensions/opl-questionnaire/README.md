@@ -12,7 +12,7 @@ Adds a model-callable interactive questionnaire for discrete choices, preference
 
 - Renders one question as a compact option list and multiple questions as tabs with a final Submit tab.
 - Questions require an `id`, prompt, options, and optional label or free-text `allowOther` response.
-- Rejects duplicate IDs and questions that cannot be answered; returns `(no response)` for an empty custom answer.
+- Rejects duplicate IDs, blank IDs, and questions that cannot be answered; returns `(no response)` for an empty custom answer.
 - Returns structured answers containing question ID, selected value and label, custom-text flag, and option index where applicable.
 - Blocks submission until every multi-question prompt has an answer.
 - Returns a clear error in headless sessions so the model can use plain-text questions instead.
