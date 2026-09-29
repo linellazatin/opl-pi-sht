@@ -92,8 +92,9 @@ test("builds an incident record containing only metadata and removed calls", () 
     cwd: "/tmp/project",
   }, removedToolCalls);
 
-  assert.deepEqual(incident, {
-    timestamp: new Date(0).toISOString(),
+  assert.doesNotThrow(() => new Date(incident.timestamp).toISOString());
+  assert.deepEqual({ ...incident, timestamp: "<ts>" }, {
+    timestamp: "<ts>",
     kind: "malformed_tool_call",
     sessionId: "session-test",
     cwd: "/tmp/project",
@@ -103,6 +104,16 @@ test("builds an incident record containing only metadata and removed calls", () 
     action: "dropped",
     removedToolCalls,
   });
+});
+
+test("incident record falls back to a valid timestamp when missing or zero", () => {
+  const base = assistantWith([]);
+  for (const timestamp of [undefined, 0, NaN]) {
+    const incident = buildIncidentRecord({ ...base, timestamp }, { sessionId: "s", cwd: "/p" }, []);
+    assert.doesNotThrow(() => new Date(incident.timestamp).toISOString());
+    assert.ok(Number.isFinite(new Date(incident.timestamp).getTime()), `timestamp ${timestamp}`);
+    assert.notEqual(incident.timestamp, new Date(0).toISOString(), `zero timestamp must not become epoch: ${timestamp}`);
+  }
 });
 
 test("keeps only replayable calls with non-empty OpenAI function names", () => {
@@ -142,7 +153,13 @@ test("mixed responses log the dropped calls and retain valid calls", async () =>
     const replacement = await guardMessageEnd(message, { cwd, sessionId: "session-test" });
     assert.equal(replacement.message.stopReason, "toolUse");
     assert.equal(replacement.message.content.some(isMalformedToolCall), false);
-    assert.match(replacement.message.content.at(-1).text, /err\/guardian\.jsonl/);
+    // Diagnostic is prepended (text before tool calls), not appended after them.
+    assert.equal(replacement.message.content[0].type, "text");
+    assert.match(replacement.message.content[0].text, /err\/guardian\.jsonl/);
+    assert.deepEqual(
+      replacement.message.content.slice(1).map((b) => (b.type === "toolCall" ? b.name : b.type)),
+      ["read"],
+    );
     const log = await readFile(join(cwd, "err", "guardian.jsonl"), "utf8");
     assert.equal(JSON.parse(log).removedToolCalls[0].id, "call_bad");
   } finally {

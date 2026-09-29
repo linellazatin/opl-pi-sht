@@ -23,7 +23,7 @@ The default patterns cover recursive `rm` flags (including `-rf`, `-fr`, and sep
 
 ### Protected paths
 
-Defaults protect `.env` from read/write/edit/Bash, `.git/` from read/write/edit, `node_modules/` from write/edit, and `~/.pi/agent/auth.json` from read/write/edit/Bash. File-tool path checks compare both the supplied path and its filesystem-resolved target, including existing symlinks and symlinked parents for new files; paths that cannot be safely resolved are blocked when an applicable path rule is active. A path denial is a hard block and takes precedence over a dangerous-command confirmation for the same Bash call. These are preflight checks, not filesystem confinement: paths can change between the check and the tool operation. Bash matching is literal and cannot reliably detect indirect access through scripts, variables, or shell expansion; do not rely on guardian alone as a security boundary against untrusted shell commands.
+Defaults protect `.env` from read/write/edit/Bash, `.git/` from read/write/edit, `node_modules/` from write/edit, and `~/.pi/agent/auth.json` from read/write/edit/Bash. File-tool path checks compare both the supplied path and its filesystem-resolved target, including existing symlinks and symlinked parents for new files; paths that cannot be safely resolved are blocked when an applicable path rule is active. A path denial is a hard block and takes precedence over a dangerous-command confirmation for the same Bash call. These are preflight checks, not filesystem confinement: paths can change between the check and the tool operation. Bash matching is literal and cannot reliably detect indirect access through scripts, variables, or shell expansion (for example `cat "$HOME/.pi/agent/auth.json"` misses the auth file); it also over-blocks commands that merely *mention* a protected path or name (for example `grep .env notes.md`). Do not rely on guardian alone as a security boundary against untrusted shell commands.
 
 ### Destructive session actions
 
@@ -41,7 +41,7 @@ Each malformed-call incident appends one JSON object to:
 <project cwd>/err/guardian.jsonl
 ```
 
-Records include timestamp, session/project/provider/model metadata, and removed tool-call blocks. The log does not contain prompts, assistant text, thinking, or tool results, but tool-call arguments may include paths, commands, or user text. Treat it as local diagnostic data and ignore `err/` in version control where appropriate. On POSIX, a newly created log is restricted to mode `0600` on a best-effort basis. If logging fails, malformed calls are still removed and the diagnostic reports the write failure.
+Records include timestamp (falling back to the current time when a provider omitted or zeroed it), session/project/provider/model metadata, and removed tool-call blocks. The log does not contain prompts, assistant text, thinking, or tool results, but tool-call arguments may include paths, commands, or user text. Treat it as local diagnostic data and ignore `err/` in version control where appropriate. On POSIX, a newly created log is restricted to mode `0600` on a best-effort basis. If logging fails, malformed calls are still removed and the diagnostic reports the write failure.
 
 ## Testing
 

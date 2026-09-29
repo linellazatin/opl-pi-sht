@@ -56,8 +56,12 @@ export function buildIncidentRecord(
   context: IncidentContext,
   removedToolCalls: ToolCall[],
 ): GuardianIncident {
+  // A missing/zero/NaN timestamp yields an invalid Date whose toISOString() throws,
+  // which would silently lose the forensic record. Fall back to the current time.
+  const timestamp =
+    Number.isFinite(message.timestamp) && message.timestamp > 0 ? message.timestamp : Date.now();
   return {
-    timestamp: new Date(message.timestamp).toISOString(),
+    timestamp: new Date(timestamp).toISOString(),
     kind: "malformed_tool_call",
     sessionId: context.sessionId,
     cwd: context.cwd,

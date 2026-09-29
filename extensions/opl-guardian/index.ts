@@ -50,9 +50,14 @@ function diagnostic(removed: number, logError?: unknown): string {
 }
 
 function appendDiagnostic(message: AssistantMessage, text: string, invalidOnly: boolean): AssistantMessage {
+  // For a mixed response (valid tool calls remain), prepend the notice rather than
+  // appending a trailing text block after toolCall blocks: providers such as Anthropic
+  // require each tool_use to be followed by a tool_result, so a trailing text block does
+  // not round-trip through the wire format. Text-before-tool-calls is the standard
+  // assistant shape. convertToLlm passes assistant messages through as-is.
   const content = invalidOnly
     ? [{ type: "text" as const, text: `${text} No tool was executed; send another prompt to continue.` }]
-    : [...message.content, { type: "text" as const, text }];
+    : [{ type: "text" as const, text }, ...message.content];
   return { ...message, content, stopReason: invalidOnly ? "stop" : "toolUse" };
 }
 
