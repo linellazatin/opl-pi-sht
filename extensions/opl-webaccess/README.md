@@ -5,8 +5,8 @@ Provides configurable web search and readable URL/PDF retrieval with session-bac
 ## Commands, flags, and shortcuts
 
 - Tools: `web_search`, `fetch_content`, and `get_search_content`.
-- `web_search` accepts `query` or parallel `queries`.
-- `fetch_content` accepts `url` or `urls` with at most three requests in flight.
+- `web_search` accepts `query` or parallel `queries` (at most 10 per call).
+- `fetch_content` accepts `url` or `urls` (at most 20 per call) with at most three requests in flight.
 - `get_search_content` uses a prior `responseId`, with `queryIndex`, `urlIndex`, or exact `url` selection. It returns one bounded page; pass `offset` to continue a truncated retrieval.
 - No slash commands or shortcuts.
 

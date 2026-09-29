@@ -9,6 +9,8 @@ const CONCURRENT_LIMIT = 3;
 const MAX_FETCH_BYTES = 10 * 1024 * 1024; // 10 MB response cap
 const FETCH_TIMEOUT_MS = 30_000;
 const MAX_REDIRECTS = 5;
+/** Ceiling on the number of URLs a single fetch_content call may include. */
+export const MAX_FETCH_URLS = 20;
 
 const td = new TurndownService({
   headingStyle: "atx",
@@ -47,10 +49,11 @@ export async function fetchAllContent(
   signal?: AbortSignal,
   opts: HttpUrlOptions = {}
 ): Promise<ExtractedContent[]> {
+  const bounded = urls.slice(0, MAX_FETCH_URLS);
   const results: ExtractedContent[] = [];
-  for (let i = 0; i < urls.length; i += CONCURRENT_LIMIT) {
+  for (let i = 0; i < bounded.length; i += CONCURRENT_LIMIT) {
     if (signal?.aborted) break;
-    const batch = urls.slice(i, i + CONCURRENT_LIMIT);
+    const batch = bounded.slice(i, i + CONCURRENT_LIMIT);
     const batchResults = await Promise.all(batch.map((url) => fetchOne(url, signal, opts)));
     results.push(...batchResults);
   }

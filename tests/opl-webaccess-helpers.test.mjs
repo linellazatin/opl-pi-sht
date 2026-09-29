@@ -3,6 +3,7 @@ import { test } from "bun:test";
 import { errorMessage, isAbortError, truncate, isPdfUrl, isPdfContentType, assertHttpUrl, paginateContent, continuationNotice } from "../extensions/opl-webaccess/utils.ts";
 import { generateId, storeResult, getResult, clearStore } from "../extensions/opl-webaccess/storage.ts";
 import { resolveCaps, DEFAULT_MAX_CONTENT_CHARS, DEFAULT_MAX_RETRIEVAL_CHARS } from "../extensions/opl-webaccess/config.ts";
+import { fetchAllContent, MAX_FETCH_URLS } from "../extensions/opl-webaccess/extract.ts";
 
 test("classifies web errors and truncates retrieval content", () => {
   assert.equal(errorMessage(new Error("boom")), "boom");
@@ -140,4 +141,21 @@ test("assertHttpUrl hard-blocks cloud metadata even with private opt-in", () => 
 test("assertHttpUrl opt-in allows private hosts", () => {
   assert.equal(assertHttpUrl("http://192.168.1.100:8000", { allowPrivateNetwork: true }), "http://192.168.1.100:8000/");
   assert.equal(assertHttpUrl("http://localhost:3000", { allowPrivateNetwork: true }), "http://localhost:3000/");
+});
+
+test("fetchAllContent caps the number of URLs per call", async () => {
+  const realFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
+  };
+  try {
+    const urls = Array.from({ length: MAX_FETCH_URLS + 5 }, (_, i) => `https://example.com/${i}`);
+    const results = await fetchAllContent(urls);
+    assert.equal(results.length, MAX_FETCH_URLS);
+    assert.equal(calls, MAX_FETCH_URLS);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

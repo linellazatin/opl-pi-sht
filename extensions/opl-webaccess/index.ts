@@ -13,6 +13,9 @@ import { truncate, errorMessage, paginateContent, continuationNotice } from "./u
 import { loadConfig, resolveCaps } from "./config.js";
 import type { StoredData } from "./types.js";
 
+/** Ceiling on the number of queries a single web_search call may run. */
+const MAX_SEARCH_QUERIES = 10;
+
 export default function (pi: ExtensionAPI) {
   const config = loadConfig();
   const caps = resolveCaps(config);
@@ -36,14 +39,15 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
     async execute(_toolCallId, params, signal) {
-      const queryList = params.queries ?? (params.query ? [params.query] : null);
-      if (!queryList?.length) {
+      const rawQueries = params.queries ?? (params.query ? [params.query] : null);
+      if (!rawQueries?.length) {
         return {
           content: [{ type: "text", text: "Error: provide either query or queries." }],
           isError: true,
           details: {} as Record<string, unknown>,
         };
       }
+      const queryList = rawQueries.slice(0, MAX_SEARCH_QUERIES);
 
       let results;
       try {
