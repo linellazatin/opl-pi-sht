@@ -9,6 +9,8 @@ export interface BrowserConfig {
   navigationTimeoutMs: number;
   previewChars: number;
   getChars: number;
+  /** Allow navigate/new_page to reach private/loopback/link-local hosts (default false). */
+  allowPrivateNetwork: boolean;
 }
 
 export const DEFAULT_CONFIG: BrowserConfig = {
@@ -18,6 +20,7 @@ export const DEFAULT_CONFIG: BrowserConfig = {
   navigationTimeoutMs: 30000,
   previewChars: 4000,
   getChars: 30000,
+  allowPrivateNetwork: false,
 };
 
 const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "configs", "opl-browser.json");
@@ -36,5 +39,6 @@ export function loadUserConfig(configPath = CONFIG_PATH): BrowserConfig {
     navigationTimeoutMs: user.navigationTimeoutMs ?? DEFAULT_CONFIG.navigationTimeoutMs,
     previewChars: user.previewChars ?? DEFAULT_CONFIG.previewChars,
     getChars: user.getChars ?? DEFAULT_CONFIG.getChars,
+    allowPrivateNetwork: user.allowPrivateNetwork ?? DEFAULT_CONFIG.allowPrivateNetwork,
   };
 }

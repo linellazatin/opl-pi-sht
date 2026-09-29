@@ -49,8 +49,13 @@ Full action set: `navigate` (url, or `back`/`forward`/`reload`), `snapshot`,
 - **Real Chromium via Playwright.** Navigation with `domcontentloaded` waits,
   CSS-selector interaction, viewport control, multi-page management.
 - **Scheme + path guards.** `navigate`/`new_page` accept http(s) only; `file:`,
-  `data:`, and `javascript:` are rejected. Screenshot paths are confined to the
-  project directory, so a bad `path` cannot overwrite arbitrary files.
+  `data:`, and `javascript:` are rejected, private-range and link-local hosts are
+  blocked by default, and cloud-metadata endpoints are always blocked (SSRF guard).
+  Loopback (`localhost`/`127.0.0.0/8`/`::1`) is allowed by default for local
+  development; set `allowPrivateNetwork: true` for private ranges. Redirect targets
+  are re-checked on the final URL. Screenshot paths must use `.png`/`.jpg`, stay
+  inside the project directory, and are refused when the file already exists, so a
+  bad action cannot overwrite or plant arbitrary files.
 - **Per-page capture.** Console messages and network requests are buffered per
   page as they occur; `console` and `network` actions return the active page's
   buffer.
@@ -68,6 +73,7 @@ Optional `~/.pi/agent/configs/opl-browser.json` (see `opl-browser.json.sample`):
 | `navigationTimeoutMs` | `30000` | Default navigation and `wait_for` timeout. |
 | `previewChars` | `4000` | Inline threshold; larger outputs are stored and previewed. |
 | `getChars` | `30000` | Characters returned by one `action: "get"` page. |
+| `allowPrivateNetwork` | `false` | Allow `navigate`/`new_page` to reach private/link-local ranges (loopback is always allowed; cloud metadata is always blocked). |
 
 ### Dependencies
 

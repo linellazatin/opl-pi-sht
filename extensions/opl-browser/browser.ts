@@ -46,6 +46,13 @@ function page(): Page {
   return pages[activeIndex] ?? pages[pages.length - 1];
 }
 
+/** Navigate with the host validated both before the request and on the final URL, so a
+ *  public URL that redirects to a private/link-local host is rejected. */
+async function gotoAllowed(target: Page, url: string, cfg: BrowserConfig): Promise<void> {
+  await target.goto(assertHttpUrl(url, { allowPrivateNetwork: cfg.allowPrivateNetwork }), { waitUntil: "domcontentloaded" });
+  assertHttpUrl(target.url(), { allowPrivateNetwork: cfg.allowPrivateNetwork });
+}
+
 export interface BrowserActionResult {
   text: string;
   file?: string;
@@ -81,7 +88,7 @@ export async function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<B
       if (url === "back") { await page().goBack(); }
       else if (url === "forward") { await page().goForward(); }
       else if (url === "reload") { await page().reload(); }
-      else if (url) { await page().goto(assertHttpUrl(url), { waitUntil: "domcontentloaded" }); }
+      else if (url) { await gotoAllowed(page(), url, cfg); }
       else throw new Error("navigate requires url (or back|forward|reload)");
       return { text: `${page().url()} — ${await page().title()}` };
     }
@@ -130,7 +137,8 @@ export async function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<B
     case "evaluate": {
       if (!p.script) throw new Error("evaluate requires script");
       const value = await page().evaluate(p.script);
-      return { text: typeof value === "string" ? value : JSON.stringify(value, null, 2) };
+      if (value === undefined) return { text: "(undefined result)" };
+      return { text: typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? "(undefined result)") };
     }
     case "console": {
       const msgs = consoleBuf.get(page()) ?? [];
@@ -155,7 +163,7 @@ export async function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<B
       const pg = await ctx.newPage();
       track(pg, cfg);
       activeIndex = ctx.pages().length - 1;
-      if (p.url) await pg.goto(assertHttpUrl(p.url), { waitUntil: "domcontentloaded" });
+      if (p.url) await gotoAllowed(pg, p.url, cfg);
       return { text: `Opened page [${activeIndex}] ${pg.url()}` };
     }
     case "select_page": {

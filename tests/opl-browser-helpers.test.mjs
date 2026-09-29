@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { extractMarkdown } from "../extensions/opl-browser/extract.ts";
 import { assertHttpUrl, safeScreenshotPath } from "../extensions/opl-browser/validate.ts";
 import { paginateStored, continuationNotice } from "../extensions/opl-browser/paging.ts";
@@ -76,8 +79,42 @@ test("browser guards reject non-http URLs and escaping screenshot paths", () => 
   assert.equal(assertHttpUrl("http://example.com/a?b=1"), "http://example.com/a?b=1");
   assert.throws(() => assertHttpUrl("file:///etc/passwd"), /http\/https/);
   assert.throws(() => assertHttpUrl("javascript:alert(1)"), /http\/https/);
-  assert.equal(safeScreenshotPath("shot.png"), "shot.png");
-  assert.equal(safeScreenshotPath("shots/x.png"), "shots/x.png");
-  assert.throws(() => safeScreenshotPath("../x.png"), /project directory/);
-  assert.throws(() => safeScreenshotPath("/tmp/x.png"), /project directory/);
+});
+
+test("browser guards allow loopback by default and block private/link-local ranges", () => {
+  for (const url of ["http://localhost:3000", "http://127.0.0.1/admin", "http://[::1]"]) {
+    assert.equal(assertHttpUrl(url), new URL(url).href, `should allow loopback: ${url}`);
+  }
+  for (const url of ["http://192.168.1.100/", "http://10.0.0.1/", "http://[::ffff:10.0.0.1]/", "http://[fd00::1]"]) {
+    assert.throws(() => assertHttpUrl(url), /blocked network host/i, `should block: ${url}`);
+  }
+});
+
+test("browser guards hard-block cloud metadata even with private opt-in", () => {
+  for (const url of [
+    "http://169.254.169.254/latest/meta-data/",
+    "http://100.100.100.200/",
+    "http://metadata.google.internal/",
+    "http://[fd00:ec2::254]/",
+  ]) {
+    assert.throws(() => assertHttpUrl(url), /blocked network host/i, `should block: ${url}`);
+    assert.throws(() => assertHttpUrl(url, { allowPrivateNetwork: true }), /blocked network host/i, `should still block with opt-in: ${url}`);
+  }
+  assert.equal(assertHttpUrl("http://192.168.1.100:8000", { allowPrivateNetwork: true }), "http://192.168.1.100:8000/");
+});
+
+test("safeScreenshotPath requires an image extension and refuses to overwrite", () => {
+  const dir = mkdtempSync(join(tmpdir(), "opl-browser-shots-"));
+  try {
+    assert.equal(safeScreenshotPath("shot.png", dir), "shot.png");
+    assert.equal(safeScreenshotPath("shots/x.png", dir), "shots/x.png");
+    assert.throws(() => safeScreenshotPath("../x.png", dir), /project directory/);
+    assert.throws(() => safeScreenshotPath("/tmp/x.png", dir), /project directory/);
+    assert.throws(() => safeScreenshotPath("notes.txt", dir), /\.png or \.jpg/);
+
+    writeFileSync(join(dir, "existing.png"), "sentinel");
+    assert.throws(() => safeScreenshotPath("existing.png", dir), /refusing to overwrite/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
