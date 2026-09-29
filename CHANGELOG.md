@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.2.8] - 2026-09-29
+
+### Security hardened
+
+- **`opl-webaccess`**: `fetch_content` now blocks private-range, link-local, and reserved hosts by default and always blocks cloud-metadata endpoints (`169.254.169.254`, `100.100.100.200`, `metadata.google.internal`, `instance-data`, `fd00:ec2::254`). 
+  - Loopback (`localhost`/`127.0.0.0/8`/`::1`) is allowed by default for local development. 
+  - Redirects are no longer followed silently: each hop is re-validated against the same policy, so a public URL that bounces to a private/link-local host is rejected. 
+  - Set `allowPrivateNetwork: true` in `opl-webaccess.json` to reach private ranges; provider API endpoints (`ddgs.apiUrl`, `searxng.instanceUrl`) are not subject to this guard.
+- **`opl-browser`**: `navigate`/`new_page` block private/link-local ranges by default and always block cloud-metadata endpoints; loopback is allowed by default, and the final URL after a redirect is re-checked. 
+- **`opl-browser`**: Screenshot paths must now end in `.png`/`.jpg`, stay inside the project directory, and are refused when the file already exists, so a bad `screenshot` action can no longer overwrite project files.
+
+### Fixed
+
+- **`opl-browser`**: `evaluate` no longer crashes the tool when the page script returns `undefined` (or another `JSON.stringify`-unsupported value). It returns `(undefined result)` instead, and the result-size gate defensively coerces the action text so a missing text can never throw outside the tool's error path.
+- **`opl-browser`**: `browser` tool calls are serialized on the single shared Chromium context, so concurrent actions can no longer race on `activeIndex`, `ensure()`, or the page pointer.
+- **`opl-webaccess`**: a multi-query `web_search` no longer loses sibling results when one provider response is non-JSON or otherwise throws. The batch is collected with `Promise.allSettled`, so a single bad query is reported per-query while the others still return. `gemini` and `tavily` report a clean `HTTP <status> (non-JSON response)` error instead of a JSON parse exception.
+- **`opl-webaccess`** and **`opl-browser`**: stored-result TTL is now enforced on read, not only when another result is stored, so an entry that sits idle past its 1-hour expiry is no longer served.
+- **`opl-webaccess`**: `loadConfig` validates the config shape and `resolveCaps` coerces non-positive/non-numeric caps to defaults, so a malformed `provider`, `providers`, or cap value falls back safely instead of truncating to an empty body.
+- **`opl-modes`**: the shipped/documented cycle shortcut now matches the code default `ctrl+alt+m`. The sample config previously shipped `shift+tab`, which is also Pi's built-in `app.thinking.cycle`, so both fired on one press.
+- **`opl-guardian`**: malformed tool calls (blank or missing id or name) are additionally blocked at the `tool_call` boundary as defense in depth, so they cannot execute even if the `message_end` filter is bypassed by a replay or streaming path.
+- **`opl-guardian`**: the dangerous-command confirmation now defaults to "No" (fail closed) in both TUI and RPC, so an accidental or replayed confirmation denies the command instead of silently approving it; only an explicit "Yes" allows execution.
+
+### Reliability
+
+- **`opl-browser`**: `extract` reports a clear message when a selector matches zero or multiple elements instead of surfacing a strict-mode crash; `navigate: back`/`forward` reports when there is no history; per-page console/network buffers are capped at the most recent 200 entries so a long-lived page cannot grow memory without bound.
+- **`opl-webaccess`**: `fetch_content` and `web_search` cap the inputs per call (`maxFetchUrls` default 20, `maxSearchQueries` default 10, now both configurable), so an oversized batch cannot spawn unbounded requests beyond the existing 3-at-a-time concurrency; excess inputs are skipped and reported in the tool output.
+- **`opl-questionnaire`**: validation and headless errors are now marked as tool errors (`isError`) rather than mislabeled as cancellations, so the result card shows the message instead of "Cancelled". Blank question ids are rejected (they previously produced an answers entry keyed `""`).
+- **`opl-modes`**: documented the top-level vs per-mode empty-pattern asymmetry — an empty top-level `bashPatterns` array falls back to the built-in list (it cannot opt out), while a per-mode empty array disables that policy.
+- **`opl-guardian`**: incident timestamps no longer throw when a provider omits or zeroes the message timestamp; the forensic JSONL record is preserved with a current-time fallback. In mixed responses (valid tool calls remain) the diagnostic is now prepended as text before the tool calls, which round-trips through provider wire formats, instead of appending a trailing text block after `tool_use`.
+
+### Tests
+
+- **`opl-browser`**: added `assertHttpUrl` loopback-allowance, private-range blocking, and metadata hard-block coverage, plus `safeScreenshotPath` coverage for the image-extension and refuse-overwrite rules.
+- **`opl-browser`**: added `pushLogEntry` coverage for the console/network buffer cap.
+- **`opl-webaccess`**: added `assertHttpUrl` coverage for private/link-local ranges, loopback allowance (default and integer/IPv6-mapped forms), cloud-metadata hard-blocking (even with `allowPrivateNetwork: true`), and the `allowPrivateNetwork` opt-in.
+- **`opl-webaccess`**: added `resolveCaps` fallback coverage for malformed cap values and read-path TTL expiry (no intervening store).
+- **`opl-webaccess`**: added `fetchAllContent` coverage that the URL count is capped per call.
+- **`opl-guardian`**: added coverage that blank id/name tool calls are blocked before any policy evaluation.
+- **`opl-guardian`**: added coverage that the dangerous-command prompt presents a fail-closed default (`No` listed first).
+- **`opl-guardian`**: added incident-timestamp fallback coverage and mixed-response diagnostic-ordering coverage.
+- **`opl-questionnaire`**: added helpers coverage for the error-vs-cancellation flag and blank/duplicate/unselectable id validation.
+
 ## [0.2.7] - 2026-09-29
 
 ### Added
