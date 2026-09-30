@@ -1,6 +1,6 @@
 # opl-guardian
 
-A configurable session and tool safety extension. `opl-guardian` filters malformed assistant tool calls, prompts before dangerous Bash commands, blocks operations on protected paths, and confirms destructive session transitions. It replaces the standalone `permission-gate`, `protected-paths`, and `confirm-destructive` extensions while retaining malformed-call diagnostics. It adds no tools, commands, prompts, or model-facing schema overhead.
+A configurable session and tool safety extension. `opl-guardian` filters malformed assistant tool calls, prompts before dangerous Bash commands, blocks operations on protected paths, and confirms destructive session transitions. It replaces the standalone `permission-gate`, `protected-paths`, and `confirm-destructive` extensions while retaining malformed-call diagnostics. It adds no tools, commands, prompts, or model-facing schema overhead. All Guardian notification, selection-prompt, and confirmation message text is rendered in fixed red, regardless of Pi's theme; choice labels retain Pi's normal styling.
 
 ## Configuration
 

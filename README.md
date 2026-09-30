@@ -14,15 +14,16 @@
 
 A portable collection of various Pi coding agent extensions. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
 
-<div align="center">
-
 >
-> ### v0.2.8 (29 Sept 2026) - **SSRF and tool-safety hardening**: `opl-webaccess` and `opl-browser` block private/link-local hosts by default and cloud metadata always (localhost stays available for dev), fetch redirects are re-checked per hop, screenshots refuse to overwrite existing files, and `evaluate` no longer crashes on `undefined`. <br/>See [CHANGELOG.md](CHANGELOG.md) for details.
+> ### v0.2.9 - pi dependencies patch, updated test scripts
+> - `devDependencies` updated to `>=0.87.0`, conforming to latest pi release `v0.99.x`; TUI and tests updates
+> ### v0.2.8 - SSRF and tool-safety hardening
+> - `opl-webaccess` and `opl-browser` block private/link-local hosts by default and cloud metadata always (localhost stays available for dev), fetch redirects are re-checked per hop, screenshots refuse to overwrite existing files, and `evaluate` no longer crashes on `undefined`.
 >
-> `Current project state also marked 'SAFE' for pi v0.99.0 release`<br/>*confirmed this because I was literally typing to push the patches when I noticed the release notif*
+> See [CHANGELOG](CHANGELOG.md) for more details.
 >
-
-</div>
+> `Current project state also marked 'SAFE' for pi v0.99.x release`
+>
 
 ## Installation
 
