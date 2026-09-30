@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.9] - 2026-09-29
+
+### Changed
+
+- `devDependencies` updated to `>=0.87.0`, conforming to latest pi 0.99.x release.
+- **`opl-guardian`**: all notification, selection-prompt, and confirmation message text is fixed red regardless of Pi's theme; selection options keep their normal styling.
+
+### Tests
+
+- added `test-summary.mjs` for npm test summary results count
+- **`opl-guardian`**: added assertions for red dangerous-command prompts, protected-path notifications, and destructive-session confirmations.
+
 ## [0.2.8] - 2026-09-29
 
 ### Security hardened
