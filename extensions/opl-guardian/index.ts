@@ -20,6 +20,12 @@ import {
 import { getProtectedPathBlock, hasPendingUserWork } from "./policies.js";
 
 const LOG_PATH = join("err", "guardian.jsonl");
+const RED = "\u001b[31m";
+const RESET_FOREGROUND = "\u001b[39m";
+
+function red(text: string): string {
+  return `${RED}${text}${RESET_FOREGROUND}`;
+}
 
 export async function appendIncident(cwd: string, incident: GuardianIncident): Promise<void> {
   const directory = join(cwd, "err");
@@ -103,7 +109,7 @@ export function createToolCallHandler(config: GuardianConfig) {
         const reason = blocked.unresolved
           ? `[opl-guardian] Cannot safely resolve path "${blocked.path}"; ${blocked.operation} denied by protected-path policy.`
           : `[opl-guardian] Path "${blocked.path}" is protected (${blocked.operation} denied).`;
-        if (ctx.hasUI) ctx.ui.notify(reason, "warning");
+        if (ctx.hasUI) ctx.ui.notify(red(reason), "warning");
         return { block: true, reason };
       }
     }
@@ -124,7 +130,7 @@ export function createToolCallHandler(config: GuardianConfig) {
     const options = ["No", "Yes"];
     if (ctx.mode === "rpc") {
       try {
-        const choice = await ctx.ui.select(`Dangerous command: ${preview.slice(0, 256)}\nAllow?`, options);
+        const choice = await ctx.ui.select(red(`Dangerous command:\n\n${preview.slice(0, 256)}\n\nAllow?`), options);
         if (choice === "Yes") return undefined;
       } catch {
         // A failed RPC dialog is not approval.
@@ -132,10 +138,10 @@ export function createToolCallHandler(config: GuardianConfig) {
       return { block: true, reason: "[opl-guardian] Command blocked; confirmation was declined or unavailable." };
     }
 
-    const choice = await ctx.ui.select(`Dangerous command: ${preview.slice(0, 256)}\nAllow?`, options);
+    const choice = await ctx.ui.select(red(`Dangerous command:\n\n${preview.slice(0, 256)}\n\nAllow?`), options);
     if (choice === "Yes") return undefined;
     const reason = "[opl-guardian] Command blocked by user because it matches a dangerous pattern.";
-    ctx.ui.notify(reason, "warning");
+    ctx.ui.notify(red(reason), "warning");
     return { block: true, reason };
   };
 }
@@ -151,7 +157,7 @@ export function createMessageEndHandler(config: GuardianConfig) {
       sessionId: ctx.sessionManager.getSessionId(),
     });
     if (!guarded) return undefined;
-    ctx.ui?.notify(guarded.diagnostic, "warning");
+    ctx.ui?.notify(red(guarded.diagnostic), "warning");
     return { message: guarded.message };
   };
 }
@@ -172,7 +178,7 @@ export function createSessionBeforeSwitchHandler(config: GuardianConfig) {
     }
 
     if (!ctx.hasUI) return config.confirmDestructive.blockWithoutUI ? { cancel: true } : undefined;
-    return await ctx.ui.confirm(title, message) ? undefined : { cancel: true };
+    return await ctx.ui.confirm(red(title), red(message)) ? undefined : { cancel: true };
   };
 }
 
@@ -181,8 +187,8 @@ export function createSessionBeforeForkHandler(config: GuardianConfig) {
     if (!config.confirmDestructive.forkSession) return undefined;
     if (!ctx.hasUI) return config.confirmDestructive.blockWithoutUI ? { cancel: true } : undefined;
     const confirmed = await ctx.ui.confirm(
-      `Fork from entry ${event.entryId.slice(0, 8)}?`,
-      "Create a new session branch from this point?",
+      red(`Fork from entry ${event.entryId.slice(0, 8)}?`),
+      red("Create a new session branch from this point?"),
     );
     return confirmed ? undefined : { cancel: true };
   };
@@ -192,7 +198,7 @@ export default function (pi: ExtensionAPI) {
   const { config, warnings } = loadGuardianConfig();
   pi.on("session_start", async (_event, ctx) => {
     if (warnings.length && ctx.hasUI) {
-      ctx.ui.notify(`[opl-guardian] Configuration warning(s):\n${warnings.join("\n")}`, "warning");
+      ctx.ui.notify(red(`[opl-guardian] Configuration warning(s):\n${warnings.join("\n")}`), "warning");
     }
   });
 

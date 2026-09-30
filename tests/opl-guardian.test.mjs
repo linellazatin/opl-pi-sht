@@ -418,8 +418,9 @@ function fakeToolContext({ hasUI = true, choice = "yes" } = {}) {
       hasUI,
       ui: {
         notify: (message, level) => state.notifications.push({ message, level }),
-        select: async (_title, options) => {
+        select: async (title, options) => {
           state.prompts++;
+          state.selectTitle = title;
           state.options = options;
           return selected;
         },
@@ -450,6 +451,7 @@ test("tool-call policy presents a fail-closed default for dangerous commands", a
   const { context, state } = fakeToolContext({ choice: "no" });
   assert.equal((await handler({ type: "tool_call", toolCallId: "call_test", toolName: "bash", input: { command: "run danger" } }, context)).block, true);
   assert.deepEqual(state.options, ["No", "Yes"]);
+  assert.equal(state.selectTitle, "\u001b[31mDangerous command:\n\nrun danger\n\nAllow?\u001b[39m");
 });
 
 test("tool-call policy allows a dangerous Bash command only after affirmative confirmation", async () => {
@@ -503,6 +505,7 @@ test("tool-call policy blocks protected file paths and notifies the user", async
   assert.match(result.reason, /\.env/);
   assert.equal(state.notifications.length, 1);
   assert.equal(state.notifications[0].level, "warning");
+  assert.equal(state.notifications[0].message, "\u001b[31m[opl-guardian] Path \".env\" is protected (read denied).\u001b[39m");
 });
 
 test("protected Bash paths block before dangerous-command prompts", async () => {
@@ -552,6 +555,10 @@ test("session-before-switch confirms clear and cancels when rejected", async () 
   const accepted = fakeSessionContext();
   assert.equal(await handler(event, accepted.context), undefined);
   assert.equal(accepted.state.confirmations.length, 1);
+  assert.deepEqual(accepted.state.confirmations[0], {
+    title: "\u001b[31mClear session?\u001b[39m",
+    message: "\u001b[31mThis will delete all messages in the current session.\u001b[39m",
+  });
   const rejected = fakeSessionContext({ confirmed: false });
   assert.deepEqual(await handler(event, rejected.context), { cancel: true });
 });
