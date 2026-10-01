@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.10] - 2026-10-02
+
+### Added
+
+- **`opl-footer`**: added the optional `codex_usage` segment for exact remaining ChatGPT Codex subscription quota. It displays server-reported 5-hour and weekly remaining percentages with reset countdowns for the OAuth-authenticated `openai-codex` provider, separate from OpenAI Platform API-key billing.
+
+### Reliability
+
+- **`opl-footer`**: Codex usage refreshes asynchronously after session start, model selection, and settled turns with request deduplication, a 30-second refresh floor, and a 15-second timeout
+  - Footer rendering never performs network work; failed refreshes retain and label the last exact snapshot as `(stale)`, while disabling the segment prevents future requests, discards any in-flight result, and a first-request failure remains hidden.
+  - OAuth credentials are resolved through Pi and are never logged or persisted by the footer.
+  - Internal ChatGPT usage response is duration-based window parsing; unsupported or malformed responses fail closed without disrupting the footer.
+
+### Tests
+
+- **`opl-footer`**: added coverage for duration-based window parsing, OAuth/account request headers, exact and stale rendering, provider rejection, and stale fallback.
+
 ## [0.2.9] - 2026-09-29
 
 ### Changed
