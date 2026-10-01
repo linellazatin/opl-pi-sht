@@ -6,9 +6,10 @@ import { renderSegment } from "../extensions/opl-footer/segments/index.ts";
 import * as statusSegmentModule from "../extensions/opl-footer/segments/status.ts";
 import * as contextSegmentModule from "../extensions/opl-footer/segments/context.ts";
 import { modeSwitcherSegment } from "../extensions/opl-footer/segments/mode-switcher.ts";
+import { fetchCodexUsage, parseCodexUsage, refreshCodexUsageSnapshot } from "../extensions/opl-footer/codex-usage.ts";
 import { nextTabIndex, restoreSelectedItem } from "../extensions/opl-footer/configure-navigation.ts";
 import { applyColor, resolveColorToRgb } from "../extensions/opl-footer/theme.ts";
-import { getLayoutSegments, hasSegmentSeparator, moveLayoutSegment, setLayoutSegment, setSegmentSeparator } from "../extensions/opl-footer/config.ts";
+import { CONFIGURABLE_SEGMENTS, getLayoutSegments, hasSegmentSeparator, moveLayoutSegment, setLayoutSegment, setSegmentSeparator } from "../extensions/opl-footer/config.ts";
 
 test("malformed colors render uncolored with no escape sequence at all", () => {
   const theme = { fg: (color) => { throw new Error(`unknown theme color: ${color}`); } };
@@ -36,6 +37,97 @@ test("renders each agent status with its theme color", () => {
   assert.deepEqual(renderSegment("status", { ...ctx, agentStatus: "working" }), { content: "[accent]Working", visible: true });
   assert.deepEqual(renderSegment("status", { ...ctx, agentStatus: "waiting" }), { content: "[warning]Waiting", visible: true });
   assert.deepEqual(renderSegment("status", { ...ctx, agentStatus: "ready" }), { content: "[success]Ready", visible: true });
+});
+
+test("codex_usage renders remaining windows and marks a retained snapshot stale", () => {
+  const ctx = {
+    theme: { fg: (_color, text) => text },
+    codexUsage: {
+      fiveHour: { usedPercent: 24, windowSeconds: 18_000, resetAt: 1_700_008_280 },
+      weekly: { usedPercent: 63.5, windowSeconds: 604_800, resetAt: 1_700_285_200 },
+      fetchedAt: 1_700_000_000_000,
+      stale: false,
+    },
+    now: 1_700_000_000_000,
+  };
+
+  assert.deepEqual(renderSegment("codex_usage", ctx), {
+    content: "5h 76% ↻2h18m · W 36.5% ↻3d7h",
+    visible: true,
+  });
+  assert.equal(
+    renderSegment("codex_usage", { ...ctx, codexUsage: { ...ctx.codexUsage, stale: true } }).content,
+    "5h 76% ↻2h18m · W 36.5% ↻3d7h (stale)",
+  );
+  assert.equal(renderSegment("codex_usage", { ...ctx, codexUsage: null }).visible, false);
+});
+
+test("parses Codex windows by duration instead of response position", () => {
+  const snapshot = parseCodexUsage({
+    rate_limit: {
+      primary_window: { used_percent: 61, limit_window_seconds: 604_800, reset_at: 1_700_604_800 },
+      secondary_window: { used_percent: 12.5, limit_window_seconds: 18_000, reset_at: 1_700_018_000 },
+    },
+  }, 1_700_000_000_000);
+
+  assert.deepEqual(snapshot, {
+    fiveHour: { usedPercent: 12.5, windowSeconds: 18_000, resetAt: 1_700_018_000 },
+    weekly: { usedPercent: 61, windowSeconds: 604_800, resetAt: 1_700_604_800 },
+    fetchedAt: 1_700_000_000_000,
+    stale: false,
+  });
+  assert.equal(parseCodexUsage({ rate_limit: {} }, 1_700_000_000_000), null);
+});
+
+test("fetches Codex subscription usage with Pi OAuth and account headers", async () => {
+  const payload = Buffer.from(JSON.stringify({
+    "https://api.openai.com/auth": { chatgpt_account_id: "acct-test" },
+  })).toString("base64url");
+  const token = `header.${payload}.signature`;
+  let request;
+  const ctx = {
+    model: { provider: "openai-codex" },
+    modelRegistry: {
+      isUsingOAuth: () => true,
+      getApiKeyAndHeaders: async () => ({ ok: true, apiKey: token }),
+    },
+  };
+  const fetchFn = async (url, init) => {
+    request = { url, init };
+    return new Response(JSON.stringify({
+      rate_limit: {
+        primary_window: { used_percent: 10, limit_window_seconds: 18_000, reset_at: 1_700_018_000 },
+      },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  const snapshot = await fetchCodexUsage(ctx, fetchFn, 1_700_000_000_000);
+
+  assert.equal(request.url, "https://chatgpt.com/backend-api/wham/usage");
+  assert.equal(request.init.headers.Authorization, `Bearer ${token}`);
+  assert.equal(request.init.headers["chatgpt-account-id"], "acct-test");
+  assert.equal(snapshot.fiveHour.usedPercent, 10);
+  await assert.rejects(
+    () => fetchCodexUsage({ ...ctx, modelRegistry: { ...ctx.modelRegistry, isUsingOAuth: () => false } }, fetchFn),
+    /OAuth subscription/,
+  );
+});
+
+test("retains the last exact Codex snapshot as stale after a refresh failure", async () => {
+  const previous = {
+    fiveHour: { usedPercent: 24, windowSeconds: 18_000, resetAt: 1_700_018_000 },
+    fetchedAt: 1_700_000_000_000,
+    stale: false,
+  };
+
+  assert.deepEqual(
+    await refreshCodexUsageSnapshot(previous, async () => { throw new Error("offline"); }),
+    { ...previous, stale: true },
+  );
+  assert.equal(
+    await refreshCodexUsageSnapshot(null, async () => { throw new Error("offline"); }),
+    null,
+  );
 });
 
 test("context_pct renders an explicit unknown state when usage is unavailable", () => {
@@ -119,6 +211,7 @@ test("updates one footer layout while preserving retained config entries", () =>
 
 test("uses default layouts and keeps shown segments unique", () => {
   assert.deepEqual(getLayoutSegments({}, "row2RightSegments"), ["token_total", "separator", "cost"]);
+  assert.ok(CONFIGURABLE_SEGMENTS.includes("codex_usage"), "makes the optional segment available to /configure-opl");
   const once = setLayoutSegment({ row2RightSegments: [] }, "row2RightSegments", "cost", true);
   const twice = setLayoutSegment(once, "row2RightSegments", "cost", true);
   assert.equal(twice.row2RightSegments.filter((segment) => segment === "cost").length, 1);
