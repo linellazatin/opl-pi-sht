@@ -17,6 +17,8 @@ A portable collection of various Pi coding agent extensions. Repository director
 >
 > ### v0.2.10 - Codex subscription usage in opl-footer
 > - `opl-footer` added ChatGPT Codex subs 5-hour/weekly quota segment with reset countdowns and stale-snapshot fallback.
+> ### v0.2.9 - pi dependencies patch, updated test scripts
+> - `devDependencies` updated to `>=0.87.0`, conforming to latest pi release `v0.99.x`; TUI and tests updates
 > ### v0.2.8 - SSRF and tool-safety hardening
 > - `opl-webaccess` and `opl-browser` block private/link-local hosts by default and cloud metadata always (localhost stays available for dev), fetch redirects are re-checked per hop, screenshots refuse to overwrite existing files, and `evaluate` no longer crashes on `undefined`.
 >
