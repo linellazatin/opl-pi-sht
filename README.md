@@ -15,8 +15,8 @@
 A portable collection of various Pi coding agent extensions. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
 
 >
-> ### v0.2.9 - pi dependencies patch, updated test scripts
-> - `devDependencies` updated to `>=0.87.0`, conforming to latest pi release `v0.99.x`; TUI and tests updates
+> ### v0.2.10 - Codex subscription usage in opl-footer
+> - `opl-footer` added ChatGPT Codex subs 5-hour/weekly quota segment with reset countdowns and stale-snapshot fallback.
 > ### v0.2.8 - SSRF and tool-safety hardening
 > - `opl-webaccess` and `opl-browser` block private/link-local hosts by default and cloud metadata always (localhost stays available for dev), fetch redirects are re-checked per hop, screenshots refuse to overwrite existing files, and `evaluate` no longer crashes on `undefined`.
 >
@@ -92,7 +92,7 @@ Copy mode overwrites matching destinations. Link mode skips existing destination
 | [`opl-questionnaire`](extensions/opl-questionnaire/README.md) | Interactive structured-choice tool.                                                                                                                                                                                          | `questionnaire`; no config.                                                                                    |
 | [`opl-input`](extensions/opl-input/README.md)                 | Configurable replacement editor - enhanced [pikit chat-input](https://github.com/adrianapan/pikit) (because pet is life, and configurable). ![pet](images/ss-input-pet.png)                                                                                   | No commands/tools;`opl-input.json`.                                                                            |
 | [`opl-modes`](extensions/opl-modes/README.md)                 | Mode, plan, tool-safety, lazy-tool-loading, and active-appearance manager - highly-modified, configrable and enhanced mode-switcher.                                                                                         | `/mode`, `/chat`, `/plan`, `/execute`, `plan_complete`, `load_tools`; `opl-modes.json`.                        |
-| [`opl-footer`](extensions/opl-footer/README.md)               | Configurable multi-row status footer - highly-specialized, and enhanced [pikit footer](https://github.com/adrianapan/pikit).                                                                                                  | `/configure-opl`; `opl-footer.json`.                                                                           |
+| [`opl-footer`](extensions/opl-footer/README.md)               | Configurable multi-row status footer - highly-specialized, and enhanced [pikit footer](https://github.com/adrianapan/pikit).                                      | `/configure-opl`; `opl-footer.json`.                                                                           |
 
 ## What you'll gain
 
@@ -137,7 +137,7 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 
 ### See what the agent is doing
 
-- **`opl-footer`** surfaces model, cost, token and cache activity, git state, agent status, and per-turn timing in a configurable multi-row footer; `/configure-opl` edits and reorders its layout interactively.
+- **`opl-footer`** surfaces model, cost, token and cache activity, git state, agent status, per-turn timing, and an optional exact remaining ChatGPT Codex 5-hour/weekly subscription-quota segment with reset countdowns and stale-snapshot fallback; `/configure-opl` edits and reorders its layout interactively.
 - **`opl-input`** is a configurable editor that reflects the active mode's identity, so you always know which mode you are typing into.
 ![input-footer](images/ss-input-footer.png)
 

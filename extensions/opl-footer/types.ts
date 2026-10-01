@@ -1,5 +1,6 @@
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { IconSet } from "./icons.js";
+import type { CodexUsageSnapshot } from "./codex-usage.js";
 
 // Theme color - either a pi theme color name or a custom hex color
 export type ColorValue = ThemeColor | `#${string}`;
@@ -54,6 +55,7 @@ export type StatusLineSegmentId =
   | "session_stats"
   | "perf_stats"
   | "status"
+  | "codex_usage"
   | "separator"
   | `text:${string}`;
 
@@ -131,6 +133,8 @@ export interface SegmentContext {
   icons: IconSet;
   sessionStats: SessionStats;
   agentStatus: AgentStatus;
+  codexUsage: CodexUsageSnapshot | null;
+  now?: number;
 }
 
 // Minimal event shapes used by the opl-footer handlers

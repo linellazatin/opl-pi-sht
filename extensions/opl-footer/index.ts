@@ -12,6 +12,7 @@ import { getEffectiveConfig } from "./config.js";
 import { getIcons } from "./icons.js";
 import { getDefaultColors, fg } from "./theme.js";
 import { showFooterConfigurator } from "./configure.js";
+import { fetchCodexUsage, refreshCodexUsageSnapshot, type CodexUsageSnapshot } from "./codex-usage.js";
 
 const GIT_BRANCH_PATTERNS: RegExp[] = [
   // init/clone included: creating a repo mid-session must clear the not-a-repo back-off.
@@ -19,8 +20,10 @@ const GIT_BRANCH_PATTERNS: RegExp[] = [
   /\bgit\s+stash\s+(pop|apply)/,
 ];
 
-/** Row keys whose configured segments decide whether git must be probed at all. */
-const GIT_LAYOUT_ROWS = [
+/** Row keys used to detect whether an optional segment is enabled. */
+const CODEX_USAGE_REFRESH_MS = 30_000;
+
+const LAYOUT_ROWS = [
   "row1LeftSegments",
   "row1RightSegments",
   "row2LeftSegments",
@@ -116,6 +119,52 @@ export default function footer(pi: ExtensionAPI) {
   let lastBranchLength = 0;
   let cachedUsageStats: UsageStats | null = null;
   let tuiRef: TUI | null = null;
+  let codexUsage: CodexUsageSnapshot | null = null;
+  let codexUsageLastAttempt = 0;
+  let codexUsageGeneration = 0;
+  let codexUsageInFlight: Promise<void> | null = null;
+
+  const refreshCodexUsage = (ctx: ExtensionContext, force = false): Promise<void> => {
+    const model = ctx.model;
+    const isCodexSubscription = model?.provider === "openai-codex" && ctx.modelRegistry.isUsingOAuth(model);
+    if (!isCodexSubscription) {
+      codexUsageGeneration++;
+      codexUsageInFlight = null;
+      codexUsage = null;
+      tuiRef?.requestRender();
+      return Promise.resolve();
+    }
+
+    const config = getEffectiveConfig();
+    const enabled = LAYOUT_ROWS.some((row) => config[row]?.includes("codex_usage"));
+    if (!enabled) {
+      codexUsageGeneration++;
+      codexUsageInFlight = null;
+      codexUsage = null;
+      codexUsageLastAttempt = 0;
+      tuiRef?.requestRender();
+      return Promise.resolve();
+    }
+    if (codexUsageInFlight) return codexUsageInFlight;
+
+    const now = Date.now();
+    if (!force && now - codexUsageLastAttempt < CODEX_USAGE_REFRESH_MS) return Promise.resolve();
+    codexUsageLastAttempt = now;
+    const generation = ++codexUsageGeneration;
+
+    let request: Promise<void>;
+    request = refreshCodexUsageSnapshot(codexUsage, () => fetchCodexUsage(ctx))
+      .then((snapshot) => {
+        if (generation !== codexUsageGeneration) return;
+        codexUsage = snapshot;
+        tuiRef?.requestRender();
+      })
+      .finally(() => {
+        if (codexUsageInFlight === request) codexUsageInFlight = null;
+      });
+    codexUsageInFlight = request;
+    return request;
+  };
 
   // Session stats accumulators (timing only; counts are reconstructed from the branch)
   let llmMs = 0;
@@ -132,7 +181,10 @@ export default function footer(pi: ExtensionAPI) {
   pi.registerCommand("configure-opl", {
     description: "Interactively configure the OPL footer layout",
     handler: async (_args, ctx) => {
-      await showFooterConfigurator(ctx, () => tuiRef?.requestRender());
+      await showFooterConfigurator(ctx, () => {
+        tuiRef?.requestRender();
+        void refreshCodexUsage(ctx, true);
+      });
     },
   });
 
@@ -142,6 +194,10 @@ export default function footer(pi: ExtensionAPI) {
     currentCtx = ctx;
     lastBranchLength = 0;
     cachedUsageStats = null;
+    codexUsage = null;
+    codexUsageLastAttempt = 0;
+    codexUsageGeneration++;
+    codexUsageInFlight = null;
     llmMs = 0;
     toolMs = 0;
     ttftSamples = [];
@@ -155,7 +211,12 @@ export default function footer(pi: ExtensionAPI) {
 
     if (ctx.hasUI) {
       setupFooter(ctx);
+      void refreshCodexUsage(ctx, true);
     }
+  });
+
+  pi.on("model_select", async (_event: unknown, ctx: ExtensionContext) => {
+    void refreshCodexUsage(ctx, true);
   });
 
   // Track user-prompt-to-completion turnaround. agent_start may fire multiple
@@ -175,6 +236,7 @@ export default function footer(pi: ExtensionAPI) {
     }
     statusTracker.agentSettled();
     tuiRef?.requestRender();
+    void refreshCodexUsage(_ctx);
   });
 
   pi.on("turn_start", async (_event: unknown, _ctx: ExtensionContext) => {
@@ -292,7 +354,7 @@ export default function footer(pi: ExtensionAPI) {
 
     // Get git status (cached). Skip the probes entirely when no visible row renders the
     // git segment — otherwise an unused cell keeps spawning git once per second.
-    const usesGit = GIT_LAYOUT_ROWS.some((row) => effectiveConfig[row]?.includes("git"));
+    const usesGit = LAYOUT_ROWS.some((row) => effectiveConfig[row]?.includes("git"));
     const gitBranch = usesGit ? footerDataRef?.getGitBranch() ?? null : null;
     const gitStatus = usesGit
       ? getGitStatus(gitBranch)
@@ -339,6 +401,7 @@ export default function footer(pi: ExtensionAPI) {
       icons: getIcons(effectiveConfig.icons),
       sessionStats: { prompts: branchPrompts, apiCalls: branchApiCalls, toolCalls: branchToolCalls, llmMs, toolMs, ttftSamples, lastTurnaroundMs },
       agentStatus: statusTracker.status(),
+      codexUsage,
     };
   }
 
