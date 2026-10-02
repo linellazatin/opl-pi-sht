@@ -1,5 +1,5 @@
 {
-  "_comment": "Available segment IDs: pi, model, path, git, thinking, caveman, plan_mode, chat_mode, mode_switcher, separator, token_in, token_out, token_total, cache_read, cache_write, cost, context_pct, context_total, session_stats, perf_stats, status, codex_usage, text:<literal>. codex_usage is hidden by default; add it to any row to show ChatGPT Codex subscription windows.",
+  "_comment": "Available segment IDs: pi, model, path, git, thinking, caveman, plan_mode, chat_mode, mode_switcher, separator, token_in, token_out, token_total, cache_read, cache_write, cost, context_pct, context_total, session_stats, perf_stats, status, codex_usage, openrouter_usage, text:<literal>. codex_usage and openrouter_usage are hidden by default; add codex_usage to show ChatGPT Codex subscription windows, or openrouter_usage to show the active OpenRouter API-key limit usage.",
   "row1LeftSegments": [
     "pi",
     "separator",

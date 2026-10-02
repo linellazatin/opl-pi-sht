@@ -32,6 +32,7 @@ The third row is populated after the first completed turn. Its session and perfo
 - **Git integration**: branch plus staged, unstaged, and untracked counts, with invalidation after relevant file and Git commands
 - **Token and cost tracking**: total, cache, input/output, and accumulated cost segments
 - **Codex subscription quota**: optional exact 5-hour and weekly ChatGPT Codex usage percentages with reset countdowns and stale-snapshot fallback
+- **OpenRouter key-limit usage**: optional per-key paid-usage amount, limit, and percentage with stale-snapshot fallback
 - **Session statistics**: prompt, API-call, and model tool-call counts
 - **Performance statistics**: cumulative LLM/tool duration, most recent user-prompt-to-completion turnaround time, average time to first token, output rate, and cache-hit percentage
 - **Thinking, mode, and status indicators**: thinking-level colors plus caveman, plan, chat, unified mode, and `Working`/`Waiting`/`Ready` status segments
@@ -93,6 +94,7 @@ See the tracked [`configs/opl-footer.json.sample`](../../configs/opl-footer.json
 | `perf_stats` | LLM/tool timing, TTFT, output rate, and cache-hit percentage | Hidden until the first prompt |
 | `status` | `Working`, `Waiting`, or `Ready` | `accent`, `warning`, and `success` theme colors respectively; optional and hidden by default |
 | `codex_usage` | `5h 76% ↻2h18m · W 37% ↻3d7h` | Exact remaining ChatGPT Codex subscription quota; OAuth-only, optional and hidden by default; a retained snapshot is marked `(stale)` after refresh failure |
+| `openrouter_usage` | `$3.4500 / $25.0000 (13.8%)` | OpenRouter API-key limit usage; only on the selected `openrouter` provider, optional and hidden by default; a retained snapshot is marked `(stale)` after refresh failure |
 | `separator` | `\|` divider | Coloured via `separator` in `colors` |
 | `text:...` | Literal text, e.g. `text:⚡` | — |
 
@@ -101,6 +103,12 @@ See the tracked [`configs/opl-footer.json.sample`](../../configs/opl-footer.json
 Add `codex_usage` to any row through `/configure-opl` or `opl-footer.json`. While the active model is the OAuth-authenticated `openai-codex` provider, the footer asks Pi's model registry to resolve the same short-lived OAuth access token that Pi uses for the selected model, then sends `GET https://chatgpt.com/backend-api/wham/usage` directly from the local Pi process. The request carries `Authorization: Bearer <Pi OAuth token>`, `Accept: application/json`, a fixed `User-Agent: opl-footer-codex-usage`, and the token's `chatgpt_account_id` JWT claim as `chatgpt-account-id` when present. It runs after session start, model selection, and settled agent turns, with a 30-second refresh floor and a 15-second request timeout. It classifies the returned windows by duration rather than response order. This is ChatGPT subscription quota, not OpenAI Platform API-key usage or billing.
 
 No OAuth token, account ID, or response body is written to disk, logged, added to the Pi session, or sent anywhere other than `chatgpt.com` for that request. **The footer retains only the parsed 5-hour/weekly percentage and reset time in process memory for the active session.** The endpoint is an internal ChatGPT backend API and can change without notice. A failed refresh keeps the most recent exact snapshot and marks it `(stale)`; if no request has ever succeeded, the segment stays hidden. Disabling the segment prevents future requests and discards any result from a request already in flight.
+
+## OpenRouter Usage
+
+Add `openrouter_usage` to any row through `/configure-opl` or `opl-footer.json`. While the selected model provider is `openrouter`, the footer resolves the same API key Pi uses for inference and sends `GET https://openrouter.ai/api/v1/key` from the local Pi process. It renders the configured per-key limit as `$<limit - limit_remaining> / $<limit> (<percent>%)`; an absent, malformed, or unlimited key cap leaves the segment hidden. The numerator deliberately uses OpenRouter's authoritative `limit_remaining`, rather than `usage` or `byok_usage`, because those ledgers may not both count against the key limit.
+
+It runs after session start, model selection, and settled agent turns, with a 30-second refresh floor and a 15-second request timeout. No API key or response body is written to disk, logged, added to the Pi session, or sent anywhere other than `openrouter.ai`. A failed refresh keeps the most recent exact snapshot and marks it `(stale)`; if no request has ever succeeded, the segment stays hidden. Disabling the segment prevents future requests and discards any result from a request already in flight.
 
 ## Context Bar
 

@@ -15,6 +15,7 @@ import { modeSwitcherSegment } from "./mode-switcher.js";
 import { sessionStatsSegment, perfStatsSegment } from "./session-stats.js";
 import { statusSegment } from "./status.js";
 import { codexUsageSegment } from "./codex-usage.js";
+import { openRouterUsageSegment } from "./openrouter-usage.js";
 
 const SEGMENTS = {
   pi: piSegment,
@@ -39,6 +40,7 @@ const SEGMENTS = {
   perf_stats: perfStatsSegment,
   status: statusSegment,
   codex_usage: codexUsageSegment,
+  openrouter_usage: openRouterUsageSegment,
 };
 
 export function renderSegment(id: StatusLineSegmentId, ctx: SegmentContext): RenderedSegment {

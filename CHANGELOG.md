@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.11] - 2026-10-02
+
+### Added
+
+- **`opl-footer`**: added the optional `openrouter_usage` segment for the selected `openrouter` provider. It renders the API key's configured cap as `$<limit - limit_remaining> / $<limit> (<percent>%)` and remains hidden when the key has no positive limit.
+
+### Privacy and reliability
+
+- **`opl-footer`**: resolves the active model's OpenRouter credential through Pi and sends `GET https://openrouter.ai/api/v1/key` directly from the local Pi process. The API key and response body are never written to disk, logged, or added to the Pi session; they are sent only to `openrouter.ai`.
+  - Footer retains only the parsed usage and limit snapshot in process memory; refreshes after session start, model selection, and settled agent turns with a 30-second floor and 15-second timeout; failed refreshes retain and mark the prior snapshot `(stale)`.
+  - Usage is derived from OpenRouter's `limit_remaining`, rather than the separate `usage` and `byok_usage` ledgers, which may not both count against a key limit.
+
+### Tests
+
+- **`opl-footer`**: added coverage for OpenRouter key-limit parsing, active-Pi-credential requests, rendering, stale fallback, provider gating, and configurator availability.
+
 ## [0.2.10] - 2026-10-02
 
 ### Added

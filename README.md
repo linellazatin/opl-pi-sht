@@ -15,6 +15,8 @@
 A portable collection of various Pi coding agent extensions. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
 
 >
+> ### v0.2.11 - OpenRouter key-limit usage in opl-footer
+> - `opl-footer` added an OpenRouter API key's used amount, cap, and percentage.
 > ### v0.2.10 - Codex subscription usage in opl-footer
 > - `opl-footer` added ChatGPT Codex subs 5-hour/weekly quota segment with reset countdowns and stale-snapshot fallback.
 > ### v0.2.9 - pi dependencies patch, updated test scripts
@@ -24,7 +26,7 @@ A portable collection of various Pi coding agent extensions. Repository director
 >
 > See [CHANGELOG](CHANGELOG.md) for more details.
 >
-> `Current project state also marked 'SAFE' for pi v0.99.x release`
+> `Current project state also marked 'SAFE' for pi v1.0.0 release`
 >
 
 ## Installation
@@ -139,7 +141,7 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 
 ### See what the agent is doing
 
-- **`opl-footer`** surfaces model, cost, token and cache activity, git state, agent status, per-turn timing, and an optional exact remaining ChatGPT Codex 5-hour/weekly subscription-quota segment with reset countdowns and stale-snapshot fallback; `/configure-opl` edits and reorders its layout interactively.
+- **`opl-footer`** surfaces model, cost, token and cache activity, git state, agent status, per-turn timing, an optional exact remaining ChatGPT Codex subscription-quota segment, and optional OpenRouter API-key cap usage. The OpenRouter segment resolves Pi's active key locally and calls only OpenRouter's key endpoint; keys and response bodies are neither persisted nor logged. `/configure-opl` edits and reorders its layout interactively.
 - **`opl-input`** is a configurable editor that reflects the active mode's identity, so you always know which mode you are typing into.
 ![input-footer](images/ss-input-footer.png)
 
