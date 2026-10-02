@@ -1,6 +1,7 @@
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { IconSet } from "./icons.js";
 import type { CodexUsageSnapshot } from "./codex-usage.js";
+import type { OpenRouterUsageSnapshot } from "./openrouter-usage.js";
 
 // Theme color - either a pi theme color name or a custom hex color
 export type ColorValue = ThemeColor | `#${string}`;
@@ -56,6 +57,7 @@ export type StatusLineSegmentId =
   | "perf_stats"
   | "status"
   | "codex_usage"
+  | "openrouter_usage"
   | "separator"
   | `text:${string}`;
 
@@ -134,6 +136,7 @@ export interface SegmentContext {
   sessionStats: SessionStats;
   agentStatus: AgentStatus;
   codexUsage: CodexUsageSnapshot | null;
+  openRouterUsage: OpenRouterUsageSnapshot | null;
   now?: number;
 }
 

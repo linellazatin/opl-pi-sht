@@ -7,6 +7,7 @@ import * as statusSegmentModule from "../extensions/opl-footer/segments/status.t
 import * as contextSegmentModule from "../extensions/opl-footer/segments/context.ts";
 import { modeSwitcherSegment } from "../extensions/opl-footer/segments/mode-switcher.ts";
 import { fetchCodexUsage, parseCodexUsage, refreshCodexUsageSnapshot } from "../extensions/opl-footer/codex-usage.ts";
+import * as openRouterUsage from "../extensions/opl-footer/openrouter-usage.ts";
 import { nextTabIndex, restoreSelectedItem } from "../extensions/opl-footer/configure-navigation.ts";
 import { applyColor, resolveColorToRgb } from "../extensions/opl-footer/theme.ts";
 import { CONFIGURABLE_SEGMENTS, getLayoutSegments, hasSegmentSeparator, moveLayoutSegment, setLayoutSegment, setSegmentSeparator } from "../extensions/opl-footer/config.ts";
@@ -60,6 +61,68 @@ test("codex_usage renders remaining windows and marks a retained snapshot stale"
     "5h 76% ↻2h18m · W 36.5% ↻3d7h (stale)",
   );
   assert.equal(renderSegment("codex_usage", { ...ctx, codexUsage: null }).visible, false);
+});
+
+test("openrouter_usage renders configured key-limit usage", () => {
+  const ctx = {
+    theme: { fg: (_color, text) => text },
+    openRouterUsage: { used: 3.45, limit: 25, fetchedAt: 1_700_000_000_000, stale: false },
+  };
+
+  assert.deepEqual(renderSegment("openrouter_usage", ctx), {
+    content: "$3.4500 / $25.0000 (13.8%)",
+    visible: true,
+  });
+});
+
+test("fetches OpenRouter key usage with the active Pi credential", async () => {
+  assert.equal(typeof openRouterUsage.fetchOpenRouterUsage, "function");
+  let request;
+  const ctx = {
+    model: { provider: "openrouter" },
+    modelRegistry: {
+      getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "sk-or-test" }),
+    },
+  };
+  const fetchFn = async (url, init) => {
+    request = { url, init };
+    return new Response(JSON.stringify({
+      data: { limit: 25, limit_remaining: 21.55 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  const snapshot = await openRouterUsage.fetchOpenRouterUsage(ctx, fetchFn, 1_700_000_000_000);
+
+  assert.equal(request.url, "https://openrouter.ai/api/v1/key");
+  assert.equal(request.init.headers.Authorization, "Bearer sk-or-test");
+  assert.deepEqual(snapshot, { used: 3.45, limit: 25, fetchedAt: 1_700_000_000_000, stale: false });
+});
+
+test("retains the last OpenRouter usage snapshot as stale after a refresh failure", async () => {
+  assert.equal(typeof openRouterUsage.refreshOpenRouterUsageSnapshot, "function");
+  const previous = { used: 3.45, limit: 25, fetchedAt: 1_700_000_000_000, stale: false };
+
+  assert.deepEqual(
+    await openRouterUsage.refreshOpenRouterUsageSnapshot(previous, async () => { throw new Error("offline"); }),
+    { ...previous, stale: true },
+  );
+  assert.equal(
+    await openRouterUsage.refreshOpenRouterUsageSnapshot(null, async () => { throw new Error("offline"); }),
+    null,
+  );
+});
+
+test("parses OpenRouter usage from the authoritative remaining key limit", () => {
+  assert.equal(typeof openRouterUsage.parseOpenRouterUsage, "function");
+  assert.deepEqual(openRouterUsage.parseOpenRouterUsage({
+    data: { usage: 1, byok_usage: 4, limit: 25, limit_remaining: 21.55 },
+  }, 1_700_000_000_000), {
+    used: 3.45,
+    limit: 25,
+    fetchedAt: 1_700_000_000_000,
+    stale: false,
+  });
+  assert.equal(openRouterUsage.parseOpenRouterUsage({ data: { limit: null } }), null);
 });
 
 test("parses Codex windows by duration instead of response position", () => {
@@ -212,6 +275,7 @@ test("updates one footer layout while preserving retained config entries", () =>
 test("uses default layouts and keeps shown segments unique", () => {
   assert.deepEqual(getLayoutSegments({}, "row2RightSegments"), ["token_total", "separator", "cost"]);
   assert.ok(CONFIGURABLE_SEGMENTS.includes("codex_usage"), "makes the optional segment available to /configure-opl");
+  assert.ok(CONFIGURABLE_SEGMENTS.includes("openrouter_usage"), "makes the OpenRouter segment available to /configure-opl");
   const once = setLayoutSegment({ row2RightSegments: [] }, "row2RightSegments", "cost", true);
   const twice = setLayoutSegment(once, "row2RightSegments", "cost", true);
   assert.equal(twice.row2RightSegments.filter((segment) => segment === "cost").length, 1);

@@ -17,7 +17,7 @@ function usageResponse(usedPercent) {
   }), { status: 200, headers: { "content-type": "application/json" } });
 }
 
-function mount() {
+function mount(provider = "openai-codex") {
   const handlers = new Map();
   let footerComponent;
   const pi = {
@@ -31,7 +31,7 @@ function mount() {
   const ctx = {
     hasUI: true,
     mode: "tui",
-    model: { provider: "openai-codex", id: "gpt-5" },
+    model: { provider, id: "gpt-5" },
     modelRegistry: {
       isUsingOAuth: () => true,
       getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "header.payload.signature" }),
@@ -54,15 +54,39 @@ function mount() {
   return { ctx, fire, render: () => footerComponent.render(200).join("\n") };
 }
 
-function writeConfig(home, enabled) {
+function writeConfig(home, enabled, segment = "codex_usage") {
   const configDir = join(home, ".pi", "agent", "configs");
   mkdirSync(configDir, { recursive: true });
   writeFileSync(join(configDir, "opl-footer.json"), JSON.stringify({
-    row1LeftSegments: enabled ? ["codex_usage"] : [],
+    row1LeftSegments: enabled ? [segment] : [],
     row1RightSegments: [], row2LeftSegments: [], row2RightSegments: [], row3LeftSegments: [], row3RightSegments: [],
   }));
   clearUserConfigCache();
 }
+
+test("OpenRouter usage appears only for the selected OpenRouter provider", async () => {
+  const home = mkdtempSync(join(tmpdir(), "opl-footer-openrouter-"));
+  const previousHome = process.env.HOME;
+  const previousFetch = globalThis.fetch;
+  try {
+    process.env.HOME = home;
+    writeConfig(home, true, "openrouter_usage");
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      data: { limit: 25, limit_remaining: 21.55 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+    const h = mount("openrouter");
+
+    await h.fire("session_start");
+    await tick();
+    assert.match(h.render(), /\$3\.4500 \/ \$25\.0000 \(13\.8%\)/);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    clearUserConfigCache();
+    rmSync(home, { recursive: true, force: true });
+  }
+});
 
 test("model selection does not wait for a pending Codex usage fetch", async () => {
   const home = mkdtempSync(join(tmpdir(), "opl-footer-codex-"));

@@ -13,6 +13,7 @@ import { getIcons } from "./icons.js";
 import { getDefaultColors, fg } from "./theme.js";
 import { showFooterConfigurator } from "./configure.js";
 import { fetchCodexUsage, refreshCodexUsageSnapshot, type CodexUsageSnapshot } from "./codex-usage.js";
+import { fetchOpenRouterUsage, refreshOpenRouterUsageSnapshot, type OpenRouterUsageSnapshot } from "./openrouter-usage.js";
 
 const GIT_BRANCH_PATTERNS: RegExp[] = [
   // init/clone included: creating a repo mid-session must clear the not-a-repo back-off.
@@ -123,6 +124,51 @@ export default function footer(pi: ExtensionAPI) {
   let codexUsageLastAttempt = 0;
   let codexUsageGeneration = 0;
   let codexUsageInFlight: Promise<void> | null = null;
+  let openRouterUsage: OpenRouterUsageSnapshot | null = null;
+  let openRouterUsageLastAttempt = 0;
+  let openRouterUsageGeneration = 0;
+  let openRouterUsageInFlight: Promise<void> | null = null;
+
+  const refreshOpenRouterUsage = (ctx: ExtensionContext, force = false): Promise<void> => {
+    const isOpenRouter = ctx.model?.provider === "openrouter";
+    if (!isOpenRouter) {
+      openRouterUsageGeneration++;
+      openRouterUsageInFlight = null;
+      openRouterUsage = null;
+      tuiRef?.requestRender();
+      return Promise.resolve();
+    }
+
+    const config = getEffectiveConfig();
+    const enabled = LAYOUT_ROWS.some((row) => config[row]?.includes("openrouter_usage"));
+    if (!enabled) {
+      openRouterUsageGeneration++;
+      openRouterUsageInFlight = null;
+      openRouterUsage = null;
+      openRouterUsageLastAttempt = 0;
+      tuiRef?.requestRender();
+      return Promise.resolve();
+    }
+    if (openRouterUsageInFlight) return openRouterUsageInFlight;
+
+    const now = Date.now();
+    if (!force && now - openRouterUsageLastAttempt < CODEX_USAGE_REFRESH_MS) return Promise.resolve();
+    openRouterUsageLastAttempt = now;
+    const generation = ++openRouterUsageGeneration;
+
+    let request: Promise<void>;
+    request = refreshOpenRouterUsageSnapshot(openRouterUsage, () => fetchOpenRouterUsage(ctx))
+      .then((snapshot) => {
+        if (generation !== openRouterUsageGeneration) return;
+        openRouterUsage = snapshot;
+        tuiRef?.requestRender();
+      })
+      .finally(() => {
+        if (openRouterUsageInFlight === request) openRouterUsageInFlight = null;
+      });
+    openRouterUsageInFlight = request;
+    return request;
+  };
 
   const refreshCodexUsage = (ctx: ExtensionContext, force = false): Promise<void> => {
     const model = ctx.model;
@@ -184,6 +230,7 @@ export default function footer(pi: ExtensionAPI) {
       await showFooterConfigurator(ctx, () => {
         tuiRef?.requestRender();
         void refreshCodexUsage(ctx, true);
+        void refreshOpenRouterUsage(ctx, true);
       });
     },
   });
@@ -198,6 +245,10 @@ export default function footer(pi: ExtensionAPI) {
     codexUsageLastAttempt = 0;
     codexUsageGeneration++;
     codexUsageInFlight = null;
+    openRouterUsage = null;
+    openRouterUsageLastAttempt = 0;
+    openRouterUsageGeneration++;
+    openRouterUsageInFlight = null;
     llmMs = 0;
     toolMs = 0;
     ttftSamples = [];
@@ -212,11 +263,13 @@ export default function footer(pi: ExtensionAPI) {
     if (ctx.hasUI) {
       setupFooter(ctx);
       void refreshCodexUsage(ctx, true);
+      void refreshOpenRouterUsage(ctx, true);
     }
   });
 
   pi.on("model_select", async (_event: unknown, ctx: ExtensionContext) => {
     void refreshCodexUsage(ctx, true);
+    void refreshOpenRouterUsage(ctx, true);
   });
 
   // Track user-prompt-to-completion turnaround. agent_start may fire multiple
@@ -237,6 +290,7 @@ export default function footer(pi: ExtensionAPI) {
     statusTracker.agentSettled();
     tuiRef?.requestRender();
     void refreshCodexUsage(_ctx);
+    void refreshOpenRouterUsage(_ctx);
   });
 
   pi.on("turn_start", async (_event: unknown, _ctx: ExtensionContext) => {
@@ -402,6 +456,7 @@ export default function footer(pi: ExtensionAPI) {
       sessionStats: { prompts: branchPrompts, apiCalls: branchApiCalls, toolCalls: branchToolCalls, llmMs, toolMs, ttftSamples, lastTurnaroundMs },
       agentStatus: statusTracker.status(),
       codexUsage,
+      openRouterUsage,
     };
   }
 
