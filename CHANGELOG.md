@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **`opl-footer`**: `codex_usage` now refreshes after each assistant response and tool completion, not just when the agent settles. Non-blocking requests keep the 30-second floor and coalesce throttled or in-flight events into one trailing refresh; session reset, shutdown, and switching away from Codex cancel pending work.
+
+### Tests
+
+- **`opl-footer`**: added nine lifecycle tests for mid-run refreshes, trailing-request coalescing, message-role filtering, cancellation, and in-flight completion handling.
+
 ## [0.2.11] - 2026-10-02
 
 ### Added
