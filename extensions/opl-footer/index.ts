@@ -124,6 +124,14 @@ export default function footer(pi: ExtensionAPI) {
   let codexUsageLastAttempt = 0;
   let codexUsageGeneration = 0;
   let codexUsageInFlight: Promise<void> | null = null;
+  let codexUsageTimer: ReturnType<typeof setTimeout> | null = null;
+  let codexUsagePendingCtx: ExtensionContext | null = null;
+
+  const cancelCodexUsageRefresh = () => {
+    if (codexUsageTimer !== null) clearTimeout(codexUsageTimer);
+    codexUsageTimer = null;
+    codexUsagePendingCtx = null;
+  };
   let openRouterUsage: OpenRouterUsageSnapshot | null = null;
   let openRouterUsageLastAttempt = 0;
   let openRouterUsageGeneration = 0;
@@ -174,6 +182,7 @@ export default function footer(pi: ExtensionAPI) {
     const model = ctx.model;
     const isCodexSubscription = model?.provider === "openai-codex" && ctx.modelRegistry.isUsingOAuth(model);
     if (!isCodexSubscription) {
+      cancelCodexUsageRefresh();
       codexUsageGeneration++;
       codexUsageInFlight = null;
       codexUsage = null;
@@ -184,6 +193,7 @@ export default function footer(pi: ExtensionAPI) {
     const config = getEffectiveConfig();
     const enabled = LAYOUT_ROWS.some((row) => config[row]?.includes("codex_usage"));
     if (!enabled) {
+      cancelCodexUsageRefresh();
       codexUsageGeneration++;
       codexUsageInFlight = null;
       codexUsage = null;
@@ -191,10 +201,23 @@ export default function footer(pi: ExtensionAPI) {
       tuiRef?.requestRender();
       return Promise.resolve();
     }
-    if (codexUsageInFlight) return codexUsageInFlight;
+    if (codexUsageInFlight) {
+      codexUsagePendingCtx = ctx;
+      return codexUsageInFlight;
+    }
 
     const now = Date.now();
-    if (!force && now - codexUsageLastAttempt < CODEX_USAGE_REFRESH_MS) return Promise.resolve();
+    const remaining = CODEX_USAGE_REFRESH_MS - (now - codexUsageLastAttempt);
+    if (!force && remaining > 0) {
+      if (codexUsageTimer === null) {
+        codexUsageTimer = setTimeout(() => {
+          codexUsageTimer = null;
+          void refreshCodexUsage(ctx);
+        }, remaining);
+      }
+      return Promise.resolve();
+    }
+    cancelCodexUsageRefresh();
     codexUsageLastAttempt = now;
     const generation = ++codexUsageGeneration;
 
@@ -207,6 +230,10 @@ export default function footer(pi: ExtensionAPI) {
       })
       .finally(() => {
         if (codexUsageInFlight === request) codexUsageInFlight = null;
+        if (generation !== codexUsageGeneration) return;
+        const pendingCtx = codexUsagePendingCtx;
+        codexUsagePendingCtx = null;
+        if (pendingCtx) void refreshCodexUsage(pendingCtx);
       });
     codexUsageInFlight = request;
     return request;
@@ -241,6 +268,7 @@ export default function footer(pi: ExtensionAPI) {
     currentCtx = ctx;
     lastBranchLength = 0;
     cachedUsageStats = null;
+    cancelCodexUsageRefresh();
     codexUsage = null;
     codexUsageLastAttempt = 0;
     codexUsageGeneration++;
@@ -265,6 +293,16 @@ export default function footer(pi: ExtensionAPI) {
       void refreshCodexUsage(ctx, true);
       void refreshOpenRouterUsage(ctx, true);
     }
+  });
+
+  pi.on("session_shutdown", async () => {
+    cancelCodexUsageRefresh();
+    codexUsageGeneration++;
+    codexUsageInFlight = null;
+  });
+
+  pi.on("message_end", async (event, ctx) => {
+    if (event.message.role === "assistant") void refreshCodexUsage(ctx);
   });
 
   pi.on("model_select", async (_event: unknown, ctx: ExtensionContext) => {
@@ -320,6 +358,7 @@ export default function footer(pi: ExtensionAPI) {
     }
     statusTracker.toolEnded(event.toolCallId);
     tuiRef?.requestRender();
+    void refreshCodexUsage(_ctx);
   });
 
   pi.on("message_update", async (_event: unknown, _ctx: ExtensionContext) => {
