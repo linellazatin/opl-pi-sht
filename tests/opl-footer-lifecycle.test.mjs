@@ -65,8 +65,10 @@ function writeConfig(home, enabled, segment = "codex_usage") {
 }
 
 // Control only the quota scheduler's clock; network mocks still resolve normally.
-async function withCodexClock(run) {
-  const home = mkdtempSync(join(tmpdir(), "opl-footer-codex-clock-"));
+async function withUsageClock(run, provider) {
+  const segment = provider === "openrouter" ? "openrouter_usage" : "codex_usage";
+  const response = provider === "openrouter" ? openRouterResponse : usageResponse;
+  const home = mkdtempSync(join(tmpdir(), "opl-footer-usage-clock-"));
   const previousHome = process.env.HOME;
   const previousFetch = globalThis.fetch;
   const previousNow = Date.now;
@@ -80,7 +82,7 @@ async function withCodexClock(run) {
   const flush = () => new Promise((resolve) => previousSetTimeout(resolve, 0));
   try {
     process.env.HOME = home;
-    writeConfig(home, true);
+    writeConfig(home, true, segment);
     Date.now = () => now;
     globalThis.setTimeout = (callback, delay) => {
       const id = ++nextTimer;
@@ -88,8 +90,8 @@ async function withCodexClock(run) {
       return id;
     };
     globalThis.clearTimeout = (id) => timers.delete(id);
-    globalThis.fetch = async () => usageResponse(++requests * 10);
-    h = mount();
+    globalThis.fetch = async () => response(++requests * 10);
+    h = mount(provider);
     await h.fire("session_start");
     await flush();
     await run({
@@ -120,105 +122,121 @@ async function withCodexClock(run) {
   }
 }
 
-for (const event of ["message_end", "tool_execution_end"]) {
-  test(`Codex quota refreshes mid-run after ${event}`, async () => {
-    await withCodexClock(async (h) => {
-      await h.advance(30_000);
-      await h.fire(event, { message: { role: "assistant" }, toolCallId: "tool-1" });
-      await h.flush();
-      assert.equal(h.requests(), 2);
-      assert.match(h.render(), /5h 80%/);
-    });
-  });
+function openRouterResponse(usedPercent) {
+  return new Response(JSON.stringify({
+    data: { limit: 100, limit_remaining: 100 - usedPercent },
+  }), { status: 200, headers: { "content-type": "application/json" } });
 }
 
-test("Codex refresh coalesces throttled events into one trailing snapshot", async () => {
-  await withCodexClock(async (h) => {
-    await h.fire("message_end", { message: { role: "assistant" } });
-    await h.fire("tool_execution_end", { toolCallId: "tool-1" });
-    await h.fire("tool_execution_end", { toolCallId: "tool-2" });
-    await h.fire("agent_settled");
-    assert.equal(h.requests(), 1);
-    assert.equal(h.timers(), 1);
-    await h.advance(29_999);
-    assert.equal(h.requests(), 1);
-    await h.advance(1);
-    assert.equal(h.requests(), 2);
-    assert.match(h.render(), /5h 80%/);
-    await h.advance(30_000);
-    assert.equal(h.requests(), 2, "no recurring polling without new events");
-  });
-});
+for (const provider of ["openai-codex", "openrouter"]) {
+  const label = provider === "openrouter" ? "OpenRouter" : "Codex";
+  const segment = provider === "openrouter" ? "openrouter_usage" : "codex_usage";
+  const response = provider === "openrouter" ? openRouterResponse : usageResponse;
+  const rendered = (usedPercent) => provider === "openrouter"
+    ? `$${usedPercent.toFixed(4)} / $100.0000 (${usedPercent.toFixed(1)}%)`
+    : `5h ${100 - usedPercent}%`;
+  const withClock = (run) => withUsageClock(run, provider);
 
-test("Codex ignores non-assistant message completion", async () => {
-  await withCodexClock(async (h) => {
-    await h.advance(30_000);
-    await h.fire("message_end", { message: { role: "user" } });
-    await h.fire("message_end", { message: { role: "toolResult" } });
-    await h.flush();
-    assert.equal(h.requests(), 1);
-    assert.equal(h.timers(), 0);
-  });
-});
+  for (const event of ["message_end", "tool_execution_end"]) {
+    test(`${label} usage refreshes mid-run after ${event}`, async () => {
+      await withClock(async (h) => {
+        await h.advance(30_000);
+        await h.fire(event, { message: { role: "assistant" }, toolCallId: "tool-1" });
+        await h.flush();
+        assert.equal(h.requests(), 2);
+        assert.ok(h.render().includes(rendered(20)));
+      });
+    });
+  }
 
-for (const cancellation of ["disable", "model", "shutdown"]) {
-  test(`Codex trailing refresh is cancelled on ${cancellation}`, async () => {
-    await withCodexClock(async (h) => {
+  test(`${label} refresh coalesces throttled events into one trailing snapshot`, async () => {
+    await withClock(async (h) => {
+      await h.fire("message_end", { message: { role: "assistant" } });
+      await h.fire("tool_execution_end", { toolCallId: "tool-1" });
+      await h.fire("tool_execution_end", { toolCallId: "tool-2" });
       await h.fire("agent_settled");
+      assert.equal(h.requests(), 1);
       assert.equal(h.timers(), 1);
-      if (cancellation === "disable") writeConfig(h.home, false);
-      if (cancellation === "model") {
-        h.ctx.model = { provider: "other" };
-        await h.fire("model_select");
-      }
-      if (cancellation === "shutdown") await h.fire("session_shutdown");
+      await h.advance(29_999);
+      assert.equal(h.requests(), 1);
+      await h.advance(1);
+      assert.equal(h.requests(), 2);
+      assert.ok(h.render().includes(rendered(20)));
       await h.advance(30_000);
+      assert.equal(h.requests(), 2, "no recurring polling without new events");
+    });
+  });
+
+  test(`${label} ignores non-assistant message completion`, async () => {
+    await withClock(async (h) => {
+      await h.advance(30_000);
+      await h.fire("message_end", { message: { role: "user" } });
+      await h.fire("message_end", { message: { role: "toolResult" } });
+      await h.flush();
       assert.equal(h.requests(), 1);
       assert.equal(h.timers(), 0);
     });
   });
+
+  for (const cancellation of ["disable", "model", "shutdown"]) {
+    test(`${label} trailing refresh is cancelled on ${cancellation}`, async () => {
+      await withClock(async (h) => {
+        await h.fire("agent_settled");
+        assert.equal(h.timers(), 1);
+        if (cancellation === "disable") writeConfig(h.home, false, segment);
+        if (cancellation === "model") {
+          h.ctx.model = { provider: "other" };
+          await h.fire("model_select");
+        }
+        if (cancellation === "shutdown") await h.fire("session_shutdown");
+        await h.advance(30_000);
+        assert.equal(h.requests(), 1);
+        assert.equal(h.timers(), 0);
+      });
+    });
+  }
+
+  test(`${label} completion during an in-flight fetch queues a trailing refresh without blocking`, async () => {
+    await withClock(async (h) => {
+      await h.advance(30_000);
+      let resolveFetch;
+      let requests = 0;
+      globalThis.fetch = () => {
+        requests++;
+        return new Promise((resolve) => { resolveFetch = resolve; });
+      };
+      await h.fire("message_end", { message: { role: "assistant" } });
+      await h.flush();
+      assert.equal(requests, 1);
+      await h.fire("tool_execution_end", { toolCallId: "tool-1" });
+      assert.equal(requests, 1);
+      resolveFetch(response(30));
+      await h.flush();
+      assert.equal(h.timers(), 1);
+      await h.advance(30_000);
+      assert.equal(requests, 2);
+      resolveFetch(response(40));
+      await h.flush();
+      assert.ok(h.render().includes(rendered(40)));
+    });
+  });
+
+  test(`${label} shutdown discards an in-flight result and its queued refresh`, async () => {
+    await withClock(async (h) => {
+      await h.advance(30_000);
+      let resolveFetch;
+      globalThis.fetch = () => new Promise((resolve) => { resolveFetch = resolve; });
+      await h.fire("message_end", { message: { role: "assistant" } });
+      await h.flush();
+      await h.fire("tool_execution_end", { toolCallId: "tool-1" });
+      await h.fire("session_shutdown");
+      resolveFetch(response(40));
+      await h.flush();
+      assert.ok(h.render().includes(rendered(10)), "shutdown must not accept the late snapshot");
+      assert.equal(h.timers(), 0);
+    });
+  });
 }
-
-test("Codex completion during an in-flight fetch queues a trailing refresh without blocking", async () => {
-  await withCodexClock(async (h) => {
-    await h.advance(30_000);
-    let resolveFetch;
-    let requests = 0;
-    globalThis.fetch = () => {
-      requests++;
-      return new Promise((resolve) => { resolveFetch = resolve; });
-    };
-    await h.fire("message_end", { message: { role: "assistant" } });
-    await h.flush();
-    assert.equal(requests, 1);
-    await h.fire("tool_execution_end", { toolCallId: "tool-1" });
-    assert.equal(requests, 1);
-    resolveFetch(usageResponse(30));
-    await h.flush();
-    assert.equal(h.timers(), 1);
-    await h.advance(30_000);
-    assert.equal(requests, 2);
-    resolveFetch(usageResponse(40));
-    await h.flush();
-    assert.match(h.render(), /5h 60%/);
-  });
-});
-
-test("Codex shutdown discards an in-flight result and its queued refresh", async () => {
-  await withCodexClock(async (h) => {
-    await h.advance(30_000);
-    let resolveFetch;
-    globalThis.fetch = () => new Promise((resolve) => { resolveFetch = resolve; });
-    await h.fire("message_end", { message: { role: "assistant" } });
-    await h.flush();
-    await h.fire("tool_execution_end", { toolCallId: "tool-1" });
-    await h.fire("session_shutdown");
-    resolveFetch(usageResponse(40));
-    await h.flush();
-    assert.match(h.render(), /5h 90%/, "shutdown must not accept the late snapshot");
-    assert.equal(h.timers(), 0);
-  });
-});
 
 test("OpenRouter usage appears only for the selected OpenRouter provider", async () => {
   const home = mkdtempSync(join(tmpdir(), "opl-footer-openrouter-"));

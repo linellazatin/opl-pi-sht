@@ -136,10 +136,19 @@ export default function footer(pi: ExtensionAPI) {
   let openRouterUsageLastAttempt = 0;
   let openRouterUsageGeneration = 0;
   let openRouterUsageInFlight: Promise<void> | null = null;
+  let openRouterUsageTimer: ReturnType<typeof setTimeout> | null = null;
+  let openRouterUsagePendingCtx: ExtensionContext | null = null;
+
+  const cancelOpenRouterUsageRefresh = () => {
+    if (openRouterUsageTimer !== null) clearTimeout(openRouterUsageTimer);
+    openRouterUsageTimer = null;
+    openRouterUsagePendingCtx = null;
+  };
 
   const refreshOpenRouterUsage = (ctx: ExtensionContext, force = false): Promise<void> => {
     const isOpenRouter = ctx.model?.provider === "openrouter";
     if (!isOpenRouter) {
+      cancelOpenRouterUsageRefresh();
       openRouterUsageGeneration++;
       openRouterUsageInFlight = null;
       openRouterUsage = null;
@@ -150,6 +159,7 @@ export default function footer(pi: ExtensionAPI) {
     const config = getEffectiveConfig();
     const enabled = LAYOUT_ROWS.some((row) => config[row]?.includes("openrouter_usage"));
     if (!enabled) {
+      cancelOpenRouterUsageRefresh();
       openRouterUsageGeneration++;
       openRouterUsageInFlight = null;
       openRouterUsage = null;
@@ -157,10 +167,23 @@ export default function footer(pi: ExtensionAPI) {
       tuiRef?.requestRender();
       return Promise.resolve();
     }
-    if (openRouterUsageInFlight) return openRouterUsageInFlight;
+    if (openRouterUsageInFlight) {
+      openRouterUsagePendingCtx = ctx;
+      return openRouterUsageInFlight;
+    }
 
     const now = Date.now();
-    if (!force && now - openRouterUsageLastAttempt < CODEX_USAGE_REFRESH_MS) return Promise.resolve();
+    const remaining = CODEX_USAGE_REFRESH_MS - (now - openRouterUsageLastAttempt);
+    if (!force && remaining > 0) {
+      if (openRouterUsageTimer === null) {
+        openRouterUsageTimer = setTimeout(() => {
+          openRouterUsageTimer = null;
+          void refreshOpenRouterUsage(ctx);
+        }, remaining);
+      }
+      return Promise.resolve();
+    }
+    cancelOpenRouterUsageRefresh();
     openRouterUsageLastAttempt = now;
     const generation = ++openRouterUsageGeneration;
 
@@ -173,6 +196,10 @@ export default function footer(pi: ExtensionAPI) {
       })
       .finally(() => {
         if (openRouterUsageInFlight === request) openRouterUsageInFlight = null;
+        if (generation !== openRouterUsageGeneration) return;
+        const pendingCtx = openRouterUsagePendingCtx;
+        openRouterUsagePendingCtx = null;
+        if (pendingCtx) void refreshOpenRouterUsage(pendingCtx);
       });
     openRouterUsageInFlight = request;
     return request;
@@ -273,6 +300,7 @@ export default function footer(pi: ExtensionAPI) {
     codexUsageLastAttempt = 0;
     codexUsageGeneration++;
     codexUsageInFlight = null;
+    cancelOpenRouterUsageRefresh();
     openRouterUsage = null;
     openRouterUsageLastAttempt = 0;
     openRouterUsageGeneration++;
@@ -299,10 +327,16 @@ export default function footer(pi: ExtensionAPI) {
     cancelCodexUsageRefresh();
     codexUsageGeneration++;
     codexUsageInFlight = null;
+    cancelOpenRouterUsageRefresh();
+    openRouterUsageGeneration++;
+    openRouterUsageInFlight = null;
   });
 
   pi.on("message_end", async (event, ctx) => {
-    if (event.message.role === "assistant") void refreshCodexUsage(ctx);
+    if (event.message.role === "assistant") {
+      void refreshCodexUsage(ctx);
+      void refreshOpenRouterUsage(ctx);
+    }
   });
 
   pi.on("model_select", async (_event: unknown, ctx: ExtensionContext) => {
@@ -359,6 +393,7 @@ export default function footer(pi: ExtensionAPI) {
     statusTracker.toolEnded(event.toolCallId);
     tuiRef?.requestRender();
     void refreshCodexUsage(_ctx);
+    void refreshOpenRouterUsage(_ctx);
   });
 
   pi.on("message_update", async (_event: unknown, _ctx: ExtensionContext) => {
