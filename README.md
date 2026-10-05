@@ -15,6 +15,8 @@
 A portable collection of various Pi coding agent extensions. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
 
 >
+> ### v0.2.12 - refresh OpenRouter/Codex usage during agent runs
+> - `opl-footer` fixed usage refresh from agent_settled to after every turn/toolcall
 > ### v0.2.11 - OpenRouter key-limit usage in opl-footer
 > - `opl-footer` added an OpenRouter API key's used amount, cap, and percentage.
 > ### v0.2.10 - Codex subscription usage in opl-footer
