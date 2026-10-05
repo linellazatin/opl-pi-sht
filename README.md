@@ -141,7 +141,7 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 
 ### See what the agent is doing
 
-- **`opl-footer`** surfaces model, cost, token and cache activity, git state, agent status, per-turn timing, an optional exact remaining ChatGPT Codex subscription-quota segment, and optional OpenRouter API-key cap usage. The OpenRouter segment resolves Pi's active key locally and calls only OpenRouter's key endpoint; keys and response bodies are neither persisted nor logged. `/configure-opl` edits and reorders its layout interactively.
+- **`opl-footer`** surfaces model, cost, token and cache activity, git state, agent status, per-turn timing, optional exact remaining ChatGPT Codex subscription quota and OpenRouter API-key cap usage. Both usage segments refresh during agent runs after assistant responses and tool completions (30-second floor, coalesced trailing refresh). The OpenRouter segment resolves Pi's active key locally and calls only OpenRouter's key endpoint; keys and response bodies are neither persisted nor logged. `/configure-opl` edits and reorders its layout interactively.
 - **`opl-input`** is a configurable editor that reflects the active mode's identity, so you always know which mode you are typing into.
 ![input-footer](images/ss-input-footer.png)
 
