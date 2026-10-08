@@ -1,9 +1,9 @@
 {
   "name": "opl-browser",
-  "version": "1.1.0",
-  "description": "Chromium browser automation for pi via Playwright. A single dispatcher tool for navigation, snapshots, interaction, console/network capture, and evaluation — replaces the chrome-devtools MCP server.",
-  "main": "index.js",
-  "license": "ISC",
+  "version": "0.2.12",
+  "private": true,
+  "description": "Chromium browser automation for pi via Playwright. A single dispatcher tool for navigation, snapshots, interaction, console/network capture, and evaluation \u2014 replaces the chrome-devtools MCP server.",
+  "license": "MIT",
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
     "linkedom": "^0.18.13",

@@ -1,14 +1,9 @@
 {
   "name": "opl-webaccess",
-  "version": "1.0.0",
-  "description": "Web search and content extraction for pi. Search the web via Gemini AI, fetch and read web pages, and extract text from PDFs — all from within the agent.",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "version": "0.2.12",
+  "private": true,
+  "description": "Web search and content extraction for pi. Search the web via Gemini AI, fetch and read web pages, and extract text from PDFs \u2014 all from within the agent.",
+  "license": "MIT",
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
     "linkedom": "^0.18.13",
