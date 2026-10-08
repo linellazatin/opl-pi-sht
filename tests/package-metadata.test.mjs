@@ -11,11 +11,19 @@ const nested = ["opl-browser", "opl-webaccess"];
 // They are not published, and drift silently: stale versions, a `main` that points at a file
 // that never exists, an `npm test` stub that only errors (AGENTS.md has to warn people away
 // from it), and an ISC license inherited from `npm init`. This pins the shape.
-test("nested extension manifests stay aligned with the root package", () => {
+// Their versions are deliberately NOT the release version of the collection: browser and
+// webaccess keep their own line (decided 2026-10-08), because their behaviour changes at a
+// different cadence from the rest of the repo.
+test("nested extension manifests keep their own version line", () => {
 	for (const name of nested) {
 		const manifest = JSON.parse(readFileSync(join(ROOT, "extensions", name, "package.json"), "utf8"));
 		assert.equal(manifest.name, name, "name must match the extension directory");
-		assert.equal(manifest.version, root.version, `${name} version drifted from the root`);
+		assert.match(manifest.version, /^\d+\.\d+\.\d+$/, `${name} needs a concrete semver`);
+		assert.notEqual(
+			manifest.version,
+			root.version,
+			`${name} must not mirror the collection version; it carries its own line`,
+		);
 		assert.equal(manifest.private, true, `${name} is not published on its own`);
 		assert.equal(manifest.license, root.license, `${name} license must match the root`);
 		assert.ok(!("main" in manifest), `${name} has no built index.js; pi discovers extensions/*/index.ts`);
