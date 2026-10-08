@@ -1,7 +1,8 @@
 {
   "_comment_limits": "Optional top-level caps: maxContentChars caps the initial web_search/fetch_content body (default 30000); maxRetrievalChars caps one get_search_content page (default 30000). Pass offset=N to get_search_content to continue a truncated retrieval. maxSearchQueries caps how many queries one web_search call runs (default 10); maxFetchUrls caps how many URLs one fetch_content call fetches (default 20). Excess inputs are skipped and reported in the tool output.",
-  "_comment_network": "allowPrivateNetwork defaults to false: fetch_content rejects private-range and link-local hosts. Loopback (localhost/127.0.0.1/::1) is always allowed for local development, and cloud-metadata endpoints are always blocked. Set allowPrivateNetwork true to reach private ranges (LAN servers). This does NOT affect provider API endpoints (ddgs.apiUrl / searxng.instanceUrl), which remain configurable.",
+  "_comment_network": "Network policy for fetch_content. Model-supplied URLs are resolved before use: allowPrivateNetwork (default false) rejects hosts that are or resolve to private/link-local/reserved addresses, allowLoopback (default true, for local dev servers) governs localhost/127.0.0.0/8/::1, and cloud-metadata addresses are always rejected. Every redirect hop is re-validated and re-resolved. Set allowPrivateNetwork true to reach private ranges (LAN servers). This does NOT affect provider API endpoints (ddgs.apiUrl / searxng.instanceUrl), which are operator-configured and remain reachable on private or loopback hosts.",
   "allowPrivateNetwork": false,
+  "allowLoopback": true,
   "maxContentChars": 30000,
   "maxRetrievalChars": 30000,
   "maxSearchQueries": 10,

@@ -2,7 +2,7 @@ import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
 import { extractPdfBuffer } from "./pdf.js";
-import { errorMessage, isAbortError, isPdfUrl, isPdfContentType, assertHttpUrl, type HttpUrlOptions } from "./utils.js";
+import { errorMessage, isAbortError, isPdfUrl, isPdfContentType, assertSafeHttpUrl, type HttpUrlOptions } from "./utils.js";
 import type { ExtractedContent } from "./types.js";
 
 const CONCURRENT_LIMIT = 3;
@@ -62,16 +62,17 @@ export async function fetchAllContent(
 }
 
 /**
- * Fetch with redirects followed manually so each hop is re-validated. The native
- * `redirect: "follow"` would let a public URL bounce to a private/link-local host
- * past the `assertHttpUrl` check.
+ * Fetch with redirects followed manually so each hop is re-validated *and* re-resolved.
+ * The native `redirect: "follow"` would let a public URL bounce to a private/link-local
+ * host past the guard, and a hostname that merely *reads* public can answer with an
+ * internal address, so every hop goes through assertSafeHttpUrl.
  */
 async function fetchWithRedirectValidation(
   url: string,
   fetchSignal: AbortSignal,
   opts: HttpUrlOptions
 ): Promise<Response> {
-  let current = assertHttpUrl(url, opts);
+  let current = await assertSafeHttpUrl(url, opts);
   const headers = {
     "User-Agent": "Mozilla/5.0 (compatible; pi-web-access/1.0)",
     Accept: "text/html,application/xhtml+xml,application/pdf,*/*",
@@ -82,7 +83,7 @@ async function fetchWithRedirectValidation(
     const location = response.headers.get("location");
     if (!location) return response; // 3xx without a Location: treat as final
     await response.body?.cancel().catch(() => {});
-    current = assertHttpUrl(new URL(location, current).href, opts);
+    current = await assertSafeHttpUrl(new URL(location, current).href, opts);
   }
   throw new Error(`Too many redirects (max ${MAX_REDIRECTS})`);
 }

@@ -26,9 +26,12 @@ export interface WebAccessConfig {
   maxSearchQueries?: number;
   /** Cap on the number of URLs a single fetch_content call may fetch. */
   maxFetchUrls?: number;
-  /** Allow fetch_content to reach private/link-local ranges (loopback is always
-   *  allowed; cloud metadata is always blocked). Default false. */
+  /** Allow fetch_content to reach private/link-local ranges (default false). Cloud
+   *  metadata is always blocked. */
   allowPrivateNetwork?: boolean;
+  /** Allow fetch_content to reach loopback hosts — localhost, 127.0.0.0/8, ::1
+   *  (default true, for local development). Cloud metadata is unaffected. */
+  allowLoopback?: boolean;
 }
 
 export const DEFAULT_MAX_CONTENT_CHARS = 30_000;
@@ -68,13 +71,13 @@ const DEFAULT_CONFIG: WebAccessConfig = {
   },
 };
 
-export function loadConfig(): WebAccessConfig {
-  if (!existsSync(CONFIG_PATH)) return DEFAULT_CONFIG;
+export function loadConfig(configPath = CONFIG_PATH): WebAccessConfig {
+  if (!existsSync(configPath)) return DEFAULT_CONFIG;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    parsed = JSON.parse(readFileSync(configPath, "utf-8"));
   } catch {
-    console.error(`[opl-webaccess] failed to parse ${CONFIG_PATH}, using defaults`);
+    console.error(`[opl-webaccess] failed to parse ${configPath}, using defaults`);
     return DEFAULT_CONFIG;
   }
   return normalizeConfig(parsed);
@@ -106,6 +109,7 @@ function normalizeConfig(parsed: unknown): WebAccessConfig {
     maxSearchQueries: record.maxSearchQueries as number | undefined,
     maxFetchUrls: record.maxFetchUrls as number | undefined,
     allowPrivateNetwork: record.allowPrivateNetwork === true,
+    allowLoopback: record.allowLoopback !== false,
   };
 }
 

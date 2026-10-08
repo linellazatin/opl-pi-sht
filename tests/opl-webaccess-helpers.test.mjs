@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "bun:test";
 import { errorMessage, isAbortError, truncate, isPdfUrl, isPdfContentType, assertHttpUrl, assertSafeHttpUrl, paginateContent, continuationNotice } from "../extensions/opl-webaccess/utils.ts";
 import { generateId, storeResult, getResult, clearStore } from "../extensions/opl-webaccess/storage.ts";
-import { resolveCaps, DEFAULT_MAX_CONTENT_CHARS, DEFAULT_MAX_RETRIEVAL_CHARS, DEFAULT_MAX_SEARCH_QUERIES, DEFAULT_MAX_FETCH_URLS } from "../extensions/opl-webaccess/config.ts";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { resolveCaps, loadConfig, DEFAULT_MAX_CONTENT_CHARS, DEFAULT_MAX_RETRIEVAL_CHARS, DEFAULT_MAX_SEARCH_QUERIES, DEFAULT_MAX_FETCH_URLS } from "../extensions/opl-webaccess/config.ts";
 import { fetchAllContent, MAX_FETCH_URLS } from "../extensions/opl-webaccess/extract.ts";
 
 test("classifies web errors and truncates retrieval content", () => {
@@ -208,6 +212,28 @@ test("assertHttpUrl honours allowLoopback=false", () => {
   assert.throws(() => assertHttpUrl("http://localhost:3000/app", { allowLoopback: false }), /Blocked network host/);
   assert.throws(() => assertHttpUrl("http://127.0.0.1:7/", { allowLoopback: false }), /Blocked network host/);
   assert.throws(() => assertHttpUrl("http://[::1]/", { allowLoopback: false }), /Blocked network host/);
+});
+
+test("fetchAllContent re-resolves and rejects an internal redirect target before connecting", async () => {
+  const seen = [];
+  const resolveHost = async (host) => { seen.push(host); return ["169.254.169.254"]; };
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () =>
+    new Response(null, { status: 302, headers: { Location: "http://internal.example/late" } }) });
+  try {
+    const results = await fetchAllContent([`http://127.0.0.1:${server.port}/`], undefined, { resolveHost });
+    assert.match(results[0].error ?? "", /Blocked network host/);
+    assert.deepEqual(seen, ["internal.example"], "hostname hop resolved once; IP literal hop skipped");
+  } finally { server.stop(); }
+});
+
+test("webaccess config carries allowLoopback to the fetch guard, default true", () => {
+  const dir = mkdtempSync(join(tmpdir(), "opl-webaccess-cfg-"));
+  const write = (name, body) => { const p = join(dir, name); writeFileSync(p, JSON.stringify(body)); return p; };
+  assert.equal(loadConfig(write("unset.json", { provider: "searxng" })).allowLoopback, true, "absent key defaults to true");
+  assert.equal(loadConfig(write("off.json", { provider: "searxng", allowLoopback: false })).allowLoopback, false);
+  assert.equal(loadConfig(write("on.json", { provider: "searxng", allowLoopback: true })).allowLoopback, true);
+  // the shipped sample must parse to the documented default, not merely contain the key
+  assert.equal(loadConfig(fileURLToPath(new URL("../configs/opl-webaccess.json.sample", import.meta.url))).allowLoopback, true);
 });
 
 test("fetchAllContent caps the number of URLs per call", async () => {

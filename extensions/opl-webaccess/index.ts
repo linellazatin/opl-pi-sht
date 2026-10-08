@@ -17,6 +17,7 @@ export default function (pi: ExtensionAPI) {
   const config = loadConfig();
   const caps = resolveCaps(config);
   const allowPrivateNetwork = config.allowPrivateNetwork === true;
+  const allowLoopback = config.allowLoopback !== false;
 
   // Note shown to the model when the per-call URL/query cap drops some inputs.
   const skippedNote = (dropped: number, limit: number, singular: string, plural: string) =>
@@ -121,7 +122,7 @@ export default function (pi: ExtensionAPI) {
       let results;
       const dropped = urlList.length > caps.maxFetchUrls ? urlList.length - caps.maxFetchUrls : 0;
       try {
-        results = await fetchAllContent(urlList, signal, { allowPrivateNetwork }, caps.maxFetchUrls);
+        results = await fetchAllContent(urlList, signal, { allowPrivateNetwork, allowLoopback }, caps.maxFetchUrls);
       } catch (err) {
         return {
           content: [{ type: "text", text: `Error: ${errorMessage(err)}` }],
