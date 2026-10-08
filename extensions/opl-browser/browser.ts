@@ -94,14 +94,60 @@ export function makeRouteHandler(guard: HttpUrlOptions): (route: Route) => Promi
   };
 }
 
-/** Navigate with the host validated both before the request and on the final URL, so a
- *  public URL that redirects to a private/link-local host, or a hostname that answers with
- *  an internal address, is rejected. */
+/** Navigate with the host validated both before the request and on the live frames after it,
+ *  so a public URL that redirects to a private/link-local host, or a hostname that answers
+ *  with an internal address, is rejected and the landed page is cleared. */
 async function gotoAllowed(target: Page, url: string, cfg: BrowserConfig): Promise<void> {
   const guard = guardOf(cfg);
   await target.goto(await assertSafeHttpUrl(url, guard), { waitUntil: "domcontentloaded" });
-  await assertSafeHttpUrl(target.url(), guard);
+  await assertFrameTargetsSafe(target, guard);
 }
+
+/** Anything `page()` can hand back: its live frames plus a way to clear them. */
+export interface FrameSafeTarget {
+  frames(): Array<{ url(): string }>;
+  goto(url: string, options?: { timeout?: number }): Promise<unknown>;
+}
+
+/** Playwright calls a route handler for the FIRST url of a redirect chain only, so a server-side
+ *  redirect can land a page or iframe on a host the guard already rejected and the route never
+ *  sees the second leg. Every read therefore re-checks the live frame URLs and clears the page
+ *  before its content can be returned. */
+export async function assertFrameTargetsSafe(target: FrameSafeTarget, guard: HttpUrlOptions): Promise<void> {
+  let failure: Error | undefined;
+  for (const frame of target.frames()) {
+    const url = frame.url();
+    if (!/^https?:/i.test(url)) continue; // about:blank, data:, blob:, empty: no host to classify
+    try {
+      await assertSafeHttpUrl(url, guard);
+    } catch (err) {
+      failure = err instanceof Error ? err : new Error(String(err));
+      break;
+    }
+  }
+  if (failure) {
+    await target.goto("about:blank", { timeout: 5000 }).catch(() => {});
+    throw new Error(`${failure.message} (page cleared)`);
+  }
+}
+
+/** Actions whose result is derived from, or acts upon, a page that is already open. */
+const PAGE_BOUND_ACTIONS = new Set([
+  "navigate",
+  "snapshot",
+  "extract",
+  "screenshot",
+  "click",
+  "fill",
+  "hover",
+  "press",
+  "select",
+  "evaluate",
+  "console",
+  "network",
+  "wait_for",
+  "resize",
+]);
 
 export interface BrowserActionResult {
   text: string;
@@ -145,6 +191,9 @@ async function runActionInternal(p: BrowserParams, cfg: BrowserConfig): Promise<
   }
 
   const ctx = await ensure(cfg);
+  // A page can only have been landed on a blocked host through a path the route handler never
+  // saw (redirect chain, history, script). Re-check before touching or reading it.
+  if (PAGE_BOUND_ACTIONS.has(p.action)) await assertFrameTargetsSafe(page(), guardOf(cfg));
 
   switch (p.action) {
     case "navigate": {
@@ -250,6 +299,7 @@ async function runActionInternal(p: BrowserParams, cfg: BrowserConfig): Promise<
       const i = p.index ?? 0;
       if (i < 0 || i >= ctx.pages().length) throw new Error(`no page at index ${i}`);
       activeIndex = i;
+      await assertFrameTargetsSafe(page(), guardOf(cfg));
       return { text: `Selected page [${i}] ${page().url()}` };
     }
     case "close_page": {

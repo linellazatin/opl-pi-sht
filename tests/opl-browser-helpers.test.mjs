@@ -7,7 +7,7 @@ import { extractMarkdown } from "../extensions/opl-browser/extract.ts";
 import { assertHttpUrl, assertSafeHttpUrl, decideSubresource, safeScreenshotPath } from "../extensions/opl-browser/validate.ts";
 import { paginateStored, continuationNotice } from "../extensions/opl-browser/paging.ts";
 import { DEFAULT_CONFIG, loadUserConfig } from "../extensions/opl-browser/config.ts";
-import { makeRouteHandler } from "../extensions/opl-browser/browser.ts";
+import { makeRouteHandler, assertFrameTargetsSafe } from "../extensions/opl-browser/browser.ts";
 import { MAX_LOG_ENTRIES, pushLogEntry } from "../extensions/opl-browser/browser.ts";
 
 const ARTICLE_HTML = `<!DOCTYPE html><html><head><title>My Post — SiteName</title></head><body>
@@ -199,4 +199,43 @@ test("makeRouteHandler aborts guarded requests and lets the rest through", async
   await publicHost(fakeRoute("data:text/html,hi"));
   await publicHost(fakeRoute("blob:https://ok.example/uuid"));
   assert.deepEqual(seen, ["abort:blockedbyclient", "continue"], "data:/blob: requests are left alone");
+});
+
+// --- frame guard: server-side redirects are not re-routed by Playwright (review C1) ---
+
+const fakePage = (urls, blanked) => ({
+  url: () => urls[0],
+  frames: () => urls.map((u) => ({ url: () => u })),
+  goto: async () => { blanked.n++; },
+});
+
+test("assertFrameTargetsSafe blanks and rejects a page whose frame landed on a blocked host", async () => {
+  const blanked = { n: 0 };
+  const page = fakePage(["http://127.0.0.1:8080/stolen"], blanked);
+  await assert.rejects(
+    () => assertFrameTargetsSafe(page, { allowPrivateNetwork: false, allowLoopback: false }),
+    /Blocked network host/,
+  );
+  assert.equal(blanked.n, 1, "unsafe page must be cleared before the error surfaces");
+});
+
+test("assertFrameTargetsSafe rejects on a blocked iframe even when the top frame is public", async () => {
+  const blanked = { n: 0 };
+  const page = fakePage(["https://public.example/page", "http://10.0.0.9/inline"], blanked);
+  await assert.rejects(
+    () => assertFrameTargetsSafe(page, {
+      allowPrivateNetwork: false,
+      allowLoopback: true,
+      resolveHost: async () => ["93.184.216.34"],
+    }),
+    /Blocked network host "10.0.0.9"/,
+  );
+  assert.equal(blanked.n, 1);
+});
+
+test("assertFrameTargetsSafe allows public and hostless frames without blanking", async () => {
+  const blanked = { n: 0 };
+  const page = fakePage(["https://public.example/page", "about:blank", "data:text/html,hi", "blob:https://public.example/x", ""], blanked);
+  await assertFrameTargetsSafe(page, { allowPrivateNetwork: false, allowLoopback: false, resolveHost: async () => ["93.184.216.34"] });
+  assert.equal(blanked.n, 0);
 });
