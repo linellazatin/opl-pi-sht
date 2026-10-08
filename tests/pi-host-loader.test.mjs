@@ -38,6 +38,10 @@ async function loadHost() {
 
 test("Pi host loader loads every package extension without errors", async () => {
   const { discoverAndLoadExtensions, source } = await loadHost();
+  // A floor job must not silently run against the machine's own pi. When OPL_PI_HOST_SOURCE is
+  // set, the loader has to report exactly that source.
+  const expected = process.env.OPL_PI_HOST_SOURCE;
+  if (expected) assert.equal(source, expected, "wrong pi build exercised");
   const agentDir = mkdtempSync(join(tmpdir(), "opl-pi-host-loader-"));
   try {
     const result = await discoverAndLoadExtensions(["extensions"], process.cwd(), agentDir);

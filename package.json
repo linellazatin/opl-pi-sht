@@ -42,7 +42,7 @@
   "type": "module",
   "scripts": {
     "test": "node tests/test-summary.mjs",
-    "test:shared": "bun test tests/agent-dir-config.test.mjs tests/net-guard-parity.test.mjs tests/install-sh.test.mjs",
+    "test:shared": "bun test tests/agent-dir-config.test.mjs tests/net-guard-parity.test.mjs tests/install-sh.test.mjs tests/package-metadata.test.mjs",
     "test:opl-browser": "bun test tests/opl-browser-helpers.test.mjs && OPL_EXTENSION=opl-browser bun test tests/extension-smoke.test.mjs",
     "test:opl-footer": "bun test tests/opl-footer-helpers.test.mjs tests/opl-footer-lifecycle.test.mjs && OPL_EXTENSION=opl-footer bun test tests/extension-smoke.test.mjs",
     "test:opl-guardian": "bun test tests/opl-guardian.test.mjs && OPL_EXTENSION=opl-guardian bun test tests/extension-smoke.test.mjs",
@@ -54,11 +54,14 @@
     "test:opl-webaccess": "bun test tests/opl-webaccess-helpers.test.mjs && OPL_EXTENSION=opl-webaccess bun test tests/extension-smoke.test.mjs",
     "test:opl-simplebench": "bun test tests/opl-simplebench.test.ts && OPL_EXTENSION=opl-simplebench bun test tests/extension-smoke.test.mjs",
     "test:opl-ctxtrim": "bun test tests/opl-ctxtrim.test.ts && OPL_EXTENSION=opl-ctxtrim bun test tests/extension-smoke.test.mjs",
-    "test:pi-host": "bun test tests/pi-host-loader.test.mjs"
+    "test:pi-host": "bun test tests/pi-host-loader.test.mjs",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
+    "@earendil-works/pi-ai": ">=0.87.0",
     "@earendil-works/pi-coding-agent": ">=0.87.0",
-    "@types/node": "^26.6.4",
+    "@earendil-works/pi-tui": ">=0.87.0",
+    "@types/node": "^26.0.0",
     "typescript": "^7.0.2"
   }
 }
