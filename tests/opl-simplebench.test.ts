@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "bun:test";
 import { parseCommandArgs, resolveRunSequence } from "../extensions/opl-simplebench/index";
-import { buildToolContinuationMessages, createBenchmark, hasOllamaAssistantOutput, isValidInstructionOutput, openAiThinkingOptions, resolveBenchmarkModel, resolveThinkingMode } from "../extensions/opl-simplebench/benchmark";
+import { buildToolContinuationMessages, resolveAwsCredentials, createBenchmark, hasOllamaAssistantOutput, isValidInstructionOutput, openAiThinkingOptions, resolveBenchmarkModel, resolveThinkingMode } from "../extensions/opl-simplebench/benchmark";
 import { artifactFileName, writeArtifact, writeArtifactBundle } from "../extensions/opl-simplebench/artifact";
 import { codingRecommendation, formatInstructionScore, recommendation, renderSummary } from "../extensions/opl-simplebench/report";
 import { aggregateMetrics, mergeRequestMetrics, metricsFromChat, usageFromRaw, emptyMetrics } from "../extensions/opl-simplebench/metrics";
@@ -615,4 +615,39 @@ test("returns recoverable errors when a coding agent searches a missing path", a
   }, "test-model", CODING_LITE_TASKS.find(task => task.id === "safe-refactor")!);
   assert.equal(result.turns, 2);
   assert.ok(!result.error?.includes("ENOENT"));
+});
+
+// --- Phase 2 / P1-4: AWS credential resolution ---------------------------------
+
+test("aws: profile names with shell metacharacters are refused", async () => {
+  let calls = 0;
+  const runner = async () => { calls++; return { stdout: "{}" }; };
+  for (const prof of ["default; touch /tmp/pwned", "prod$(id)", "a`whoami`", "-credential", "--profile=x"]) {
+    assert.equal(await resolveAwsCredentials({ env: { AWS_PROFILE: prof }, runner }), null, prof);
+  }
+  assert.equal(calls, 0, "an invalid profile must never reach the CLI");
+  // An empty AWS_PROFILE is treated as unset, so the CLI is asked for "default".
+  assert.equal(await resolveAwsCredentials({ env: { AWS_PROFILE: "" }, runner }), null);
+  assert.equal(calls, 1);
+});
+
+test("aws: valid profile runs argv, never a shell string", async () => {
+  let seen: { file: string; args: string[] } | undefined;
+  const runner = async (cmd: { file: string; args: string[] }) => {
+    seen = cmd;
+    return { stdout: JSON.stringify({ AccessKeyId: "A", SecretAccessKey: "S", SessionToken: "T" }) };
+  };
+  const creds = await resolveAwsCredentials({ env: {}, runner });
+  assert.deepEqual(seen, { file: "aws", args: ["configure", "export-credentials", "--profile", "default"] });
+  assert.deepEqual(creds, { accessKeyId: "A", secretAccessKey: "S", sessionToken: "T" });
+});
+
+test("aws: env credentials win, and a CLI failure resolves to null instead of throwing", async () => {
+  const env = { AWS_ACCESS_KEY_ID: "K", AWS_SECRET_ACCESS_KEY: "S" };
+  assert.deepEqual(
+    await resolveAwsCredentials({ env, runner: async () => { throw new Error("unused"); } }),
+    { accessKeyId: "K", secretAccessKey: "S", sessionToken: undefined },
+  );
+  assert.equal(await resolveAwsCredentials({ env: {}, runner: async () => { throw new Error("aws: command not found"); } }), null);
+  assert.equal(await resolveAwsCredentials({ env: {}, runner: async () => ({ stdout: "not json" }) }), null);
 });
