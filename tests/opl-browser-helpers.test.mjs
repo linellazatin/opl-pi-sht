@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { extractMarkdown } from "../extensions/opl-browser/extract.ts";
-import { assertHttpUrl, safeScreenshotPath } from "../extensions/opl-browser/validate.ts";
+import { assertHttpUrl, assertSafeHttpUrl, decideSubresource, safeScreenshotPath } from "../extensions/opl-browser/validate.ts";
 import { paginateStored, continuationNotice } from "../extensions/opl-browser/paging.ts";
 import { DEFAULT_CONFIG, loadUserConfig } from "../extensions/opl-browser/config.ts";
 import { MAX_LOG_ENTRIES, pushLogEntry } from "../extensions/opl-browser/browser.ts";
@@ -126,4 +126,45 @@ test("pushLogEntry trims the oldest entries past the cap", () => {
   assert.equal(entries.length, MAX_LOG_ENTRIES);
   assert.equal(entries[0], "line-50");
   assert.equal(entries.at(-1), `line-${MAX_LOG_ENTRIES + 49}`);
+});
+
+test("assertSafeHttpUrl blocks browser navigations whose host resolves internally", async () => {
+  const at = (address) => async () => [address];
+  // metadata and private answers are rejected under the shipped defaults
+  await assert.rejects(
+    () => assertSafeHttpUrl("http://spoofed.example/late", { resolveHost: at("169.254.169.254") }),
+    /blocked network host/i,
+  );
+  await assert.rejects(
+    () => assertSafeHttpUrl("http://corp.example/", { resolveHost: at("10.0.0.5") }),
+    /blocked network host/i,
+  );
+  // a loopback answer follows allowLoopback, which stays default-true until Phase 3 flips it
+  assert.equal(
+    await assertSafeHttpUrl("http://127.0.0.1.nip.io:8080/x", { resolveHost: at("127.0.0.1") }),
+    "http://127.0.0.1.nip.io:8080/x",
+  );
+  await assert.rejects(
+    () => assertSafeHttpUrl("http://127.0.0.1.nip.io:8080/x", { allowLoopback: false, resolveHost: at("127.0.0.1") }),
+    /blocked network host/i,
+  );
+  assert.equal(await assertSafeHttpUrl("https://example.com/a", { resolveHost: at("93.184.216.34") }), "https://example.com/a");
+  assert.equal(await assertSafeHttpUrl("http://192.168.1.100:8000", { allowPrivateNetwork: true }), "http://192.168.1.100:8000/");
+});
+
+test("decideSubresource aborts internal requests and continues non-http and missing hosts", async () => {
+  const at = (address) => async () => [address];
+  assert.equal(await decideSubresource("http://metadata.nip.io/", { resolveHost: at("169.254.169.254") }), "abort");
+  assert.equal(await decideSubresource("http://corp.example/x", { resolveHost: at("10.0.0.1") }), "abort");
+  assert.equal(await decideSubresource("http://loopback.nip.io/x", { allowLoopback: false, resolveHost: at("127.0.0.1") }), "abort");
+  assert.equal(await decideSubresource("http://127.0.0.1:3000/hmr", { allowLoopback: false }), "abort");
+  assert.equal(await decideSubresource("https://ok.example/a", { resolveHost: at("93.184.216.34") }), "continue");
+  assert.equal(await decideSubresource("data:text/html,hi"), "continue");
+  assert.equal(await decideSubresource("blob:https://ok.example/uuid"), "continue");
+  assert.equal(await decideSubresource("about:blank"), "continue");
+  const enotfound = Object.assign(new Error("ENOTFOUND gone.example"), { code: "ENOTFOUND" });
+  assert.equal(await decideSubresource("http://gone.example/", { resolveHost: async () => { throw enotfound; } }), "continue");
+  const timeout = Object.assign(new Error("ETIMEOUT"), { code: "ETIMEOUT" });
+  assert.equal(await decideSubresource("http://slow.example/", { resolveHost: async () => { throw timeout; } }), "abort");
+  assert.equal(await decideSubresource("http://weird.example/", { resolveHost: async () => { throw "not even an error"; } }), "abort");
 });
