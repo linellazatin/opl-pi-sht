@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { extractMarkdown } from "../extensions/opl-browser/extract.ts";
@@ -180,6 +180,10 @@ test("browser config carries allowLoopback to the guard, default true", () => {
   assert.equal(loadUserConfig(write("off.json", { allowLoopback: false })).allowLoopback, false);
   // the shipped sample must parse to the documented default, not merely contain the key
   assert.equal(loadUserConfig(new URL("../configs/opl-browser.json.sample", import.meta.url).pathname).allowLoopback, true);
+  // the sample file itself must carry the key and describe it; a default alone hides regressions
+  const sample = JSON.parse(readFileSync(new URL("../configs/opl-browser.json.sample", import.meta.url), "utf-8"));
+  assert.equal(sample.allowLoopback, true, "shipped sample carries the documented key and comment");
+  assert.match(sample["_comment"], /allowLoopback/, "shipped sample carries the documented key and comment");
 });
 
 test("makeRouteHandler aborts guarded requests and lets the rest through", async () => {

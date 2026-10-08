@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "bun:test";
 import { errorMessage, isAbortError, truncate, isPdfUrl, isPdfContentType, assertHttpUrl, assertSafeHttpUrl, paginateContent, continuationNotice } from "../extensions/opl-webaccess/utils.ts";
 import { generateId, storeResult, getResult, clearStore } from "../extensions/opl-webaccess/storage.ts";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -234,6 +234,10 @@ test("webaccess config carries allowLoopback to the fetch guard, default true", 
   assert.equal(loadConfig(write("on.json", { provider: "searxng", allowLoopback: true })).allowLoopback, true);
   // the shipped sample must parse to the documented default, not merely contain the key
   assert.equal(loadConfig(fileURLToPath(new URL("../configs/opl-webaccess.json.sample", import.meta.url))).allowLoopback, true);
+  // the sample file itself must carry the key and describe it; a default alone hides regressions
+  const sample = JSON.parse(readFileSync(new URL("../configs/opl-webaccess.json.sample", import.meta.url), "utf-8"));
+  assert.equal(sample.allowLoopback, true, "shipped sample carries the documented key and comment");
+  assert.match(sample["_comment_network"], /allowLoopback/, "shipped sample carries the documented key and comment");
 });
 
 test("fetchAllContent caps the number of URLs per call", async () => {
