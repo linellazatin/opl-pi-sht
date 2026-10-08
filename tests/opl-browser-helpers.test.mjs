@@ -83,9 +83,10 @@ test("browser guards reject non-http URLs and escaping screenshot paths", () => 
   assert.throws(() => assertHttpUrl("javascript:alert(1)"), /http\/https/);
 });
 
-test("browser guards allow loopback by default and block private/link-local ranges", () => {
+test("browser guards block loopback by default and gate it on allowLoopback", () => {
   for (const url of ["http://localhost:3000", "http://127.0.0.1/admin", "http://[::1]"]) {
-    assert.equal(assertHttpUrl(url), new URL(url).href, `should allow loopback: ${url}`);
+    assert.throws(() => assertHttpUrl(url), /blocked network host/i, `should block by default: ${url}`);
+    assert.equal(assertHttpUrl(url, { allowLoopback: true }), new URL(url).href, `should allow when opted in: ${url}`);
   }
   for (const url of ["http://192.168.1.100/", "http://10.0.0.1/", "http://[::ffff:10.0.0.1]/", "http://[fd00::1]"]) {
     assert.throws(() => assertHttpUrl(url), /blocked network host/i, `should block: ${url}`);
@@ -140,9 +141,13 @@ test("assertSafeHttpUrl blocks browser navigations whose host resolves internall
     () => assertSafeHttpUrl("http://corp.example/", { resolveHost: at("10.0.0.5") }),
     /blocked network host/i,
   );
-  // a loopback answer follows allowLoopback, which stays default-true until Phase 3 flips it
+  // a loopback answer follows allowLoopback, which is opt-in
+  await assert.rejects(
+    () => assertSafeHttpUrl("http://127.0.0.1.nip.io:8080/x", { resolveHost: at("127.0.0.1") }),
+    /blocked network host/i,
+  );
   assert.equal(
-    await assertSafeHttpUrl("http://127.0.0.1.nip.io:8080/x", { resolveHost: at("127.0.0.1") }),
+    await assertSafeHttpUrl("http://127.0.0.1.nip.io:8080/x", { allowLoopback: true, resolveHost: at("127.0.0.1") }),
     "http://127.0.0.1.nip.io:8080/x",
   );
   await assert.rejects(
@@ -172,17 +177,17 @@ test("decideSubresource aborts internal requests and continues non-http and miss
   assert.equal(await decideSubresource("http://weird.example/", { resolveHost: async () => { throw "not even an error"; } }), "abort");
 });
 
-test("browser config carries allowLoopback to the guard, default true", () => {
+test("browser config carries allowLoopback to the guard, default false", () => {
   const dir = mkdtempSync(join(tmpdir(), "opl-browser-cfg-"));
   const write = (name, body) => { const p = join(dir, name); writeFileSync(p, JSON.stringify(body)); return p; };
-  assert.equal(DEFAULT_CONFIG.allowLoopback, true);
-  assert.equal(loadUserConfig(write("unset.json", { headless: true })).allowLoopback, true, "absent key defaults to true");
+  assert.equal(DEFAULT_CONFIG.allowLoopback, false);
+  assert.equal(loadUserConfig(write("unset.json", { headless: true })).allowLoopback, false, "absent key defaults to false");
   assert.equal(loadUserConfig(write("off.json", { allowLoopback: false })).allowLoopback, false);
   // the shipped sample must parse to the documented default, not merely contain the key
-  assert.equal(loadUserConfig(new URL("../configs/opl-browser.json.sample", import.meta.url).pathname).allowLoopback, true);
+  assert.equal(loadUserConfig(new URL("../configs/opl-browser.json.sample", import.meta.url).pathname).allowLoopback, false);
   // the sample file itself must carry the key and describe it; a default alone hides regressions
   const sample = JSON.parse(readFileSync(new URL("../configs/opl-browser.json.sample", import.meta.url), "utf-8"));
-  assert.equal(sample.allowLoopback, true, "shipped sample carries the documented key and comment");
+  assert.equal(sample.allowLoopback, false, "shipped sample carries the documented default");
   assert.match(sample["_comment"], /allowLoopback/, "shipped sample carries the documented key and comment");
 });
 

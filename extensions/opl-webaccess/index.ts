@@ -17,7 +17,7 @@ export default function (pi: ExtensionAPI) {
   const config = loadConfig();
   const caps = resolveCaps(config);
   const allowPrivateNetwork = config.allowPrivateNetwork === true;
-  const allowLoopback = config.allowLoopback !== false;
+  const allowLoopback = config.allowLoopback === true;
 
   // Note shown to the model when the per-call URL/query cap drops some inputs.
   const skippedNote = (dropped: number, limit: number, singular: string, plural: string) =>

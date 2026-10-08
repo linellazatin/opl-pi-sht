@@ -25,7 +25,7 @@ export const DEFAULT_CONFIG: BrowserConfig = {
   previewChars: 4000,
   getChars: 30000,
   allowPrivateNetwork: false,
-  allowLoopback: true,
+  allowLoopback: false,
 };
 
 /** Resolved per call so a custom `PI_AGENT_DIR` (pi's own agent dir) is honoured. */

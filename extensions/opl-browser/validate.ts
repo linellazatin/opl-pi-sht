@@ -173,8 +173,8 @@ function isBlockedNetworkHost(host: string, allowPrivateNetwork: boolean, allowL
 
 /**
  * Normalize a URL, allowing only http/https. Loopback (localhost/127.0.0.0/8/::1) is
- * allowed by default for local development and gated by allowLoopback; private/link-local/
- * reserved ranges are blocked unless allowPrivateNetwork is set; cloud metadata is always blocked.
+ * opt-in through allowLoopback; private/link-local/reserved ranges are blocked unless
+ * allowPrivateNetwork is set; cloud metadata and unspecified addresses are always blocked.
  */
 export function assertHttpUrl(url: string, opts: HttpUrlOptions = {}): string {
   let parsed: URL;
@@ -186,8 +186,8 @@ export function assertHttpUrl(url: string, opts: HttpUrlOptions = {}): string {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error(`Only http/https URLs are allowed, "${parsed.protocol}"`);
   }
-  if (isBlockedNetworkHost(parsed.hostname, opts.allowPrivateNetwork === true, opts.allowLoopback !== false)) {
-    throw new Error(`Blocked network host "${parsed.hostname}" — private, link-local, and reserved URLs are not allowed (set allowPrivateNetwork to opt in to private ranges; cloud-metadata and unspecified addresses such as 0.0.0.0 are always blocked)`);
+  if (isBlockedNetworkHost(parsed.hostname, opts.allowPrivateNetwork === true, opts.allowLoopback === true)) {
+    throw new Error(`Blocked network host "${parsed.hostname}" — private, link-local, and reserved URLs are not allowed (set allowPrivateNetwork to opt in to private ranges, or allowLoopback for localhost and 127.0.0.0/8; cloud-metadata and unspecified addresses such as 0.0.0.0 are always blocked)`);
   }
   return parsed.href;
 }
@@ -248,10 +248,10 @@ export async function assertSafeHttpUrl(url: string, opts: HttpUrlOptions = {}):
     : await untilAborted(resolveHostAddresses(host), dnsSignal);
   if (!answers.length) throw new Error(`Could not resolve host "${host}"`);
   const allowPrivate = opts.allowPrivateNetwork === true;
-  const allowLoopback = opts.allowLoopback !== false;
+  const allowLoopback = opts.allowLoopback === true;
   for (const answer of answers) {
     if (isBlockedNetworkHost(answer, allowPrivate, allowLoopback)) {
-      throw new Error(`Blocked network host "${host}" — it resolves to ${answer}, and private, link-local, and reserved addresses are not allowed (set allowPrivateNetwork to opt in to private ranges; cloud-metadata and unspecified addresses such as 0.0.0.0 are always blocked)`);
+      throw new Error(`Blocked network host "${host}" — it resolves to ${answer}, and private, link-local, and reserved addresses are not allowed (set allowPrivateNetwork to opt in to private ranges, or allowLoopback for localhost and 127.0.0.0/8; cloud-metadata and unspecified addresses such as 0.0.0.0 are always blocked)`);
     }
   }
   return normalized;

@@ -109,8 +109,8 @@ test("assertHttpUrl allows only http/https", () => {
   assert.throws(() => assertHttpUrl("not a url"), /Invalid URL/);
 });
 
-test("assertHttpUrl allows loopback by default and blocks private/link-local ranges", () => {
-  // Loopback is allowed out of the box for local dev servers.
+test("assertHttpUrl blocks loopback by default and gates it on allowLoopback", () => {
+  // Loopback is opt-in: local dev servers need allowLoopback: true.
   for (const url of [
     "http://localhost",
     "http://localhost:3000/app",
@@ -119,7 +119,8 @@ test("assertHttpUrl allows loopback by default and blocks private/link-local ran
     "http://2130706433/", // integer form of 127.0.0.1
     "http://[::1]/",
   ]) {
-    assert.equal(assertHttpUrl(url), new URL(url).href, `should allow loopback: ${url}`);
+    assert.throws(() => assertHttpUrl(url), /Blocked network host/, `should block by default: ${url}`);
+    assert.equal(assertHttpUrl(url, { allowLoopback: true }), new URL(url).href, `should allow when opted in: ${url}`);
   }
 
   for (const url of [
@@ -150,9 +151,12 @@ test("assertHttpUrl hard-blocks cloud metadata even with private opt-in", () => 
   }
 });
 
-test("assertHttpUrl opt-in allows private hosts", () => {
+test("assertHttpUrl opt-ins are independent", () => {
   assert.equal(assertHttpUrl("http://192.168.1.100:8000", { allowPrivateNetwork: true }), "http://192.168.1.100:8000/");
-  assert.equal(assertHttpUrl("http://localhost:3000", { allowPrivateNetwork: true }), "http://localhost:3000/");
+  // allowPrivateNetwork does not imply loopback, and neither opt-in opens metadata or unspecified.
+  assert.throws(() => assertHttpUrl("http://localhost:3000", { allowPrivateNetwork: true }), /Blocked network host/);
+  assert.throws(() => assertHttpUrl("http://169.254.169.254/latest/meta-data/", { allowPrivateNetwork: true, allowLoopback: true }), /Blocked network host/);
+  assert.throws(() => assertHttpUrl("http://0.0.0.0:8080/x", { allowPrivateNetwork: true, allowLoopback: true }), /Blocked network host/);
 });
 
 test("assertSafeHttpUrl applies the address policy to every DNS answer", async () => {
@@ -173,9 +177,13 @@ test("assertSafeHttpUrl applies the address policy to every DNS answer", async (
     () => assertSafeHttpUrl("http://corp.example/", { resolveHost: at("10.0.0.5") }),
     /Blocked network host/,
   );
-  // a loopback answer follows allowLoopback, which stays default-true until Phase 3 flips it
+  // a loopback answer follows allowLoopback, which is opt-in
+  await assert.rejects(
+    () => assertSafeHttpUrl("http://127.0.0.1.nip.io:8080/x", { resolveHost: at("127.0.0.1") }),
+    /Blocked network host/,
+  );
   assert.equal(
-    await assertSafeHttpUrl("http://127.0.0.1.nip.io:8080/x", { resolveHost: at("127.0.0.1") }),
+    await assertSafeHttpUrl("http://127.0.0.1.nip.io:8080/x", { allowLoopback: true, resolveHost: at("127.0.0.1") }),
     "http://127.0.0.1.nip.io:8080/x",
   );
   await assert.rejects(
@@ -207,8 +215,9 @@ test("assertSafeHttpUrl surfaces resolver failures as network errors", async () 
   await assert.rejects(() => assertSafeHttpUrl("http://empty.example/", { resolveHost: async () => [] }), /Could not resolve host/);
 });
 
-test("assertHttpUrl honours allowLoopback=false", () => {
-  assert.equal(assertHttpUrl("http://localhost:3000/app"), "http://localhost:3000/app");
+test("assertHttpUrl gates loopback on allowLoopback, which is opt-in", () => {
+  assert.throws(() => assertHttpUrl("http://localhost:3000/app"), /Blocked network host/);
+  assert.equal(assertHttpUrl("http://localhost:3000/app", { allowLoopback: true }), "http://localhost:3000/app");
   assert.throws(() => assertHttpUrl("http://localhost:3000/app", { allowLoopback: false }), /Blocked network host/);
   assert.throws(() => assertHttpUrl("http://127.0.0.1:7/", { allowLoopback: false }), /Blocked network host/);
   assert.throws(() => assertHttpUrl("http://[::1]/", { allowLoopback: false }), /Blocked network host/);
@@ -220,23 +229,23 @@ test("fetchAllContent re-resolves and rejects an internal redirect target before
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () =>
     new Response(null, { status: 302, headers: { Location: "http://internal.example/late" } }) });
   try {
-    const results = await fetchAllContent([`http://127.0.0.1:${server.port}/`], undefined, { resolveHost });
+    const results = await fetchAllContent([`http://127.0.0.1:${server.port}/`], undefined, { allowLoopback: true, resolveHost });
     assert.match(results[0].error ?? "", /Blocked network host/);
     assert.deepEqual(seen, ["internal.example"], "hostname hop resolved once; IP literal hop skipped");
   } finally { server.stop(); }
 });
 
-test("webaccess config carries allowLoopback to the fetch guard, default true", () => {
+test("webaccess config carries allowLoopback to the fetch guard, default false", () => {
   const dir = mkdtempSync(join(tmpdir(), "opl-webaccess-cfg-"));
   const write = (name, body) => { const p = join(dir, name); writeFileSync(p, JSON.stringify(body)); return p; };
-  assert.equal(loadConfig(write("unset.json", { provider: "searxng" })).allowLoopback, true, "absent key defaults to true");
+  assert.equal(loadConfig(write("unset.json", { provider: "searxng" })).allowLoopback, false, "absent key defaults to false");
   assert.equal(loadConfig(write("off.json", { provider: "searxng", allowLoopback: false })).allowLoopback, false);
   assert.equal(loadConfig(write("on.json", { provider: "searxng", allowLoopback: true })).allowLoopback, true);
   // the shipped sample must parse to the documented default, not merely contain the key
-  assert.equal(loadConfig(fileURLToPath(new URL("../configs/opl-webaccess.json.sample", import.meta.url))).allowLoopback, true);
+  assert.equal(loadConfig(fileURLToPath(new URL("../configs/opl-webaccess.json.sample", import.meta.url))).allowLoopback, false);
   // the sample file itself must carry the key and describe it; a default alone hides regressions
   const sample = JSON.parse(readFileSync(new URL("../configs/opl-webaccess.json.sample", import.meta.url), "utf-8"));
-  assert.equal(sample.allowLoopback, true, "shipped sample carries the documented key and comment");
+  assert.equal(sample.allowLoopback, false, "shipped sample carries the documented default");
   assert.match(sample["_comment_network"], /allowLoopback/, "shipped sample carries the documented key and comment");
 });
 

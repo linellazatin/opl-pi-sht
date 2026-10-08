@@ -112,7 +112,7 @@ function normalizeConfig(parsed: unknown): WebAccessConfig {
     maxSearchQueries: record.maxSearchQueries as number | undefined,
     maxFetchUrls: record.maxFetchUrls as number | undefined,
     allowPrivateNetwork: record.allowPrivateNetwork === true,
-    allowLoopback: record.allowLoopback !== false,
+    allowLoopback: record.allowLoopback === true,
   };
 }
 
