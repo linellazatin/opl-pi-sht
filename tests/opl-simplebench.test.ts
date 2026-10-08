@@ -10,7 +10,9 @@ import { codingRecommendation, formatInstructionScore, recommendation, renderSum
 import { aggregateMetrics, mergeRequestMetrics, metricsFromChat, usageFromRaw, emptyMetrics } from "../extensions/opl-simplebench/metrics";
 import { scoreReasoning } from "../extensions/opl-simplebench/scoring";
 import { REASONING_TESTS, MULTISTEP_INSTRUCTION } from "../extensions/opl-simplebench/tests";
-import { CODING_LITE_TASKS, createCodingTaskDir, resolveCodingPath, runCodingTask, runCodingVerifier } from "../extensions/opl-simplebench/coding";
+import { CODING_LITE_TASKS, createCodingTaskDir, resolveCodingPath, runCodingTask, runCodingVerifier, type CodingTaskFixture } from "../extensions/opl-simplebench/coding";
+import { INHERITED_KEYS, scrubbedEnv } from "../extensions/opl-simplebench/util/exec-env";
+import { spawnSync } from "node:child_process";
 import { GROUNDED_RESEARCH_TASK_PROMPT, GROUNDED_URBAN_TREES_FIXTURE, isMinimalistResearchHtml, RESEARCH_TASK_PROMPT, runGroundedResearchTask, runResearchArtifactTask, verifyGroundedResearch } from "../extensions/opl-simplebench/research";
 import { applyLlamagputop, applyLlamagputopModelStats, buildServerStats, diffPrometheusMetrics, healthUrl, managementBaseUrl, normalizeLlamagputopStats, normalizeLlamaServerProps, parsePrometheusMetrics, statsUrl } from "../extensions/opl-simplebench/llama-server";
 
@@ -650,4 +652,51 @@ test("aws: env credentials win, and a CLI failure resolves to null instead of th
   );
   assert.equal(await resolveAwsCredentials({ env: {}, runner: async () => { throw new Error("aws: command not found"); } }), null);
   assert.equal(await resolveAwsCredentials({ env: {}, runner: async () => ({ stdout: "not json" }) }), null);
+});
+
+// --- Phase 2 / P1-3: environment of model-authored code ------------------------
+
+test("exec env: credentials and agent paths are not inherited, runtime basics are", () => {
+  const scrubbed = scrubbedEnv({
+    PATH: "/usr/bin", HOME: "/home/u", TMPDIR: "/tmp/x", LANG: "en_US.UTF-8", TZ: "UTC", TERM: "xterm-256color",
+    ANTHROPIC_API_KEY: "sk-secret", AWS_ACCESS_KEY_ID: "ak", AWS_SECRET_ACCESS_KEY: "aws",
+    GH_TOKEN: "gh", OPENAI_API_KEY: "o", PI_CODING_AGENT_DIR: "/agent", PI_AGENT_DIR: "/agent",
+    NODE_OPTIONS: "--require /evil.js", NODE_PATH: "/evil", PWD: "/elsewhere", OLDMULTI: "a\0b",
+  });
+  assert.equal(scrubbed.PATH, "/usr/bin");
+  assert.equal(scrubbed.HOME, "/home/u");
+  assert.equal(scrubbed.TMPDIR, "/tmp/x");
+  assert.equal(scrubbed.TZ, "UTC");
+  for (const key of ["ANTHROPIC_API_KEY", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "GH_TOKEN",
+    "OPENAI_API_KEY", "PI_CODING_AGENT_DIR", "PI_AGENT_DIR", "NODE_OPTIONS", "NODE_PATH", "PWD", "OLDMULTI"]) {
+    assert.ok(!(key in scrubbed), key);
+  }
+});
+
+test("coding verifier: model-authored code and its children see only the allowlisted environment", () => {
+  const task: CodingTaskFixture = {
+    id: "env-probe",
+    prompt: "",
+    files: {},
+    allowedFiles: [],
+    verify: () => `const { spawnSync } = require('node:child_process');
+      const nested = spawnSync(process.execPath, ['-e', 'console.log(JSON.stringify(Object.keys(process.env).sort()))'], { encoding: 'utf8' });
+      console.log(JSON.stringify({ self: Object.keys(process.env).sort(), nested: JSON.parse(nested.stdout) }));`,
+  };
+  const result = runCodingVerifier(task, createCodingTaskDir(task), "public");
+  assert.ok(result.passed, `probe must run cleanly, got: ${result.output}`);
+  const { self, nested } = JSON.parse(result.output) as { self: string[]; nested: string[] };
+  const allowed = new Set(INHERITED_KEYS);
+  assert.deepEqual(self.filter((key) => !allowed.has(key)), [], `verifier inherited: ${self.filter((key) => !allowed.has(key)).join(", ")}`);
+  assert.deepEqual(nested.filter((key) => !allowed.has(key)), [], `nested child inherited: ${nested.filter((key) => !allowed.has(key)).join(", ")}`);
+  assert.ok(self.includes("PATH") && nested.includes("PATH"), "PATH must survive so the verifier can run node");
+});
+
+test("exec env: an inherited environment really does expose the canary (control)", () => {
+  const probe = `console.log(process.env.SB_PHASE2_CANARY ? 'leak' : 'clean');`;
+  const base = { ...process.env, SB_PHASE2_CANARY: "control" } as NodeJS.ProcessEnv;
+  const inherited = spawnSync(process.execPath, ["--eval", probe], { encoding: "utf8", env: base });
+  assert.equal(inherited.stdout.trim(), "leak", "the control must be visible to an inheriting child");
+  const scrubbed = spawnSync(process.execPath, ["--eval", probe], { encoding: "utf8", env: scrubbedEnv(base) });
+  assert.equal(scrubbed.stdout.trim(), "clean", "scrubbing must remove it");
 });

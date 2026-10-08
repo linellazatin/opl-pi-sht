@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import { scrubbedEnv } from "./util/exec-env";
 import { buildToolResultMessages, type ChatFn, type ChatMessage } from "./util/config";
 import { mergeRequestMetrics, metricsFromChat } from "./metrics";
 import type { RequestMetrics } from "./types";
@@ -105,7 +106,9 @@ export function createCodingTaskDir(task: CodingTaskFixture): string {
 }
 
 export function runCodingVerifier(task: CodingTaskFixture, root: string, mode: "public" | "hidden") {
-  const result = spawnSync(process.execPath, ["--eval", task.verify(root, mode === "hidden")], { cwd: root, encoding: "utf8", timeout: 10_000 });
+  // The verifier evaluates model-authored code, so it runs with an allowlisted
+  // environment (see util/exec-env.ts). Anything it spawns inherits that.
+  const result = spawnSync(process.execPath, ["--eval", task.verify(root, mode === "hidden")], { cwd: root, encoding: "utf8", timeout: 10_000, env: scrubbedEnv() });
   const rawOutput = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
   return { passed: result.status === 0, output: result.status === 0 ? rawOutput : truncateVerifierError(rawOutput) };
 }
