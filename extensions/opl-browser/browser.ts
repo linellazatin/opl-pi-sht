@@ -48,11 +48,17 @@ function track(page: Page, cfg: BrowserConfig): void {
 async function ensure(cfg: BrowserConfig): Promise<BrowserContext> {
   if (context) return context;
   browser = await chromium.launch({ headless: cfg.headless });
-  const created = await browser.newContext({ viewport: { width: cfg.width, height: cfg.height } });
-  // Install the route before publishing the module-level context: if registration fails,
-  // the tool must not keep browsing through a context with no host guard at all.
+  const created = await browser.newContext({
+    viewport: { width: cfg.width, height: cfg.height },
+    // Playwright documents that routing does not see requests a service worker already
+    // intercepted, so a worker would be a hole in the guard rather than another client of it.
+    serviceWorkers: "block",
+  });
+  // Install the guards before publishing the module-level context: if registration fails, the tool
+  // must not keep browsing through a context whose host guard is missing or only half installed.
   try {
-    await created.route("**/*", makeRouteHandler(guardOf(cfg)));
+    const wsGuarded = await installGuard(created, guardOf(cfg));
+    if (!wsGuarded) console.warn("[opl-browser] this build cannot intercept page WebSockets, so ws:// and wss:// from the page are unguarded");
   } catch (err) {
     await created.close().catch(() => {});
     await browser.close().catch(() => {});
@@ -92,6 +98,47 @@ export function makeRouteHandler(guard: HttpUrlOptions): (route: Route) => Promi
     }
     await route.continue();
   };
+}
+
+/** Install both halves of the network guard on a context: http(s) requests and WebSocket
+ *  handshakes. Returns false when this Playwright build cannot intercept WebSockets, which is
+ *  reported rather than hidden: `route()` does not see `ws://`/`wss://`, so a page could otherwise
+ *  open a socket straight to an internal service while the tool claims the boundary is enforced. */
+export interface GuardTarget {
+  route(url: string, handler: (route: Route) => Promise<void>): Promise<void>;
+  routeWebSocket?(match: (url: URL) => boolean, handler: (ws: WebSocketRouteLike) => Promise<void>): Promise<void>;
+}
+
+export interface WebSocketRouteLike {
+  url(): string;
+  close(): Promise<void>;
+  connectToServer(): unknown;
+}
+
+/** WebSockets are classified with the http(s) policy: `ws:` counts as `http:`, `wss:` as `https:`.
+ *  Anything the guard refuses, and anything it cannot classify, is closed. */
+export function makeWebSocketGuard(guard: HttpUrlOptions): (ws: WebSocketRouteLike) => Promise<void> {
+  return async (ws) => {
+    const asHttp = ws.url().replace(/^wss:/, "https:").replace(/^ws:/, "http:");
+    let decision: "abort" | "continue";
+    try {
+      decision = await decideSubresource(asHttp, guard);
+    } catch {
+      decision = "abort";
+    }
+    if (decision === "abort") {
+      await ws.close().catch(() => {});
+      return;
+    }
+    ws.connectToServer();
+  };
+}
+
+export async function installGuard(ctx: GuardTarget, guard: HttpUrlOptions): Promise<boolean> {
+  await ctx.route("**/*", makeRouteHandler(guard));
+  if (typeof ctx.routeWebSocket !== "function") return false;
+  await ctx.routeWebSocket(() => true, makeWebSocketGuard(guard));
+  return true;
 }
 
 /** Navigate with the host validated both before the request and on the live frames after it,

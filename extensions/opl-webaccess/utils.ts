@@ -65,7 +65,7 @@ export interface HttpUrlOptions {
   resolveHost?: (host: string) => Promise<string[]>;
 }
 
-// BEGIN SHARED HOST GUARD — mirrored verbatim in extensions/opl-browser/validate.ts
+// BEGIN SHARED HOST GUARD — duplicated verbatim in extensions/opl-browser/validate.ts
 // (install.sh installs one extension directory at a time, so this cannot be a shared import;
 //  tests/net-guard-parity.test.mjs fails if the two copies drift)
 /** Well-known cloud metadata hostnames that resolve to instance-credential endpoints. */
@@ -79,7 +79,7 @@ const BLOCKED_METADATA_HOSTS = new Set([
 /** Cloud metadata IPv6 literals (e.g. AWS IMDS over IPv6). Always blocked. */
 const BLOCKED_METADATA_V6 = new Set(["fd00:ec2::254"]);
 
-type HostClass = "loopback" | "metadata" | "private" | "public";
+type HostClass = "loopback" | "metadata" | "unspecified" | "private" | "public";
 
 /** Decode a bare unsigned 32-bit integer hostname (e.g. 2130706433) into octets. */
 function ipv4FromInteger(n: number): number[] | null {
@@ -110,7 +110,7 @@ function isMetadataIpv4(o: number[]): boolean {
 function isPrivateIpv4(o: number[]): boolean {
   const [a, b, c] = o;
   return (
-    a === 0 || a === 10 || // 0.0.0.0/8, 10/8
+    a === 10 || // 10/8
     (a === 100 && b >= 64 && b <= 127) || // 100.64/10 carrier-grade NAT
     (a === 169 && b === 254) || // 169.254/16 link-local
     (a === 172 && b >= 16 && b <= 31) || // 172.16/12
@@ -121,6 +121,12 @@ function isPrivateIpv4(o: number[]): boolean {
     (a === 203 && b === 0 && c === 113) || // 203.0.113/24
     a >= 224 // 224/4 multicast and 240/4 reserved
   );
+}
+
+/** "This host on this network" (0.0.0.0/8, ::) — reaching it means reaching local listeners,
+ * so it is never toggleable the way cloud metadata is not. */
+function isUnspecifiedIpv4(o: number[]): boolean {
+  return o[0] === 0;
 }
 
 /** Decode IPv4 from an IPv4-mapped IPv6 literal (::ffff:a.b.c.d or ::ffff:hex:hex). */
@@ -138,6 +144,7 @@ function ipv4MappedOctets(ip: string): number[] | null {
 function classifyIpv4Octets(o: number[]): HostClass {
   if (isLoopbackIpv4(o)) return "loopback";
   if (isMetadataIpv4(o)) return "metadata";
+  if (isUnspecifiedIpv4(o)) return "unspecified";
   if (isPrivateIpv4(o)) return "private";
   return "public";
 }
@@ -148,7 +155,7 @@ function classifyIpv6Host(host: string): HostClass {
   if (ip === "::1") return "loopback";
   const mapped = ipv4MappedOctets(ip);
   if (mapped) return classifyIpv4Octets(mapped);
-  if (ip === "::") return "private"; // unspecified
+  if (ip === "::") return "unspecified";
   if (/^f[cd]/.test(ip)) return "private"; // fc00::/7 unique-local
   if (/^fe[89ab]/.test(ip)) return "private"; // fe80::/10 link-local
   if (/^ff/.test(ip)) return "private"; // ff00::/8 multicast
@@ -166,7 +173,7 @@ function classifyHost(host: string): HostClass {
 
 function isBlockedNetworkHost(host: string, allowPrivateNetwork: boolean, allowLoopback: boolean): boolean {
   const cls = classifyHost(host);
-  if (cls === "metadata") return true; // never toggleable
+  if (cls === "metadata" || cls === "unspecified") return true; // never toggleable
   if (cls === "loopback") return !allowLoopback;
   if (cls === "public") return false;
   return !allowPrivateNetwork; // private / link-local / reserved
@@ -188,7 +195,7 @@ export function assertHttpUrl(url: string, opts: HttpUrlOptions = {}): string {
     throw new Error(`Only http/https URLs are allowed, "${parsed.protocol}"`);
   }
   if (isBlockedNetworkHost(parsed.hostname, opts.allowPrivateNetwork === true, opts.allowLoopback !== false)) {
-    throw new Error(`Blocked network host "${parsed.hostname}" — private, link-local, reserved, and cloud-metadata URLs are not allowed (set allowPrivateNetwork to opt in to private ranges; metadata is always blocked)`);
+    throw new Error(`Blocked network host "${parsed.hostname}" — private, link-local, and reserved URLs are not allowed (set allowPrivateNetwork to opt in to private ranges; cloud-metadata and unspecified addresses such as 0.0.0.0 are always blocked)`);
   }
   return parsed.href;
 }
@@ -220,7 +227,7 @@ export async function assertSafeHttpUrl(url: string, opts: HttpUrlOptions = {}):
   const allowLoopback = opts.allowLoopback !== false;
   for (const answer of answers) {
     if (isBlockedNetworkHost(answer, allowPrivate, allowLoopback)) {
-      throw new Error(`Blocked network host "${host}" — it resolves to ${answer}, and private, link-local, reserved, and cloud-metadata addresses are not allowed (set allowPrivateNetwork to opt in to private ranges; metadata is always blocked)`);
+      throw new Error(`Blocked network host "${host}" — it resolves to ${answer}, and private, link-local, and reserved addresses are not allowed (set allowPrivateNetwork to opt in to private ranges; cloud-metadata and unspecified addresses such as 0.0.0.0 are always blocked)`);
     }
   }
   return normalized;

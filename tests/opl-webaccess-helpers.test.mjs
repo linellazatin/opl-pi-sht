@@ -252,3 +252,65 @@ test("fetchAllContent caps the number of URLs per call", async () => {
     globalThis.fetch = realFetch;
   }
 });
+
+// --- unspecified addresses: never toggleable (review M1) ---
+
+test("0.0.0.0/8 and :: are refused even with both toggles open", () => {
+  for (const url of ["http://0.0.0.0/x", "http://0.1.2.3/x", "http://[::]/x"]) {
+    assert.throws(() => assertHttpUrl(url, { allowPrivateNetwork: true, allowLoopback: true }), /Blocked network host/);
+  }
+});
+
+test("a DNS answer of 0.0.0.0 is refused even with both toggles open", async () => {
+  await assert.rejects(
+    () => assertSafeHttpUrl("http://this-network.test/x", {
+      allowPrivateNetwork: true,
+      allowLoopback: true,
+      resolveHost: async () => ["0.0.0.0"],
+    }),
+    /Blocked network host/,
+  );
+});
+
+// --- production resolver path and IPv6 answer forms (review I2b / M6) ---
+
+test("the guard asks the system resolver for every answer, verbatim", async () => {
+  const dns = await import("node:dns");
+  const orig = dns.promises.lookup;
+  const seen = [];
+  dns.promises.lookup = (host, opts) => {
+    seen.push([host, opts]);
+    return Promise.resolve([{ address: "10.0.0.1", family: 4 }]);
+  };
+  try {
+    await assert.rejects(() => assertSafeHttpUrl("http://needs-system-resolver.test/x"), /Blocked network host/);
+  } finally {
+    dns.promises.lookup = orig;
+  }
+  assert.equal(seen.length, 1, "the guard must go through the resolver, not skip it");
+  assert.equal(seen[0][0], "needs-system-resolver.test");
+  assert.deepEqual({ ...seen[0][1] }, { all: true, verbatim: true }, "all answers, verbatim order");
+});
+
+test("every internal IPv6 answer form is refused, not just fd00::/8", async () => {
+  for (const answer of ["::1", "fe80::1", "::ffff:169.254.169.254", "::ffff:127.0.0.1", "fd00::1", "ff02::1"]) {
+    await assert.rejects(
+      () => assertSafeHttpUrl("http://v6-answer.test/x", {
+        allowPrivateNetwork: false,
+        allowLoopback: false,
+        resolveHost: async () => [answer],
+      }),
+      /Blocked network host/,
+      `${answer} must be refused`,
+    );
+  }
+  // mixed public + internal still refuses
+  await assert.rejects(
+    () => assertSafeHttpUrl("http://v6-mixed.test/x", {
+      allowPrivateNetwork: false,
+      allowLoopback: false,
+      resolveHost: async () => ["2606:2800:220:1::1", "::1"],
+    }),
+    /Blocked network host/,
+  );
+});

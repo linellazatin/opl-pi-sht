@@ -7,7 +7,7 @@ import { extractMarkdown } from "../extensions/opl-browser/extract.ts";
 import { assertHttpUrl, assertSafeHttpUrl, decideSubresource, safeScreenshotPath } from "../extensions/opl-browser/validate.ts";
 import { paginateStored, continuationNotice } from "../extensions/opl-browser/paging.ts";
 import { DEFAULT_CONFIG, loadUserConfig } from "../extensions/opl-browser/config.ts";
-import { makeRouteHandler, assertFrameTargetsSafe } from "../extensions/opl-browser/browser.ts";
+import { assertFrameTargetsSafe, installGuard, makeRouteHandler, makeWebSocketGuard } from "../extensions/opl-browser/browser.ts";
 import { MAX_LOG_ENTRIES, pushLogEntry } from "../extensions/opl-browser/browser.ts";
 
 const ARTICLE_HTML = `<!DOCTYPE html><html><head><title>My Post — SiteName</title></head><body>
@@ -238,4 +238,103 @@ test("assertFrameTargetsSafe allows public and hostless frames without blanking"
   const page = fakePage(["https://public.example/page", "about:blank", "data:text/html,hi", "blob:https://public.example/x", ""], blanked);
   await assertFrameTargetsSafe(page, { allowPrivateNetwork: false, allowLoopback: false, resolveHost: async () => ["93.184.216.34"] });
   assert.equal(blanked.n, 0);
+});
+
+// --- guard installation wiring (review I2b) + websocket leg (review I2) ---
+
+test("installGuard registers http(s) routing and websocket routing on the context", async () => {
+  const calls = [];
+  const ctx = {
+    route: async (pattern, handler) => { calls.push(["route", String(pattern), typeof handler]); },
+    routeWebSocket: async (pattern, handler) => { calls.push(["routeWebSocket", String(pattern), typeof handler]); },
+  };
+  await installGuard(ctx, { allowPrivateNetwork: false, allowLoopback: true, resolveHost: async () => ["93.184.216.34"] });
+  assert.deepEqual(calls.map((c) => c[0]), ["route", "routeWebSocket"], "both guards must be installed");
+  assert.ok(calls.every((c) => c[2] === "function"));
+});
+
+test("installGuard propagates a registration failure so ensure() cannot publish an unguarded context", async () => {
+  const ctx = {
+    route: async () => { throw new Error("routing unsupported in this build"); },
+    routeWebSocket: async () => {},
+  };
+  await assert.rejects(() => installGuard(ctx, { allowLoopback: true }), /routing unsupported/);
+});
+
+test("makeWebSocketGuard closes internal sockets and connects public ones", async () => {
+  const seen = [];
+  const strict = makeWebSocketGuard({
+    allowPrivateNetwork: false,
+    allowLoopback: false,
+    resolveHost: async (host) => (host === "internal.test" ? ["10.0.0.1"] : ["93.184.216.34"]),
+  });
+  const fake = (url) => ({ url: () => url, close: async () => { seen.push("close"); }, connectToServer: () => { seen.push("connect"); } });
+  await strict(fake("ws://127.0.0.1:9229/devtools/browser"));
+  await strict(fake("ws://internal.test:8888/ws"));
+  await strict(fake("ws://169.254.169.254/latest/meta-data"));
+  await strict(fake("wss://public.example/feed"));
+  await strict(fake("ftp://public.example/x"));
+  assert.deepEqual(seen, ["close", "close", "close", "connect", "close"], "ws:// must map onto the http(s) policy; anything unclassifiable is closed");
+});
+
+// --- unspecified addresses: never toggleable (review M1) ---
+
+test("0.0.0.0/8 and :: are refused even with both toggles open", () => {
+  for (const url of ["http://0.0.0.0/x", "http://0.1.2.3/x", "http://[::]/x"]) {
+    assert.throws(() => assertHttpUrl(url, { allowPrivateNetwork: true, allowLoopback: true }), /Blocked network host/);
+  }
+});
+
+test("a DNS answer of 0.0.0.0 is refused even with both toggles open", async () => {
+  await assert.rejects(
+    () => assertSafeHttpUrl("http://this-network.test/x", {
+      allowPrivateNetwork: true,
+      allowLoopback: true,
+      resolveHost: async () => ["0.0.0.0"],
+    }),
+    /Blocked network host/,
+  );
+});
+
+// --- production resolver path and IPv6 answer forms (review I2b / M6) ---
+
+test("the guard asks the system resolver for every answer, verbatim", async () => {
+  const dns = await import("node:dns");
+  const orig = dns.promises.lookup;
+  const seen = [];
+  dns.promises.lookup = (host, opts) => {
+    seen.push([host, opts]);
+    return Promise.resolve([{ address: "10.0.0.1", family: 4 }]);
+  };
+  try {
+    await assert.rejects(() => assertSafeHttpUrl("http://needs-system-resolver.test/x"), /Blocked network host/);
+  } finally {
+    dns.promises.lookup = orig;
+  }
+  assert.equal(seen.length, 1, "the guard must go through the resolver, not skip it");
+  assert.equal(seen[0][0], "needs-system-resolver.test");
+  assert.deepEqual({ ...seen[0][1] }, { all: true, verbatim: true }, "all answers, verbatim order");
+});
+
+test("every internal IPv6 answer form is refused, not just fd00::/8", async () => {
+  for (const answer of ["::1", "fe80::1", "::ffff:169.254.169.254", "::ffff:127.0.0.1", "fd00::1", "ff02::1"]) {
+    await assert.rejects(
+      () => assertSafeHttpUrl("http://v6-answer.test/x", {
+        allowPrivateNetwork: false,
+        allowLoopback: false,
+        resolveHost: async () => [answer],
+      }),
+      /Blocked network host/,
+      `${answer} must be refused`,
+    );
+  }
+  // mixed public + internal still refuses
+  await assert.rejects(
+    () => assertSafeHttpUrl("http://v6-mixed.test/x", {
+      allowPrivateNetwork: false,
+      allowLoopback: false,
+      resolveHost: async () => ["2606:2800:220:1::1", "::1"],
+    }),
+    /Blocked network host/,
+  );
 });

@@ -1,10 +1,11 @@
 {
-  "_comment": "Optional. Copy to ~/.pi/agent/configs/opl-browser.json. All fields optional; defaults shown. allowPrivateNetwork (default false) blocks navigate/new_page from reaching private/link-local ranges; loopback (localhost) is always allowed for local development, and cloud-metadata endpoints are always blocked.",
+  "_comment": "Optional. Copy to ~/.pi/agent/configs/opl-browser.json. All fields optional; defaults shown. Model-supplied URLs are resolved before use: allowPrivateNetwork (default false) blocks navigation and page-initiated requests to hosts that are or resolve to private/link-local/reserved ranges, allowLoopback (default true, for local dev servers) governs localhost/127.0.0.0/8/::1, and cloud-metadata addresses are always rejected. A context route guards every page-initiated request and every page WebSocket, service workers are blocked, and a page or frame that a redirect lands on a blocked host is cleared before it can be read. A hostname the system resolver does not know is refused.",
   "headless": true,
   "width": 1280,
   "height": 800,
   "navigationTimeoutMs": 30000,
   "previewChars": 4000,
   "getChars": 30000,
-  "allowPrivateNetwork": false
+  "allowPrivateNetwork": false,
+  "allowLoopback": true
 }
