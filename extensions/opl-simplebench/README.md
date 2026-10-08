@@ -211,6 +211,8 @@ The model receives weather and calculation tools. Simplebench validates expected
 
 Coding-lite is the execution-backed coding-agent suite. It runs model-directed edits in temporary directories. The model can list, search, read, write, and run the fixture's public tests, but cannot execute arbitrary commands, access the real repository, read hidden verification code, or use the network. The host runs hidden verification after the model stops.
 
+**The verifier executes model-authored code.** Verification runs `node --eval` over the model's files, so that process is started with an allowlisted environment (`util/exec-env.ts`): `PATH`, `HOME`, temp-directory and locale variables, TLS trust paths, terminal capability flags, and the Windows equivalents. Everything else is absent — every `*_API_KEY`, `AWS_*`, `GH_*`, `PI_*`, and any other secret your shell happens to export — and `NODE_OPTIONS`/`NODE_PATH` are never forwarded because both can make Node load attacker-chosen files. Anything the model's code spawns inherits that environment, so a nested `node src/cli.mjs` sees the same allowlist. This limits what generated code can *read out of the process*; it is not sandboxing. The child still runs with your user's filesystem permissions and network reach, and a `HOME` it can see points at files it could read by path anyway. Use `--no-artifact` and a dedicated shell if that is not acceptable for your environment.
+
 The agent loop defaults to **5 turns** per task (reduced from 12). This tighter budget forces the model to converge on a solution quickly and makes turn count a meaningful quality signal. Results are scored on three dimensions:
 
 - **STRONG** — solved in 1–2 turns (first or second attempt correct)
@@ -259,6 +261,8 @@ Simplebench derives the region from the selected model's Bedrock base URL, signs
 ```text
 aws configure export-credentials --profile "$AWS_PROFILE"
 ```
+
+The CLI is invoked with an argument vector, never through a shell, so the profile value is never interpolated into a command string; and it runs asynchronously, so a slow SSO or assume-role chain cannot stall the TUI. A profile name that is not a plain token (`^[A-Za-z0-9][A-Za-z0-9_.:@+-]{0,127}$`) is refused before any process is spawned — `AWS_PROFILE` set by repo tooling such as `.envrc` or a Makefile is not trusted to reach the CLI. Set `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` (plus `AWS_SESSION_TOKEN`) to bypass the CLI entirely.
 
 AWS CLI v2 is therefore required when the selected profile uses SSO or an assume-role chain.
 
