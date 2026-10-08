@@ -3,7 +3,7 @@ import { existsSync, unlinkSync } from "node:fs";
 import { Type } from "typebox";
 import { debugLog } from "./util/debug";
 import { detectProvider } from "./util/providers";
-import { readTestConfig, TOOL_SUPPORT_CACHE_PATH, type ModelTestUserConfig, type RunSequenceProfile } from "./util/config";
+import { readTestConfig, toolSupportCachePath, type ModelTestUserConfig, type RunSequenceProfile } from "./util/config";
 import type { SimplebenchOptions } from "./types";
 import { createBenchmark } from "./benchmark";
 
@@ -109,8 +109,8 @@ pi.registerCommand("simplebench", {
 
     if (arg === "--clear-cache") {
       try {
-        if (existsSync(TOOL_SUPPORT_CACHE_PATH)) {
-          unlinkSync(TOOL_SUPPORT_CACHE_PATH);
+        if (existsSync(toolSupportCachePath())) {
+          unlinkSync(toolSupportCachePath());
           ctx.ui.notify("Tool support cache cleared successfully", "info");
         } else {
           ctx.ui.notify("No cache file found to clear", "info");

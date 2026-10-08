@@ -8,8 +8,8 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 // ============================================================================
 // Configuration Constants
@@ -59,9 +59,15 @@ export const CONFIG = {
 // User Configuration Overrides
 // ============================================================================
 
-const TEST_CONFIG_DIR = process.env.PI_AGENT_DIR || path.join(os.homedir(), ".pi", "agent");
-export const TEST_CONFIG_PATH = path.join(TEST_CONFIG_DIR, "configs", "opl-simplebench.json");
-const LEGACY_TEST_CONFIG_PATH = path.join(TEST_CONFIG_DIR, "simplebench-config.json");
+/** Resolved per call so a custom `PI_AGENT_DIR` (pi's own agent dir) is honoured. */
+export function configPath(): string {
+  return path.join(getAgentDir(), "configs", "opl-simplebench.json");
+}
+
+/** Pre-rename location, still read when the current path is absent. */
+function legacyConfigPath(): string {
+  return path.join(getAgentDir(), "simplebench-config.json");
+}
 
 /** Shape of the user configuration file. */
 export interface ModelTestUserConfig {
@@ -107,8 +113,8 @@ export interface RunSequenceProfile {
  */
 export function readTestConfig(): ModelTestUserConfig {
   try {
-    const configPath = fs.existsSync(TEST_CONFIG_PATH) ? TEST_CONFIG_PATH : LEGACY_TEST_CONFIG_PATH;
-    if (fs.existsSync(configPath)) return JSON.parse(fs.readFileSync(configPath, "utf-8")) as ModelTestUserConfig;
+    const file = fs.existsSync(configPath()) ? configPath() : legacyConfigPath();
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf-8")) as ModelTestUserConfig;
   } catch { /* config read/parse failure is non-critical — defaults are used */ }
   return {};
 }
@@ -161,8 +167,9 @@ export const WEATHER_TOOL_DEFINITION = {
 // Tool Support Cache (path only — backing file is no longer written)
 // ============================================================================
 
-const TOOL_SUPPORT_CACHE_DIR = path.join(os.homedir(), ".pi", "agent", "cache");
-export const TOOL_SUPPORT_CACHE_PATH = path.join(TOOL_SUPPORT_CACHE_DIR, "tool_support.json");
+export function toolSupportCachePath(): string {
+  return path.join(getAgentDir(), "cache", "tool_support.json");
+}
 
 // ============================================================================
 // ChatFn Abstraction

@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { FooterUserConfig, StatusLineSegmentId, ColorScheme, StatusLineSegmentOptions } from "./types.js";
 import { getDefaultColors } from "./theme.js";
 import type { IconSet } from "./icons.js";
@@ -54,9 +55,9 @@ let userConfigCache: FooterUserConfig | null = null;
 let userConfigCacheTime = 0;
 const CACHE_TTL = 5000; // 5 seconds
 
-function getConfigPath(): string {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-  return join(homeDir, ".pi", "agent", "configs", "opl-footer.json");
+/** Resolved per call so a custom `PI_AGENT_DIR` (pi's own agent dir) is honoured. */
+export function configPath(): string {
+  return join(getAgentDir(), "configs", "opl-footer.json");
 }
 
 export function loadUserConfig(): FooterUserConfig | null {
@@ -65,10 +66,10 @@ export function loadUserConfig(): FooterUserConfig | null {
     return userConfigCache;
   }
 
-  const configPath = getConfigPath();
+  const file = configPath();
   try {
-    if (existsSync(configPath)) {
-      const content = readFileSync(configPath, "utf-8");
+    if (existsSync(file)) {
+      const content = readFileSync(file, "utf-8");
       const parsed = JSON.parse(content);
       userConfigCache = parsed as FooterUserConfig;
       userConfigCacheTime = now;
@@ -178,9 +179,9 @@ export function setSegmentSeparator(
 }
 
 export function saveUserConfig(config: FooterUserConfig): void {
-  const configPath = getConfigPath();
-  mkdirSync(dirname(configPath), { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  const file = configPath();
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, JSON.stringify(config, null, 2) + "\n", "utf-8");
   clearUserConfigCache();
 }
 

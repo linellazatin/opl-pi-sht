@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export type Op = "read" | "write" | "edit" | "bash";
 
@@ -56,7 +56,10 @@ export const DEFAULT_CONFIG: GuardianConfig = {
   dropMalformedToolCalls: true,
 };
 
-const CONFIG_PATH = join(homedir(), ".pi", "agent", "configs", "opl-guardian.json");
+/** Resolved per call so a custom `PI_AGENT_DIR` (pi's own agent dir) is honoured. */
+export function configPath(): string {
+  return join(getAgentDir(), "configs", "opl-guardian.json");
+}
 const OPS = new Set<Op>(["read", "write", "edit", "bash"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -177,14 +180,15 @@ export function parseGuardianConfig(value: unknown): { config: GuardianConfig; w
 }
 
 export function loadGuardianConfig(): { config: GuardianConfig; warnings: string[] } {
+  const file = configPath();
   let raw: string;
   try {
-    raw = readFileSync(CONFIG_PATH, "utf8");
+    raw = readFileSync(file, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return parseGuardianConfig(undefined);
     return {
       config: cloneDefaults(),
-      warnings: [`Could not read ${CONFIG_PATH}; using defaults.`],
+      warnings: [`Could not read ${file}; using defaults.`],
     };
   }
 
@@ -193,7 +197,7 @@ export function loadGuardianConfig(): { config: GuardianConfig; warnings: string
   } catch {
     return {
       config: cloneDefaults(),
-      warnings: [`Invalid JSON in ${CONFIG_PATH}; using defaults.`],
+      warnings: [`Invalid JSON in ${file}; using defaults.`],
     };
   }
 }

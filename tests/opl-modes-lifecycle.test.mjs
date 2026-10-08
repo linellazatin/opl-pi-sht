@@ -13,6 +13,20 @@ import { join } from "node:path";
 const buildDir = new URL("./.build/opl-modes", import.meta.url).pathname;
 mkdirSync(buildDir, { recursive: true });
 const hostPackage = "@earendil-works/" + "pi-coding-agent";
+
+// The stub has to carry every host value the bundled extension imports. `getAgentDir()` mirrors
+// pi's resolver (PI_CODING_AGENT_DIR else ~/.pi/agent) so the lifecycle test exercises the same
+// path the host would, instead of a second private copy of the rule.
+const STUB_HOST = [
+  'import { join } from "node:path";',
+  'import { homedir } from "node:os";',
+  "export class DynamicBorder {}",
+  "export function getAgentDir() {",
+  "  const dir = process.env.PI_CODING_AGENT_DIR;",
+  "  return dir ? dir : join(homedir(), \".pi\", \"agent\");",
+  "}",
+  "",
+].join("\n");
 const built = await Bun.build({
   entrypoints: [new URL("./support/opl-modes-host-shim.ts", import.meta.url).pathname],
   target: "node",
@@ -22,7 +36,7 @@ const built = await Bun.build({
     name: "opl-pi-host",
     setup(build) {
       build.onResolve({ filter: new RegExp(`^${hostPackage}$`) }, () => ({ path: "pi-host", namespace: "opl-stub" }));
-      build.onLoad({ filter: /.*/, namespace: "opl-stub" }, () => ({ contents: "export class DynamicBorder {}\n", loader: "js" }));
+      build.onLoad({ filter: /.*/, namespace: "opl-stub" }, () => ({ contents: STUB_HOST, loader: "js" }));
     },
   }],
 });

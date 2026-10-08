@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import { join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export interface BrowserConfig {
   headless: boolean;
@@ -28,12 +28,15 @@ export const DEFAULT_CONFIG: BrowserConfig = {
   allowLoopback: true,
 };
 
-const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "configs", "opl-browser.json");
+/** Resolved per call so a custom `PI_AGENT_DIR` (pi's own agent dir) is honoured. */
+export function configPath(): string {
+  return join(getAgentDir(), "configs", "opl-browser.json");
+}
 
-export function loadUserConfig(configPath = CONFIG_PATH): BrowserConfig {
+export function loadUserConfig(file = configPath()): BrowserConfig {
   let user: Partial<BrowserConfig> = {};
   try {
-    user = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    user = JSON.parse(fs.readFileSync(file, "utf8"));
   } catch {
     user = {};
   }

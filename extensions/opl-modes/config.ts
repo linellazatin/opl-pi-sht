@@ -1,8 +1,8 @@
 /** Config: tool allowlists, bash patterns, prompt templates, plan file constants, user config. */
 
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ModeSwitcherUserConfig, ModeDefinition, PartialModeDefinition, ModeModelConfig } from "./types.js";
 
 // ─── Plan File Constants ────────────────────────────────────────────────────
@@ -230,15 +230,18 @@ const DEFAULT_CONFIG = {
   },
 };
 
-const CONFIG_PATH = join(homedir(), ".pi", "agent", "configs", "opl-modes.json");
+/** Resolved per call so a custom `PI_AGENT_DIR` (pi's own agent dir) is honoured. */
+export function configPath(): string {
+  return join(getAgentDir(), "configs", "opl-modes.json");
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function loadUserConfig(path = CONFIG_PATH): ModeSwitcherUserConfig {
+export function loadUserConfig(file = configPath()): ModeSwitcherUserConfig {
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    const parsed = JSON.parse(readFileSync(file, "utf8"));
     return isRecord(parsed) ? parsed as ModeSwitcherUserConfig : {};
   } catch {
     return {};

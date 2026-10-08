@@ -54,8 +54,8 @@ function mount(provider = "openai-codex") {
   return { ctx, fire, render: () => footerComponent.render(200).join("\n") };
 }
 
-function writeConfig(home, enabled, segment = "codex_usage") {
-  const configDir = join(home, ".pi", "agent", "configs");
+function writeConfig(agentDir, enabled, segment = "codex_usage") {
+  const configDir = join(agentDir, "configs");
   mkdirSync(configDir, { recursive: true });
   writeFileSync(join(configDir, "opl-footer.json"), JSON.stringify({
     row1LeftSegments: enabled ? [segment] : [],
@@ -68,8 +68,8 @@ function writeConfig(home, enabled, segment = "codex_usage") {
 async function withUsageClock(run, provider) {
   const segment = provider === "openrouter" ? "openrouter_usage" : "codex_usage";
   const response = provider === "openrouter" ? openRouterResponse : usageResponse;
-  const home = mkdtempSync(join(tmpdir(), "opl-footer-usage-clock-"));
-  const previousHome = process.env.HOME;
+  const agent = mkdtempSync(join(tmpdir(), "opl-footer-usage-clock-"));
+  const previousAgent = process.env.PI_CODING_AGENT_DIR;
   const previousFetch = globalThis.fetch;
   const previousNow = Date.now;
   const previousSetTimeout = globalThis.setTimeout;
@@ -81,8 +81,8 @@ async function withUsageClock(run, provider) {
   let h;
   const flush = () => new Promise((resolve) => previousSetTimeout(resolve, 0));
   try {
-    process.env.HOME = home;
-    writeConfig(home, true, segment);
+    process.env.PI_CODING_AGENT_DIR = agent;
+    writeConfig(agent, true, segment);
     Date.now = () => now;
     globalThis.setTimeout = (callback, delay) => {
       const id = ++nextTimer;
@@ -95,7 +95,7 @@ async function withUsageClock(run, provider) {
     await h.fire("session_start");
     await flush();
     await run({
-      ...h, flush, home,
+      ...h, flush, agent,
       requests: () => requests,
       timers: () => timers.size,
       async advance(ms) {
@@ -115,10 +115,10 @@ async function withUsageClock(run, provider) {
     Date.now = previousNow;
     globalThis.setTimeout = previousSetTimeout;
     globalThis.clearTimeout = previousClearTimeout;
-    if (previousHome === undefined) delete process.env.HOME;
-    else process.env.HOME = previousHome;
+    if (previousAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgent;
     clearUserConfigCache();
-    rmSync(home, { recursive: true, force: true });
+    rmSync(agent, { recursive: true, force: true });
   }
 }
 
@@ -183,7 +183,7 @@ for (const provider of ["openai-codex", "openrouter"]) {
       await withClock(async (h) => {
         await h.fire("agent_settled");
         assert.equal(h.timers(), 1);
-        if (cancellation === "disable") writeConfig(h.home, false, segment);
+        if (cancellation === "disable") writeConfig(h.agent, false, segment);
         if (cancellation === "model") {
           h.ctx.model = { provider: "other" };
           await h.fire("model_select");
@@ -239,12 +239,12 @@ for (const provider of ["openai-codex", "openrouter"]) {
 }
 
 test("OpenRouter usage appears only for the selected OpenRouter provider", async () => {
-  const home = mkdtempSync(join(tmpdir(), "opl-footer-openrouter-"));
-  const previousHome = process.env.HOME;
+  const agent = mkdtempSync(join(tmpdir(), "opl-footer-openrouter-"));
+  const previousAgent = process.env.PI_CODING_AGENT_DIR;
   const previousFetch = globalThis.fetch;
   try {
-    process.env.HOME = home;
-    writeConfig(home, true, "openrouter_usage");
+    process.env.PI_CODING_AGENT_DIR = agent;
+    writeConfig(agent, true, "openrouter_usage");
     globalThis.fetch = async () => new Response(JSON.stringify({
       data: { limit: 25, limit_remaining: 21.55 },
     }), { status: 200, headers: { "content-type": "application/json" } });
@@ -255,21 +255,21 @@ test("OpenRouter usage appears only for the selected OpenRouter provider", async
     assert.match(h.render(), /\$3\.4500 \/ \$25\.0000 \(13\.8%\)/);
   } finally {
     globalThis.fetch = previousFetch;
-    if (previousHome === undefined) delete process.env.HOME;
-    else process.env.HOME = previousHome;
+    if (previousAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgent;
     clearUserConfigCache();
-    rmSync(home, { recursive: true, force: true });
+    rmSync(agent, { recursive: true, force: true });
   }
 });
 
 test("model selection does not wait for a pending Codex usage fetch", async () => {
-  const home = mkdtempSync(join(tmpdir(), "opl-footer-codex-"));
-  const previousHome = process.env.HOME;
+  const agent = mkdtempSync(join(tmpdir(), "opl-footer-codex-"));
+  const previousAgent = process.env.PI_CODING_AGENT_DIR;
   const previousFetch = globalThis.fetch;
   let resolveFetch;
   try {
-    process.env.HOME = home;
-    writeConfig(home, true);
+    process.env.PI_CODING_AGENT_DIR = agent;
+    writeConfig(agent, true);
     globalThis.fetch = () => new Promise((resolve) => { resolveFetch = resolve; });
     const h = mount();
 
@@ -279,37 +279,37 @@ test("model selection does not wait for a pending Codex usage fetch", async () =
     await tick();
   } finally {
     globalThis.fetch = previousFetch;
-    if (previousHome === undefined) delete process.env.HOME;
-    else process.env.HOME = previousHome;
+    if (previousAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgent;
     clearUserConfigCache();
-    rmSync(home, { recursive: true, force: true });
+    rmSync(agent, { recursive: true, force: true });
   }
 });
 
 test("disabling codex_usage discards an in-flight snapshot", async () => {
-  const home = mkdtempSync(join(tmpdir(), "opl-footer-codex-"));
-  const previousHome = process.env.HOME;
+  const agent = mkdtempSync(join(tmpdir(), "opl-footer-codex-"));
+  const previousAgent = process.env.PI_CODING_AGENT_DIR;
   const previousFetch = globalThis.fetch;
   let resolveFetch;
   try {
-    process.env.HOME = home;
-    writeConfig(home, true);
+    process.env.PI_CODING_AGENT_DIR = agent;
+    writeConfig(agent, true);
     globalThis.fetch = () => new Promise((resolve) => { resolveFetch = resolve; });
     const h = mount();
 
     await h.fire("session_start");
-    writeConfig(home, false);
+    writeConfig(agent, false);
     await h.fire("model_select");
-    writeConfig(home, true);
+    writeConfig(agent, true);
     resolveFetch(usageResponse(24));
     await tick();
 
     assert.doesNotMatch(h.render(), /5h 76%/, "a fetch begun before disable cannot populate the re-enabled segment");
   } finally {
     globalThis.fetch = previousFetch;
-    if (previousHome === undefined) delete process.env.HOME;
-    else process.env.HOME = previousHome;
+    if (previousAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgent;
     clearUserConfigCache();
-    rmSync(home, { recursive: true, force: true });
+    rmSync(agent, { recursive: true, force: true });
   }
 });

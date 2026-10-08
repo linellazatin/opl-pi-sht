@@ -6,8 +6,8 @@
  * @writtenby VTSTech — https://www.vts-tech.org
  */
 import * as fs from "node:fs";
-import * as path from "node:path";
-import os from "node:os";
+import { join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { debugLog } from "./debug";
 
 /** Minimal shape of Pi's extension context that provider detection reads. Keeps this module
@@ -41,11 +41,23 @@ export const EXTENSION_VERSION = "1.3.4";
  *
  * @example
  * ```typescript
- * console.log(MODELS_JSON_PATH);
+ * Pi reads it from its own agent directory, so `modelsJsonPath()` resolves it per call
+ * and a custom `PI_AGENT_DIR` is honoured.
+ *
+ * @example
+ * ```typescript
+ * console.log(modelsJsonPath());
  * // Output: "/home/user/.pi/agent/models.json"
  * ```
  */
-export const MODELS_JSON_PATH: string = path.join(os.homedir(), ".pi", "agent", "models.json");
+export function modelsJsonPath(): string {
+  return join(getAgentDir(), "models.json");
+}
+
+/** Pi's credential store, resolved the same way as {@link modelsJsonPath}. */
+export function authJsonPath(): string {
+  return join(getAgentDir(), "auth.json");
+}
 
 // ============================================================================
 // Types
@@ -189,8 +201,9 @@ export function getOllamaBaseUrl(): string {
   const now = Date.now();
   if (_ollamaBaseUrlCache && now - _ollamaBaseUrlCache.ts < CACHE_TTL_MS) return _ollamaBaseUrlCache.data;
   try {
-    if (fs.existsSync(MODELS_JSON_PATH)) {
-      const raw = fs.readFileSync(MODELS_JSON_PATH, "utf-8");
+    const file = modelsJsonPath();
+    if (fs.existsSync(file)) {
+      const raw = fs.readFileSync(file, "utf-8");
       const config = JSON.parse(raw) as PiModelsJson;
       const baseUrl = config?.providers?.["ollama"]?.baseUrl;
       if (baseUrl) {
@@ -234,8 +247,9 @@ export function readModelsJson(): PiModelsJson {
   const now = Date.now();
   if (_modelsJsonCache && now - _modelsJsonCache.ts < CACHE_TTL_MS) return _modelsJsonCache.data;
   try {
-    if (fs.existsSync(MODELS_JSON_PATH)) {
-      const raw = fs.readFileSync(MODELS_JSON_PATH, "utf-8");
+    const file = modelsJsonPath();
+    if (fs.existsSync(file)) {
+      const raw = fs.readFileSync(file, "utf-8");
       const data = JSON.parse(raw) as PiModelsJson;
       _modelsJsonCache = { data, ts: now };
       return data;
@@ -562,7 +576,7 @@ function expandEnvVars(value: string): string {
  */
 function readAuthJsonKey(providerName: string): string {
   try {
-    const p = path.join(os.homedir(), ".pi", "agent", "auth.json");
+    const p = authJsonPath();
     if (!fs.existsSync(p)) return "";
     const entry = JSON.parse(fs.readFileSync(p, "utf-8"))[providerName];
     return typeof entry?.key === "string" ? entry.key : "";
