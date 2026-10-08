@@ -42,7 +42,7 @@
   "type": "module",
   "scripts": {
     "test": "node tests/test-summary.mjs",
-    "test:shared": "bun test tests/agent-dir-config.test.mjs tests/net-guard-parity.test.mjs",
+    "test:shared": "bun test tests/agent-dir-config.test.mjs tests/net-guard-parity.test.mjs tests/install-sh.test.mjs",
     "test:opl-browser": "bun test tests/opl-browser-helpers.test.mjs && OPL_EXTENSION=opl-browser bun test tests/extension-smoke.test.mjs",
     "test:opl-footer": "bun test tests/opl-footer-helpers.test.mjs tests/opl-footer-lifecycle.test.mjs && OPL_EXTENSION=opl-footer bun test tests/extension-smoke.test.mjs",
     "test:opl-guardian": "bun test tests/opl-guardian.test.mjs && OPL_EXTENSION=opl-guardian bun test tests/extension-smoke.test.mjs",
