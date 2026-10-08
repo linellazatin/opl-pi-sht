@@ -43,8 +43,9 @@ Full action set: `navigate` (url, or `back`/`forward`/`reload`), `snapshot`, `ex
   - **Service workers** — blocked on new contexts: routing does not see requests a worker has
     already intercepted.
   - **Toggles** — `allowPrivateNetwork` (default `false`) governs private/link-local/reserved,
-    `allowLoopback` (default `true`) governs `localhost`, `127.0.0.0/8` and `::1`; cloud
-    metadata and unspecified addresses (`0.0.0.0/8`, `::`) are refused whatever they say.
+    `allowLoopback` (default `false`) governs `localhost`, `127.0.0.0/8` and `::1` — set it to `true`
+    when the browser must reach a local dev server. Cloud metadata and unspecified addresses
+    (`0.0.0.0/8`, `::`) are refused whatever they say.
   - **Fail closed** — if a build cannot install either handler, the tool refuses to browse
     instead of browsing half-guarded.
 
@@ -68,7 +69,7 @@ Optional `~/.pi/agent/configs/opl-browser.json` (see `opl-browser.json.sample`):
 | `previewChars` | `4000` | Inline threshold; larger outputs are stored and previewed. |
 | `getChars` | `30000` | Characters returned by one `action: "get"` page. |
 | `allowPrivateNetwork` | `false` | Allow `navigate`/`new_page` and page requests to reach private/link-local ranges, literal or resolved (cloud metadata and unspecified addresses are always blocked). |
-| `allowLoopback` | `true` | Allow loopback — `localhost`, `127.0.0.0/8`, `::1`, literal or resolved — for navigations, page requests and page WebSockets. Set `false` when the browser must not reach local services; `0.0.0.0/8` and `::` stay blocked either way, because they reach local listeners too. |
+| `allowLoopback` | `false` | Allow loopback — `localhost`, `127.0.0.0/8`, `::1`, literal or resolved — for navigations, page requests and page WebSockets. Set `true` when the browser must reach a local dev server; `0.0.0.0/8` and `::` stay blocked either way, because they reach local listeners too. |
 
 ### Network policy
 
@@ -89,7 +90,7 @@ What is **not** covered, and the reason:
 - **`ENOTFOUND` for page requests.** A hostname the resolver does not know is let through, because hosts a page references willy-nilly (telemetry that is blocked in the hosts file, ad domains) would otherwise break every page. Navigations and `opl-webaccess` fetches fail closed on the same error; only page-initiated subresources and WebSockets fail open, and only for that one code.
 - **`evaluate` returns whatever the page holds.** That is the feature: a page that can read an internal endpoint from its own origin can also hand it to the model.
 
-Loopback is allowed by default today (`allowLoopback: true`) so local dev servers keep working; the next release flips the default to `false`.
+Loopback is opt-in. `allowLoopback: true` reopens `localhost`, `127.0.0.0/8` and `::1` for local development; left at the default, a model cannot drive a dev server, a Docker socket proxy or an IDaaS callback on your machine through the browser.
 
 ### Dependencies
 
