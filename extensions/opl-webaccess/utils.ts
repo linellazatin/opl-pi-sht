@@ -134,15 +134,54 @@ function isUnspecifiedIpv4(o: number[]): boolean {
   return o[0] === 0;
 }
 
-/** Decode IPv4 from an IPv4-mapped IPv6 literal (::ffff:a.b.c.d or ::ffff:hex:hex). */
-function ipv4MappedOctets(ip: string): number[] | null {
-  const dotted = ip.match(/^::ffff:(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
-  if (dotted) return dotted.slice(1).map(Number);
-  const hex = ip.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (hex) {
-    const n = (parseInt(hex[1], 16) << 16) | parseInt(hex[2], 16);
-    return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff];
+/** Expand a compressed, dotted-suffix or full IPv6 literal into its eight 16-bit groups. */
+function ipv6Groups(ip: string): number[] | null {
+  const sides = ip.split("::");
+  if (sides.length > 2) return null;
+  const parse = (side: string): number[] | null => {
+    if (!side) return [];
+    const out: number[] = [];
+    for (const part of side.split(":")) {
+      const dotted = part.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+      if (dotted) {
+        const o = dotted.slice(1).map(Number);
+        if (o.some((n) => n > 255)) return null;
+        out.push((o[0] << 8) | o[1], (o[2] << 8) | o[3]);
+        continue;
+      }
+      if (!part || !/^[0-9a-f]{1,4}$/.test(part)) return null;
+      out.push(parseInt(part, 16));
+    }
+    return out;
+  };
+  const head = parse(sides[0] ?? "");
+  const tail = sides.length === 2 ? parse(sides[1] ?? "") : null;
+  if (!head || !tail) return null;
+  if (sides.length === 1) return head.length === 8 ? head : null;
+  const fill = 8 - head.length - tail.length;
+  if (fill < 1) return null; // `::` must stand for at least one zero group
+  return [...head, ...Array(fill).fill(0), ...tail];
+}
+
+/** IPv4 that an IPv6 literal still routes to: mapped (`::ffff:`), NAT64 (`64:ff9b::/96` and the
+ *  local-use `64:ff9b:1::`), 6to4 (`2002::/16`) and the deprecated IPv4-compatible form (`::a.b`).
+ *  Wherever those prefixes are still routable they reach the embedded address, so the embedded
+ *  address is what has to be classified — otherwise `http://[64:ff9b::a9fe:a9fe]/` walks past the
+ *  metadata block one literal away from 169.254.169.254, and a DNS64 answer can do the same. */
+function embeddedIpv4Octets(ip: string): number[] | null {
+  const g = ipv6Groups(ip);
+  if (!g) return null;
+  const zeros = (from: number, to: number) => g.slice(from, to).every((x) => x === 0);
+  const low32 = () => [(g[6] >> 8) & 0xff, g[6] & 0xff, (g[7] >> 8) & 0xff, g[7] & 0xff];
+  if (g[5] === 0xffff && zeros(0, 5)) return low32();
+  if (g[0] === 0x2002 && (g[1] !== 0 || g[2] !== 0)) {
+    return [(g[1] >> 8) & 0xff, g[1] & 0xff, (g[2] >> 8) & 0xff, g[2] & 0xff]; // 6to4 carries v4 after the prefix
   }
+  if (g[0] === 0x0064 && g[1] === 0xff9b) {
+    if (zeros(2, 6)) return low32(); // NAT64 well-known prefix
+    if (g[2] === 0x0001 && zeros(3, 6)) return low32(); // NAT64 local-use prefix
+  }
+  if (zeros(0, 6) && (g[6] !== 0 || g[7] !== 0)) return low32(); // IPv4-compatible (deprecated)
   return null;
 }
 
@@ -158,8 +197,8 @@ function classifyIpv6Host(host: string): HostClass {
   const ip = host.replace(/^\[/, "").replace(/\]$/, "").replace(/%.*$/, "").toLowerCase();
   if (BLOCKED_METADATA_V6.has(ip)) return "metadata";
   if (ip === "::1") return "loopback";
-  const mapped = ipv4MappedOctets(ip);
-  if (mapped) return classifyIpv4Octets(mapped);
+  const embedded = embeddedIpv4Octets(ip);
+  if (embedded) return classifyIpv4Octets(embedded);
   if (ip === "::") return "unspecified";
   if (/^f[cd]/.test(ip)) return "private"; // fc00::/7 unique-local
   if (/^fe[89ab]/.test(ip)) return "private"; // fe80::/10 link-local

@@ -357,3 +357,29 @@ test("an aborted caller signal bounds the DNS round-trip instead of waiting for 
     return true;
   });
 });
+
+// --- IPv6 forms that embed an internal IPv4 (review "declined to judge", measured here) ---
+
+test("nat64, 6to4 and ipv4-compatible literals are judged by the address they embed", () => {
+  const blocked = [
+    "http://[64:ff9b::a9fe:a9fe]/", // NAT64 -> 169.254.169.254 (metadata)
+    "http://[64:ff9b::169.254.169.254]/",
+    "http://[64:ff9b::6464:64c8]/", // NAT64 -> 100.100.100.200 (Alibaba metadata)
+    "http://[2002:c0a8:101::]/", // 6to4 -> 192.168.1.1
+    "http://[2002:0a00:0001::]/", // 6to4 -> 10.0.0.1
+    "http://[::7f00:1]/", // ipv4-compatible -> 127.0.0.1
+    "http://[::127.0.0.1]/",
+  ];
+  for (const url of blocked) {
+    assert.throws(() => assertHttpUrl(url, { allowPrivateNetwork: false, allowLoopback: false }), /Blocked network host/, url);
+  }
+  // metadata embedded in NAT64 stays blocked even with every opt-in
+  assert.throws(() => assertHttpUrl("http://[64:ff9b::a9fe:a9fe]/", { allowPrivateNetwork: true, allowLoopback: true }), /Blocked network host/);
+});
+
+test("nat64 and 6to4 forms that embed a public ipv4 still pass", async () => {
+  const publicForms = ["http://[2002:5bf0:1::]/x", "http://[64:ff9b::5d96:98b6]/x"]; // 91.240.0.1, 93.150.152.182
+  for (const url of publicForms) {
+    assert.equal(await assertSafeHttpUrl(url, { allowPrivateNetwork: false }), new URL(url).href, url);
+  }
+});
