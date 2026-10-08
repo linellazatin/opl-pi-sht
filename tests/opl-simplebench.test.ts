@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "bun:test";
+import { Value } from "typebox/value";
 import { parseCommandArgs, resolveRunSequence } from "../extensions/opl-simplebench/index";
 import { buildToolContinuationMessages, resolveAwsCredentials, createBenchmark, hasOllamaAssistantOutput, isValidInstructionOutput, openAiThinkingOptions, resolveBenchmarkModel, resolveThinkingMode } from "../extensions/opl-simplebench/benchmark";
 import { artifactFileName, writeArtifact, writeArtifactBundle } from "../extensions/opl-simplebench/artifact";
@@ -699,4 +700,23 @@ test("exec env: an inherited environment really does expose the canary (control)
   assert.equal(inherited.stdout.trim(), "leak", "the control must be visible to an inheriting child");
   const scrubbed = spawnSync(process.execPath, ["--eval", probe], { encoding: "utf8", env: scrubbedEnv(base) });
   assert.equal(scrubbed.stdout.trim(), "clean", "scrubbing must remove it");
+});
+
+// --- Phase 2 / P3: model-facing tool schema ------------------------------------
+
+test("simplebench tool: the model-facing schema is TypeBox with every field optional", async () => {
+  const tools: any[] = [];
+  const extension = (await import("../extensions/opl-simplebench/index")).default;
+  extension({ registerTool: (t: any) => tools.push(t), registerCommand: () => {}, sendMessage: () => {} } as any);
+  const tool = tools.find((entry) => entry.name === "simplebench");
+  assert.ok(tool, "the simplebench tool must be registered");
+  const schema: any = tool.parameters;
+  assert.equal(schema.type, "object");
+  assert.equal(schema.required, undefined, "every parameter is optional");
+  assert.equal(schema.properties.model.type, "string");
+  assert.equal(schema.properties.coding_lite.type, "boolean");
+  assert.ok(Value.Check(schema, {}));
+  assert.ok(Value.Check(schema, { model: "qwen3", coding_lite: true }));
+  assert.ok(!Value.Check(schema, { model: 5 }), "a non-string model must be rejected");
+  assert.ok(!Value.Check(schema, { coding_lite: "yes" }), "a non-boolean flag must be rejected");
 });

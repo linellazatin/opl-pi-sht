@@ -34,6 +34,13 @@ test(`bundles ${extension} extension entrypoint`, () => {
     JSON.parse(readFileSync("configs/opl-guardian.json.sample", "utf8"));
   }
 
+  if (extension === "opl-simplebench") {
+    const source = readFileSync(`extensions/${extension}/index.ts`, "utf8");
+    assert.match(source, /parameters: Type\.Object\(/, "the model-facing schema must be TypeBox");
+    assert.doesNotMatch(source, /require\("node:/, "an ESM module must not call require()");
+    assert.doesNotMatch(source, /\} as any,/, "tool parameters must not be an untyped literal");
+  }
+
   if (extension === "opl-modes") {
     const source = readFileSync(`extensions/${extension}/index.ts`, "utf8");
     assert.match(source, /executeHandoffAllowed/);

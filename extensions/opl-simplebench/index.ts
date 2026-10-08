@@ -1,4 +1,6 @@
 import type { ExtensionAPI, AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { existsSync, unlinkSync } from "node:fs";
+import { Type } from "typebox";
 import { debugLog } from "./util/debug";
 import { detectProvider } from "./util/providers";
 import { readTestConfig, TOOL_SUPPORT_CACHE_PATH, type ModelTestUserConfig, type RunSequenceProfile } from "./util/config";
@@ -107,9 +109,8 @@ pi.registerCommand("simplebench", {
 
     if (arg === "--clear-cache") {
       try {
-        const fs = require("node:fs");
-        if (fs.existsSync(TOOL_SUPPORT_CACHE_PATH)) {
-          fs.unlinkSync(TOOL_SUPPORT_CACHE_PATH);
+        if (existsSync(TOOL_SUPPORT_CACHE_PATH)) {
+          unlinkSync(TOOL_SUPPORT_CACHE_PATH);
           ctx.ui.notify("Tool support cache cleared successfully", "info");
         } else {
           ctx.ui.notify("No cache file found to clear", "info");
@@ -236,20 +237,17 @@ pi.registerTool({
   promptGuidelines: [
     "When the user asks to test or evaluate a model, call simplebench with the model name.",
   ],
-  parameters: {
-    type: "object",
-    properties: {
-      model: { type: "string", description: "Model name to test. If omitted, tests the current model." },
-      no_artifact: { type: "boolean", description: "If true, do not write the detailed JSON audit artifact to the current working directory." },
-      thinking_max: { type: "boolean", description: "Request maximum reasoning on an OpenAI-compatible provider or a direct Bedrock model that advertises max thinking. Omit to use provider defaults." },
-      coding_lite: { type: "boolean", description: "Run only the six execution-backed coding tasks in disposable directories." },
-      test_all: { type: "boolean", description: "Run the existing baseline, coding-lite, and deterministic grounded research tests." },
-      research_live: { type: "boolean", description: "Run configured live-search research as an integration smoke test; it does not affect recommendation." },
-      llama_server: { type: "boolean", description: "Capture /props and /metrics from configured llamaServerUrl. Inference routing is unchanged." },
-      llamagputop: { type: "boolean", description: "Capture configured llamagputopUrl /stats. The declared endpoint is authoritative; no Pi model match is required." },
-      tag: { type: "string", description: "Optional single-word label (letters, digits, dot, dash, underscore). Stored under benchmark.tag and prefixed onto the artifact file or bundle name." },
-    },
-  } as any,
+  parameters: Type.Object({
+    model: Type.Optional(Type.String({ description: "Model name to test. If omitted, tests the current model." })),
+    no_artifact: Type.Optional(Type.Boolean({ description: "If true, do not write the detailed JSON audit artifact to the current working directory." })),
+    thinking_max: Type.Optional(Type.Boolean({ description: "Request maximum reasoning on an OpenAI-compatible provider or a direct Bedrock model that advertises max thinking. Omit to use provider defaults." })),
+    coding_lite: Type.Optional(Type.Boolean({ description: "Run only the six execution-backed coding tasks in disposable directories." })),
+    test_all: Type.Optional(Type.Boolean({ description: "Run the existing baseline, coding-lite, and deterministic grounded research tests." })),
+    research_live: Type.Optional(Type.Boolean({ description: "Run configured live-search research as an integration smoke test; it does not affect recommendation." })),
+    llama_server: Type.Optional(Type.Boolean({ description: "Capture /props and /metrics from configured llamaServerUrl. Inference routing is unchanged." })),
+    llamagputop: Type.Optional(Type.Boolean({ description: "Capture configured llamagputopUrl /stats. The declared endpoint is authoritative; no Pi model match is required." })),
+    tag: Type.Optional(Type.String({ description: "Optional single-word label (letters, digits, dot, dash, underscore). Stored under benchmark.tag and prefixed onto the artifact file or bundle name." })),
+  }),
   execute: async (_toolCallId, _params, _signal, _onUpdate, ctx) => {
     const params = _params as any;
     if (params?.tag !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(params.tag))) {
