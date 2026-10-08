@@ -79,6 +79,8 @@ function parseGitStatusOutput(output: string): { staged: number; unstaged: numbe
 }
 
 function runGit(args: string[], timeoutMs = 200): Promise<string | null> {
+  // Porcelain/name-only only: a worktree can declare commands (`[diff] textconv`,
+  // hooksPath) that git would execute, so never ask it for patch content here.
   return new Promise((resolve) => {
     const proc = spawn("git", args, {
       stdio: ["ignore", "pipe", "pipe"],

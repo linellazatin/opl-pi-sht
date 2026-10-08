@@ -62,6 +62,9 @@ function fingerprintGit(root: string): string | null {
 }
 
 function gitOutput(root: string, args: string[]): string | null {
+  // A repository can declare commands of its own (`[diff] textconv`, hooksPath).
+  // Keep every call here to name-only/porcelain plumbing; asking for patch
+  // content from an untrusted worktree would execute whatever it declared.
   try {
     return execFileSync("git", args, {
       cwd: root,
