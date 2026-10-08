@@ -9,9 +9,12 @@ export interface BrowserConfig {
   navigationTimeoutMs: number;
   previewChars: number;
   getChars: number;
-  /** Allow navigate/new_page to reach private/link-local ranges (loopback is always
-   *  allowed; cloud metadata is always blocked). Default false. */
+  /** Allow navigate/new_page to reach private/link-local ranges (default false).
+   *  Cloud metadata is always blocked. */
   allowPrivateNetwork: boolean;
+  /** Allow loopback hosts — localhost, 127.0.0.0/8, ::1 (default true, for local dev
+   *  servers). Cloud metadata is unaffected. */
+  allowLoopback: boolean;
 }
 
 export const DEFAULT_CONFIG: BrowserConfig = {
@@ -22,6 +25,7 @@ export const DEFAULT_CONFIG: BrowserConfig = {
   previewChars: 4000,
   getChars: 30000,
   allowPrivateNetwork: false,
+  allowLoopback: true,
 };
 
 const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "configs", "opl-browser.json");
@@ -41,5 +45,6 @@ export function loadUserConfig(configPath = CONFIG_PATH): BrowserConfig {
     previewChars: user.previewChars ?? DEFAULT_CONFIG.previewChars,
     getChars: user.getChars ?? DEFAULT_CONFIG.getChars,
     allowPrivateNetwork: user.allowPrivateNetwork ?? DEFAULT_CONFIG.allowPrivateNetwork,
+    allowLoopback: user.allowLoopback ?? DEFAULT_CONFIG.allowLoopback,
   };
 }

@@ -7,6 +7,7 @@ import { extractMarkdown } from "../extensions/opl-browser/extract.ts";
 import { assertHttpUrl, assertSafeHttpUrl, decideSubresource, safeScreenshotPath } from "../extensions/opl-browser/validate.ts";
 import { paginateStored, continuationNotice } from "../extensions/opl-browser/paging.ts";
 import { DEFAULT_CONFIG, loadUserConfig } from "../extensions/opl-browser/config.ts";
+import { makeRouteHandler } from "../extensions/opl-browser/browser.ts";
 import { MAX_LOG_ENTRIES, pushLogEntry } from "../extensions/opl-browser/browser.ts";
 
 const ARTICLE_HTML = `<!DOCTYPE html><html><head><title>My Post — SiteName</title></head><body>
@@ -167,4 +168,33 @@ test("decideSubresource aborts internal requests and continues non-http and miss
   const timeout = Object.assign(new Error("ETIMEOUT"), { code: "ETIMEOUT" });
   assert.equal(await decideSubresource("http://slow.example/", { resolveHost: async () => { throw timeout; } }), "abort");
   assert.equal(await decideSubresource("http://weird.example/", { resolveHost: async () => { throw "not even an error"; } }), "abort");
+});
+
+test("browser config carries allowLoopback to the guard, default true", () => {
+  const dir = mkdtempSync(join(tmpdir(), "opl-browser-cfg-"));
+  const write = (name, body) => { const p = join(dir, name); writeFileSync(p, JSON.stringify(body)); return p; };
+  assert.equal(DEFAULT_CONFIG.allowLoopback, true);
+  assert.equal(loadUserConfig(write("unset.json", { headless: true })).allowLoopback, true, "absent key defaults to true");
+  assert.equal(loadUserConfig(write("off.json", { allowLoopback: false })).allowLoopback, false);
+  // the shipped sample must parse to the documented default, not merely contain the key
+  assert.equal(loadUserConfig(new URL("../configs/opl-browser.json.sample", import.meta.url).pathname).allowLoopback, true);
+});
+
+test("makeRouteHandler aborts guarded requests and lets the rest through", async () => {
+  const internal = makeRouteHandler({ allowPrivateNetwork: false, allowLoopback: true, resolveHost: async () => ["10.0.0.1"] });
+  const publicHost = makeRouteHandler({ allowPrivateNetwork: false, allowLoopback: true, resolveHost: async () => ["93.184.216.34"] });
+  const seen = [];
+  const fakeRoute = (url) => ({
+    request: () => ({ url: () => url }),
+    abort: async (why) => { seen.push(`abort:${why}`); },
+    continue: async () => { seen.push("continue"); },
+  });
+  await internal(fakeRoute("http://internal.example/x"));
+  assert.deepEqual(seen, ["abort:blockedbyclient"]);
+  await publicHost(fakeRoute("https://ok.example/y"));
+  assert.deepEqual(seen, ["abort:blockedbyclient", "continue"]);
+  // no host to classify: the handler must neither abort nor re-issue
+  await publicHost(fakeRoute("data:text/html,hi"));
+  await publicHost(fakeRoute("blob:https://ok.example/uuid"));
+  assert.deepEqual(seen, ["abort:blockedbyclient", "continue"], "data:/blob: requests are left alone");
 });

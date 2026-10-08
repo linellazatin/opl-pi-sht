@@ -1,6 +1,6 @@
-import { chromium, type Browser, type BrowserContext, type Page, type ConsoleMessage } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page, type Route, type ConsoleMessage } from "playwright";
 import { extractMarkdown } from "./extract.js";
-import { assertHttpUrl, safeScreenshotPath } from "./validate.js";
+import { assertSafeHttpUrl, decideSubresource, safeScreenshotPath, type HttpUrlOptions } from "./validate.js";
 import type { BrowserConfig } from "./config.js";
 
 // ponytail: single module-level Chromium instance reused across tool calls.
@@ -48,7 +48,19 @@ function track(page: Page, cfg: BrowserConfig): void {
 async function ensure(cfg: BrowserConfig): Promise<BrowserContext> {
   if (context) return context;
   browser = await chromium.launch({ headless: cfg.headless });
-  context = await browser.newContext({ viewport: { width: cfg.width, height: cfg.height } });
+  const created = await browser.newContext({ viewport: { width: cfg.width, height: cfg.height } });
+  // Install the route before publishing the module-level context: if registration fails,
+  // the tool must not keep browsing through a context with no host guard at all.
+  try {
+    await created.route("**/*", makeRouteHandler(guardOf(cfg)));
+  } catch (err) {
+    await created.close().catch(() => {});
+    await browser.close().catch(() => {});
+    browser = null;
+    context = null;
+    throw new Error(`cannot enforce the network host guard in this browser build: ${err instanceof Error ? err.message : err}`);
+  }
+  context = created;
   const page = await context.newPage();
   track(page, cfg);
   activeIndex = 0;
@@ -61,11 +73,34 @@ function page(): Page {
   return pages[activeIndex] ?? pages[pages.length - 1];
 }
 
+/** The host policy applied to every navigation and every page-initiated request. */
+export function guardOf(cfg: BrowserConfig): HttpUrlOptions {
+  return { allowPrivateNetwork: cfg.allowPrivateNetwork, allowLoopback: cfg.allowLoopback };
+}
+
+/** Route handler for the shared context: covers subresources, JS-driven redirects and
+ *  popups, i.e. the requests a page makes that no tool argument ever named. Only http(s)
+ *  is consulted — `data:`/`blob:` have no host to classify and cannot be re-issued. */
+export function makeRouteHandler(guard: HttpUrlOptions): (route: Route) => Promise<void> {
+  return async (route) => {
+    const url = route.request().url();
+    if (url.startsWith("data:") || url.startsWith("blob:")) return;
+    const decision = await decideSubresource(url, guard);
+    if (decision === "abort") {
+      await route.abort("blockedbyclient");
+      return;
+    }
+    await route.continue();
+  };
+}
+
 /** Navigate with the host validated both before the request and on the final URL, so a
- *  public URL that redirects to a private/link-local host is rejected. */
+ *  public URL that redirects to a private/link-local host, or a hostname that answers with
+ *  an internal address, is rejected. */
 async function gotoAllowed(target: Page, url: string, cfg: BrowserConfig): Promise<void> {
-  await target.goto(assertHttpUrl(url, { allowPrivateNetwork: cfg.allowPrivateNetwork }), { waitUntil: "domcontentloaded" });
-  assertHttpUrl(target.url(), { allowPrivateNetwork: cfg.allowPrivateNetwork });
+  const guard = guardOf(cfg);
+  await target.goto(await assertSafeHttpUrl(url, guard), { waitUntil: "domcontentloaded" });
+  await assertSafeHttpUrl(target.url(), guard);
 }
 
 export interface BrowserActionResult {
