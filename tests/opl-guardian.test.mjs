@@ -394,18 +394,65 @@ test("file tools fail closed on an unresolvable symlink cycle", async () => {
   }
 });
 
-test("Bash protected-path lookup preserves literal command matching", () => {
+test("bash: protected paths match command tokens, not argument text", () => {
   const paths = [
     { path: ".env", deny: ["bash"] },
     { path: "~/.pi/agent/auth.json", deny: ["bash"] },
   ];
-  assert.deepEqual(getProtectedPathBlock("bash", "cat project/.env.local", paths, "/project"), {
-    path: ".env", operation: "bash",
-  });
-  assert.deepEqual(getProtectedPathBlock("bash", "cat ~/.pi/agent/auth.json", paths, "/project"), {
-    path: "~/.pi/agent/auth.json", operation: "bash",
-  });
-  assert.equal(getProtectedPathBlock("bash", "echo harmless", paths, "/project"), undefined);
+  const blocked = [
+    "cat .env",
+    "cat ./.env",
+    "cat /project/.env",
+    "cat configs/.env",
+    "head -2 .env | tail -1",
+    "python -c 'open(\".env\")'",
+    "cp .env /tmp/e",
+    "export F=$(cat .env)",
+    "git show HEAD:.env",
+    "cat ~/.pi/agent/auth.json",
+    `cat ${join(homedir(), ".pi/agent/auth.json")}`,
+  ];
+  for (const command of blocked) {
+    const block = getProtectedPathBlock("bash", command, paths, "/project");
+    assert.ok(block && block.operation === "bash", `expected block: ${command}`);
+  }
+  const allowed = [
+    "grep -rn \"process.env\" src",
+    "cat .env.example",
+    "cat environment.ts",
+    "ls env",
+    "node read-config.js",
+    "grep -n 'dotenv' package.json",
+  ];
+  for (const command of allowed) {
+    assert.equal(getProtectedPathBlock("bash", command, paths, "/project"), undefined, `unexpected block: ${command}`);
+  }
+});
+
+test("bash: protected-path matching follows symlinks and directory entries", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "opl-guardian-bash-"));
+  try {
+    await writeFile(join(cwd, ".env"), "fixture");
+    await symlink(join(cwd, ".env"), join(cwd, "alias"));
+    assert.deepEqual(getProtectedPathBlock("bash", "cat alias", [{ path: ".env", deny: ["bash"] }], cwd), {
+      path: ".env", operation: "bash",
+    });
+    const dirPaths = [{ path: ".git/", deny: ["bash"] }];
+    assert.deepEqual(getProtectedPathBlock("bash", "cat .git/config", dirPaths, cwd), { path: ".git/", operation: "bash" });
+    assert.equal(getProtectedPathBlock("bash", "git status", dirPaths, cwd), undefined);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("permission gate: the default env rule fires on a dumped environment, not on the word env", () => {
+  const matches = (command) => DEFAULT_CONFIG.permissionGate.patterns.some((pattern) => pattern.test(command));
+  for (const command of ["env", "env | grep PATH", "echo hi; env", "$(env)", "printenv HOME"]) {
+    assert.ok(matches(command), `expected block: ${command}`);
+  }
+  for (const command of ["grep -n 'env' README.md", "cat config/env.ts", "node --env-file prod.env app.js", "echo environment"]) {
+    assert.ok(!matches(command), `unexpected block: ${command}`);
+  }
 });
 
 function fakeToolContext({ hasUI = true, choice = "yes" } = {}) {

@@ -31,7 +31,7 @@ const DEFAULT_PATTERN_STRINGS = [
   "\\bsudo\\b",
   "\\b(chmod|chown)\\s+(?:-[a-z]+\\s+)*777(?:\\b|$)",
   "\\bprintenv\\b",
-  "(^|\\s)env(\\s|$)",
+  "(?:^|[;&|()\\n])\\s*env(?:[\\s)|]|$)",
 ];
 
 const DEFAULT_PATHS: PathEntry[] = [
