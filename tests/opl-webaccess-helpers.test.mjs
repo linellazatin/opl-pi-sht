@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { errorMessage, isAbortError, truncate, isPdfUrl, isPdfContentType, assertHttpUrl, paginateContent, continuationNotice } from "../extensions/opl-webaccess/utils.ts";
+import { errorMessage, isAbortError, truncate, isPdfUrl, isPdfContentType, assertHttpUrl, assertSafeHttpUrl, paginateContent, continuationNotice } from "../extensions/opl-webaccess/utils.ts";
 import { generateId, storeResult, getResult, clearStore } from "../extensions/opl-webaccess/storage.ts";
 import { resolveCaps, DEFAULT_MAX_CONTENT_CHARS, DEFAULT_MAX_RETRIEVAL_CHARS, DEFAULT_MAX_SEARCH_QUERIES, DEFAULT_MAX_FETCH_URLS } from "../extensions/opl-webaccess/config.ts";
 import { fetchAllContent, MAX_FETCH_URLS } from "../extensions/opl-webaccess/extract.ts";
@@ -149,6 +149,65 @@ test("assertHttpUrl hard-blocks cloud metadata even with private opt-in", () => 
 test("assertHttpUrl opt-in allows private hosts", () => {
   assert.equal(assertHttpUrl("http://192.168.1.100:8000", { allowPrivateNetwork: true }), "http://192.168.1.100:8000/");
   assert.equal(assertHttpUrl("http://localhost:3000", { allowPrivateNetwork: true }), "http://localhost:3000/");
+});
+
+test("assertSafeHttpUrl applies the address policy to every DNS answer", async () => {
+  const at = (address) => async () => [address];
+  // answers in non-global space are rejected, metadata even with the private opt-in
+  await assert.rejects(
+    () => assertSafeHttpUrl("http://spoofed.example/late", {
+      allowPrivateNetwork: true,
+      resolveHost: at("169.254.169.254"),
+    }),
+    /Blocked network host/,
+  );
+  await assert.rejects(
+    () => assertSafeHttpUrl("http://v6.example/", { resolveHost: at("fd00:ec2::254") }),
+    /Blocked network host/,
+  );
+  await assert.rejects(
+    () => assertSafeHttpUrl("http://corp.example/", { resolveHost: at("10.0.0.5") }),
+    /Blocked network host/,
+  );
+  // a loopback answer follows allowLoopback, which stays default-true until Phase 3 flips it
+  assert.equal(
+    await assertSafeHttpUrl("http://127.0.0.1.nip.io:8080/x", { resolveHost: at("127.0.0.1") }),
+    "http://127.0.0.1.nip.io:8080/x",
+  );
+  await assert.rejects(
+    () => assertSafeHttpUrl("http://127.0.0.1.nip.io:8080/x", { allowLoopback: false, resolveHost: at("127.0.0.1") }),
+    /Blocked network host/,
+  );
+});
+
+test("assertSafeHttpUrl blocks when only one of several answers is internal", async () => {
+  await assert.rejects(
+    () => assertSafeHttpUrl("https://mixed.example/", {
+      resolveHost: async () => ["93.184.216.34", "10.0.0.1"],
+    }),
+    /Blocked network host/,
+  );
+});
+
+test("assertSafeHttpUrl allows public answers and skips resolution for IP literals", async () => {
+  let looked = 0;
+  const resolveHost = async () => { looked++; return ["93.184.216.34"]; };
+  assert.equal(await assertSafeHttpUrl("https://example.com/a?b=1", { resolveHost }), "https://example.com/a?b=1");
+  assert.equal(await assertSafeHttpUrl("http://192.168.1.100:8000", { allowPrivateNetwork: true, resolveHost }), "http://192.168.1.100:8000/");
+  assert.equal(looked, 1, "only the hostname case may resolve");
+});
+
+test("assertSafeHttpUrl surfaces resolver failures as network errors", async () => {
+  const enotfound = Object.assign(new Error("queryA ENOTFOUND nope.example"), { code: "ENOTFOUND" });
+  await assert.rejects(() => assertSafeHttpUrl("http://nope.example/", { resolveHost: async () => { throw enotfound; } }), /ENOTFOUND/);
+  await assert.rejects(() => assertSafeHttpUrl("http://empty.example/", { resolveHost: async () => [] }), /Could not resolve host/);
+});
+
+test("assertHttpUrl honours allowLoopback=false", () => {
+  assert.equal(assertHttpUrl("http://localhost:3000/app"), "http://localhost:3000/app");
+  assert.throws(() => assertHttpUrl("http://localhost:3000/app", { allowLoopback: false }), /Blocked network host/);
+  assert.throws(() => assertHttpUrl("http://127.0.0.1:7/", { allowLoopback: false }), /Blocked network host/);
+  assert.throws(() => assertHttpUrl("http://[::1]/", { allowLoopback: false }), /Blocked network host/);
 });
 
 test("fetchAllContent caps the number of URLs per call", async () => {

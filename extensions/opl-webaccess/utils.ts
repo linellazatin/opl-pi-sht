@@ -1,3 +1,5 @@
+import { promises as dns } from "node:dns";
+
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -55,10 +57,17 @@ export function isPdfContentType(contentType: string): boolean {
 }
 
 export interface HttpUrlOptions {
-  /** Allow private, link-local, and reserved network hosts (default false). Loopback is always allowed; cloud metadata is always blocked. */
+  /** Allow private, link-local, and reserved network hosts (default false). Cloud metadata is always blocked. */
   allowPrivateNetwork?: boolean;
+  /** Allow loopback hosts — localhost, 127.0.0.0/8, ::1 (default true). */
+  allowLoopback?: boolean;
+  /** Test seam for host resolution; production callers leave it unset and use node:dns. */
+  resolveHost?: (host: string) => Promise<string[]>;
 }
 
+// BEGIN SHARED HOST GUARD — mirrored verbatim in extensions/opl-browser/validate.ts
+// (install.sh installs one extension directory at a time, so this cannot be a shared import;
+//  tests/net-guard-parity.test.mjs fails if the two copies drift)
 /** Well-known cloud metadata hostnames that resolve to instance-credential endpoints. */
 const BLOCKED_METADATA_HOSTS = new Set([
   "metadata",
@@ -155,17 +164,18 @@ function classifyHost(host: string): HostClass {
   return octets ? classifyIpv4Octets(octets) : "public";
 }
 
-function isBlockedNetworkHost(host: string, allowPrivateNetwork: boolean): boolean {
+function isBlockedNetworkHost(host: string, allowPrivateNetwork: boolean, allowLoopback: boolean): boolean {
   const cls = classifyHost(host);
   if (cls === "metadata") return true; // never toggleable
-  if (cls === "loopback" || cls === "public") return false;
+  if (cls === "loopback") return !allowLoopback;
+  if (cls === "public") return false;
   return !allowPrivateNetwork; // private / link-local / reserved
 }
 
 /**
  * Normalize a URL, allowing only http/https. Loopback (localhost/127.0.0.0/8/::1) is
- * allowed by default for local development; private/link-local/reserved ranges are blocked
- * unless allowPrivateNetwork is set; cloud metadata is always blocked.
+ * allowed by default for local development and gated by allowLoopback; private/link-local/
+ * reserved ranges are blocked unless allowPrivateNetwork is set; cloud metadata is always blocked.
  */
 export function assertHttpUrl(url: string, opts: HttpUrlOptions = {}): string {
   let parsed: URL;
@@ -175,10 +185,44 @@ export function assertHttpUrl(url: string, opts: HttpUrlOptions = {}): string {
     throw new Error(`Invalid URL: ${url}`);
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error(`Unsupported protocol "${parsed.protocol}//" — only http/https`);
+    throw new Error(`Only http/https URLs are allowed, "${parsed.protocol}"`);
   }
-  if (isBlockedNetworkHost(parsed.hostname, opts.allowPrivateNetwork === true)) {
+  if (isBlockedNetworkHost(parsed.hostname, opts.allowPrivateNetwork === true, opts.allowLoopback !== false)) {
     throw new Error(`Blocked network host "${parsed.hostname}" — private, link-local, reserved, and cloud-metadata URLs are not allowed (set allowPrivateNetwork to opt in to private ranges; metadata is always blocked)`);
   }
   return parsed.href;
 }
+
+export function isIpLiteralHost(host: string): boolean {
+  const lowered = host.toLowerCase().replace(/^\[|\]$/g, "");
+  return lowered.includes(":") || /^\d+$/.test(lowered) || /^\d{1,3}(\.\d{1,3}){3}$/.test(lowered);
+}
+
+/** Default resolver. Rethrows the original error so `.code` survives for callers. */
+export async function resolveHostAddresses(host: string): Promise<string[]> {
+  const hits = await dns.lookup(host, { all: true, verbatim: true });
+  return hits.map((hit) => hit.address);
+}
+
+/**
+ * Same policy as assertHttpUrl, plus a DNS round-trip: a hostname that answers with a
+ * loopback, private, link-local, reserved, or metadata address is rejected before any
+ * request is made. Literal-IP hosts skip the lookup. Text-only classification is not enough
+ * on its own — `http://169.254.169.254.nip.io/` reads as a public hostname.
+ */
+export async function assertSafeHttpUrl(url: string, opts: HttpUrlOptions = {}): Promise<string> {
+  const normalized = assertHttpUrl(url, opts);
+  const host = new URL(normalized).hostname;
+  if (isIpLiteralHost(host)) return normalized; // already classified; no DNS round-trip
+  const answers = opts.resolveHost ? await opts.resolveHost(host) : await resolveHostAddresses(host);
+  if (!answers.length) throw new Error(`Could not resolve host "${host}"`);
+  const allowPrivate = opts.allowPrivateNetwork === true;
+  const allowLoopback = opts.allowLoopback !== false;
+  for (const answer of answers) {
+    if (isBlockedNetworkHost(answer, allowPrivate, allowLoopback)) {
+      throw new Error(`Blocked network host "${host}" — it resolves to ${answer}, and private, link-local, reserved, and cloud-metadata addresses are not allowed (set allowPrivateNetwork to opt in to private ranges; metadata is always blocked)`);
+    }
+  }
+  return normalized;
+}
+// END SHARED HOST GUARD
