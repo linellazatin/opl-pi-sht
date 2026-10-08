@@ -436,7 +436,9 @@ export default function questionnaire(pi: ExtensionAPI) {
 		},
 
 		renderResult(result, _options, theme, _context) {
-			if (result.isError) {
+			// `isError` on tool results is newer than the declared floor: pi 0.87.x does not carry
+			// it in its types, and an older host leaves it undefined, which reads as "not an error".
+			if ((result as { isError?: boolean }).isError) {
 				const text = result.content[0];
 				return new Text(theme.fg("error", text?.type === "text" ? text.text : ""), 0, 0);
 			}
