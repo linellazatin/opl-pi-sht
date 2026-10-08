@@ -163,6 +163,8 @@ test("decideSubresource aborts internal requests and continues non-http and miss
   assert.equal(await decideSubresource("data:text/html,hi"), "continue");
   assert.equal(await decideSubresource("blob:https://ok.example/uuid"), "continue");
   assert.equal(await decideSubresource("about:blank"), "continue");
+  // file: is NOT in the ignore list: the sync scheme guard rejects it, so it must abort
+  assert.equal(await decideSubresource("file:///etc/passwd"), "abort");
   const enotfound = Object.assign(new Error("ENOTFOUND gone.example"), { code: "ENOTFOUND" });
   assert.equal(await decideSubresource("http://gone.example/", { resolveHost: async () => { throw enotfound; } }), "continue");
   const timeout = Object.assign(new Error("ETIMEOUT"), { code: "ETIMEOUT" });

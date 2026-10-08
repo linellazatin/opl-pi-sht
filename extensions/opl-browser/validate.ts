@@ -175,7 +175,7 @@ export async function assertSafeHttpUrl(url: string, opts: HttpUrlOptions = {}):
 }
 // END SHARED HOST GUARD
 
-const NON_HTTP = /^(data|blob|about|file|chrome|chrome-extension|devtools|view-source):/i;
+const NON_HTTP = /^(data|blob|about|chrome|chrome-extension|devtools|view-source):/i;
 
 /**
  * Route-level decision for requests a page makes on its own (subresources, scripts,
