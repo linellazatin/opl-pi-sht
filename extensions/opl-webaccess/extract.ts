@@ -72,7 +72,7 @@ async function fetchWithRedirectValidation(
   fetchSignal: AbortSignal,
   opts: HttpUrlOptions
 ): Promise<Response> {
-  let current = await assertSafeHttpUrl(url, opts);
+  let current = await assertSafeHttpUrl(url, { ...opts, signal: fetchSignal });
   const headers = {
     "User-Agent": "Mozilla/5.0 (compatible; pi-web-access/1.0)",
     Accept: "text/html,application/xhtml+xml,application/pdf,*/*",
@@ -83,7 +83,7 @@ async function fetchWithRedirectValidation(
     const location = response.headers.get("location");
     if (!location) return response; // 3xx without a Location: treat as final
     await response.body?.cancel().catch(() => {});
-    current = await assertSafeHttpUrl(new URL(location, current).href, opts);
+    current = await assertSafeHttpUrl(new URL(location, current).href, { ...opts, signal: fetchSignal });
   }
   throw new Error(`Too many redirects (max ${MAX_REDIRECTS})`);
 }

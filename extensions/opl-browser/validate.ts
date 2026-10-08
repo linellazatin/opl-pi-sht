@@ -11,6 +11,11 @@ export interface HttpUrlOptions {
   allowLoopback?: boolean;
   /** Test seam for host resolution; production callers leave it unset and use node:dns. */
   resolveHost?: (host: string) => Promise<string[]>;
+  /** Caller's abort signal. The lookup itself cannot be cancelled, so this only bounds how long
+   *  the caller waits; without it a stalled getaddrinfo outlives the caller's own timeout. */
+  signal?: AbortSignal;
+  /** Self-bound for the DNS round-trip when the caller passes no signal (ms). */
+  dnsTimeoutMs?: number;
 }
 
 // BEGIN SHARED HOST GUARD — mirrored verbatim from extensions/opl-webaccess/utils.ts
@@ -153,10 +158,37 @@ export function isIpLiteralHost(host: string): boolean {
   return lowered.includes(":") || /^\d+$/.test(lowered) || /^\d{1,3}(\.\d{1,3}){3}$/.test(lowered);
 }
 
+/** In-flight lookups by host. A page with hundreds of subresources on one host would otherwise
+ *  serialize hundreds of getaddrinfo calls on libuv's small thread pool. Entries are dropped as
+ *  soon as the lookup settles, so this deduplicates concurrency only: no decision is reused, and
+ *  a hostname that changes between two calls still gets two independent answers. */
+const inflightLookups = new Map<string, Promise<string[]>>();
+
 /** Default resolver. Rethrows the original error so `.code` survives for callers. */
-export async function resolveHostAddresses(host: string): Promise<string[]> {
-  const hits = await dns.lookup(host, { all: true, verbatim: true });
-  return hits.map((hit) => hit.address);
+export function resolveHostAddresses(host: string): Promise<string[]> {
+  const running = inflightLookups.get(host);
+  if (running) return running;
+  const pending = dns
+    .lookup(host, { all: true, verbatim: true })
+    .then((hits) => hits.map((hit) => hit.address));
+  inflightLookups.set(host, pending);
+  const stop = () => {
+    if (inflightLookups.get(host) === pending) inflightLookups.delete(host);
+  };
+  pending.then(stop, stop);
+  return pending;
+}
+
+/** Reject as soon as the caller gives up. `dns.lookup` cannot be cancelled, so without this a
+ *  stalled getaddrinfo would hold the tool past its own timeout. */
+function untilAborted<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return pending;
+  const aborted = new Promise<never>((_, reject) => {
+    const fail = () => reject(Object.assign(new Error("Aborted"), { name: "AbortError" }));
+    if (signal.aborted) fail();
+    else signal.addEventListener("abort", fail, { once: true });
+  });
+  return Promise.race([pending, aborted]);
 }
 
 /**
@@ -169,7 +201,12 @@ export async function assertSafeHttpUrl(url: string, opts: HttpUrlOptions = {}):
   const normalized = assertHttpUrl(url, opts);
   const host = new URL(normalized).hostname;
   if (isIpLiteralHost(host)) return normalized; // already classified; no DNS round-trip
-  const answers = opts.resolveHost ? await opts.resolveHost(host) : await resolveHostAddresses(host);
+  // A stalled getaddrinfo must not outlive the caller's own budget, and with no caller signal
+  // (a browser route handler, a frame re-check) the guard bounds itself instead of hanging.
+  const dnsSignal = opts.signal ?? (opts.dnsTimeoutMs ? AbortSignal.timeout(opts.dnsTimeoutMs) : undefined);
+  const answers = opts.resolveHost
+    ? await untilAborted(Promise.resolve(opts.resolveHost(host)), dnsSignal)
+    : await untilAborted(resolveHostAddresses(host), dnsSignal);
   if (!answers.length) throw new Error(`Could not resolve host "${host}"`);
   const allowPrivate = opts.allowPrivateNetwork === true;
   const allowLoopback = opts.allowLoopback !== false;

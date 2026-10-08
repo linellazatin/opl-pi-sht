@@ -314,3 +314,42 @@ test("every internal IPv6 answer form is refused, not just fd00::/8", async () =
     /Blocked network host/,
   );
 });
+
+// --- resolver cost and caller-abort bounds on the DNS round-trip (review M5 / M4) ---
+
+test("concurrent lookups for one host share a single resolver call, sequentially they do not", async () => {
+  const dns = await import("node:dns");
+  const orig = dns.promises.lookup;
+  let calls = 0;
+  dns.promises.lookup = async () => {
+    calls++;
+    return [{ address: "93.184.216.34", family: 4 }];
+  };
+  try {
+    const two = await Promise.all([
+      assertSafeHttpUrl("http://busy-host.test/a"),
+      assertSafeHttpUrl("http://busy-host.test/b"),
+    ]);
+    assert.equal(two.length, 2);
+    assert.equal(calls, 1, "200 concurrent subresources on one host must not serialize 200 getaddrinfo calls");
+    await assertSafeHttpUrl("http://busy-host.test/c");
+    assert.equal(calls, 2, "the decision must not be cached across time (rebinding re-check)");
+  } finally {
+    dns.promises.lookup = orig;
+  }
+});
+
+test("an aborted caller signal bounds the DNS round-trip instead of waiting for the resolver", async () => {
+  const controller = new AbortController();
+  const slow = assertSafeHttpUrl("http://slow-resolver.test/x", {
+    resolveHost: () => new Promise((r) => setTimeout(() => r(["93.184.216.34"]), 5000)),
+    signal: controller.signal,
+  });
+  controller.abort();
+  const started = Date.now();
+  await assert.rejects(slow, (err) => {
+    assert.equal(err.name, "AbortError", "must surface as an abort so callers report it unchanged");
+    assert.ok(Date.now() - started < 1000, "must not wait out the resolver");
+    return true;
+  });
+});

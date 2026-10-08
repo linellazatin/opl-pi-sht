@@ -79,9 +79,17 @@ function page(): Page {
   return pages[activeIndex] ?? pages[pages.length - 1];
 }
 
-/** The host policy applied to every navigation and every page-initiated request. */
+/** Budget for one DNS round-trip. Playwright has no timeout of its own on a route handler, so a
+ *  stalled getaddrinfo would hold the navigation open; the guard cuts it instead. */
+const DNS_BUDGET_MS = 5000;
+
+/** The host policy applied to every navigation, frame re-check, page request and WebSocket. */
 export function guardOf(cfg: BrowserConfig): HttpUrlOptions {
-  return { allowPrivateNetwork: cfg.allowPrivateNetwork, allowLoopback: cfg.allowLoopback };
+  return {
+    allowPrivateNetwork: cfg.allowPrivateNetwork,
+    allowLoopback: cfg.allowLoopback,
+    dnsTimeoutMs: DNS_BUDGET_MS,
+  };
 }
 
 /** Route handler for the shared context: covers subresources, JS-driven redirects and
