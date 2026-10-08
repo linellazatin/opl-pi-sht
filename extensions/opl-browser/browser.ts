@@ -113,8 +113,10 @@ export function makeRouteHandler(guard: HttpUrlOptions): (route: Route) => Promi
  *  reported rather than hidden: `route()` does not see `ws://`/`wss://`, so a page could otherwise
  *  open a socket straight to an internal service while the tool claims the boundary is enforced. */
 export interface GuardTarget {
-  route(url: string, handler: (route: Route) => Promise<void>): Promise<void>;
-  routeWebSocket?(match: (url: URL) => boolean, handler: (ws: WebSocketRouteLike) => Promise<void>): Promise<void>;
+  // `unknown` rather than `void`: Playwright's route registration hands back a Disposable, and a
+  // BrowserContext returns that where a Page returns void, so `void` would exclude contexts.
+  route(url: string, handler: (route: Route) => Promise<void>): Promise<unknown>;
+  routeWebSocket?(match: (url: URL) => boolean, handler: (ws: WebSocketRouteLike) => Promise<void>): Promise<unknown>;
 }
 
 export interface WebSocketRouteLike {

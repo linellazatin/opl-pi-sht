@@ -22,6 +22,7 @@ import {
 import {
 	type Answer,
 	type Question,
+	type QuestionCheck,
 	QuestionnaireParams,
 	type QuestionnaireResult,
 	type RenderOption,
@@ -42,7 +43,7 @@ export function errorResult(
 /** Validate the question list. Returns the first error message, or null when valid.
  *  Blank ids are rejected (answers are keyed by id and "" would produce an empty key),
  *  as are duplicate ids and questions with nothing selectable. */
-export function validateQuestions(questions: Question[]): string | null {
+export function validateQuestions(questions: readonly QuestionCheck[]): string | null {
 	const seenIds = new Set<string>();
 	for (const q of questions) {
 		if (q.id.trim() === "") {

@@ -26,20 +26,28 @@ function hasValue(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-export function isMalformedToolCall(block: unknown): block is ToolCall {
-  if (!block || typeof block !== "object" || (block as { type?: unknown }).type !== "toolCall") {
-    return false;
-  }
-  const toolCall = block as ToolCall;
-  return !hasValue(toolCall.id) || !hasValue(toolCall.name);
+function isToolCallBlock(block: unknown): block is ToolCall {
+  return !!block && typeof block === "object" && (block as { type?: unknown }).type === "toolCall";
+}
+
+/** A toolCall block whose id or name is missing: pi cannot route it, and leaving it in the
+ *  message fails the whole turn, so the guardian drops it. */
+export function isMalformedToolCall(block: unknown): boolean {
+  return isToolCallBlock(block) && (!hasValue(block.id) || !hasValue(block.name));
+}
+
+// The same test as a type predicate, so `filter` can type the removed blocks as ToolCall[]
+// without narrowing ToolCall out of the kept content array.
+function isMalformedToolCallBlock(block: unknown): block is ToolCall {
+  return isMalformedToolCall(block);
 }
 
 export function guardAssistantMessage(message: AssistantMessage): GuardResult | undefined {
-  const removedToolCalls = message.content.filter(isMalformedToolCall);
+  const removedToolCalls = message.content.filter(isMalformedToolCallBlock);
   if (removedToolCalls.length === 0) return undefined;
 
   const content = message.content.filter((block) => !isMalformedToolCall(block));
-  const hasValidToolCall = content.some((block) => block.type === "toolCall");
+  const hasValidToolCall = content.some(isToolCallBlock);
 
   return {
     removedToolCalls,

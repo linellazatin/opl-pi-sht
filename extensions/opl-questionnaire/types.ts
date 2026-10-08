@@ -18,6 +18,10 @@ export interface Question {
 	allowOther: boolean;
 }
 
+/** The fields `validateQuestions` reads: the same shape on raw tool params (where `label`
+ *  still has to be defaulted) and on normalized questions. */
+export type QuestionCheck = Pick<Question, "id" | "options"> & Partial<Pick<Question, "allowOther">>;
+
 export interface Answer {
 	id: string;
 	value: string;
