@@ -49,8 +49,9 @@ Full action set: `navigate` (url, or `back`/`forward`/`reload`), `snapshot`, `ex
   - **Fail closed** — if a build cannot install either handler, the tool refuses to browse
     instead of browsing half-guarded.
 
-  See [Network policy](#network-policy) for what this still cannot cover: DNS rebinding, blind
-  redirect side effects, and `evaluate` returning page-held data.
+  See [Network policy](#network-policy) for what this still cannot cover: DNS rebinding (the
+  `opl-webaccess` fetch path pins its socket; browsing cannot), blind redirect side effects, and
+  `evaluate` returning page-held data.
 - **Screenshots are contained and reserved.** The target must use `.png`/`.jpg` and stay inside
   the **session directory** (`ExtensionContext.cwd`, never the directory the harness was started
   in). Containment is checked on the real path: every symlink in the existing part of the path is
@@ -97,7 +98,7 @@ Hosts are classified after resolution, not from the URL text, so `http://169.254
 
 What is **not** covered, and the reason:
 
-- **DNS rebinding.** Validation resolves, then Playwright connects with its own lookup. An attacker who runs DNS for the hostname (TTL 0, alternating answers) can still land on an internal address. Closing this needs a filtering proxy the browser connects through, or IP pinning between the check and the socket; neither is in place, and loopback being opt-in only narrows what is reachable.
+- **DNS rebinding.** Validation resolves, then Playwright connects with its own lookup. An attacker who runs DNS for the hostname (TTL 0, alternating answers) can still land on an internal address. Closing this needs a filtering proxy the browser connects through: Chromium resolves names internally and no Playwright API exposes a per-connection resolver, so the pin `opl-webaccess` uses for `fetch_content` is not available here. It is a documented residual rather than a bug: the defaults (`allowPrivateNetwork: false`, `allowLoopback: false`) are what narrows what a rebound name can reach.
 - **Blind side effects through redirects.** Playwright hands a route handler only the first URL of a redirect chain, and `<img>` or no-cors `fetch` results are not readable anyway, so those legs are not re-checked. The page-level result *is* cleared by the frame check above.
 - **`ENOTFOUND` for page requests.** A hostname the resolver does not know is let through, because hosts a page references willy-nilly (telemetry that is blocked in the hosts file, ad domains) would otherwise break every page. Navigations and `opl-webaccess` fetches fail closed on the same error; only page-initiated subresources and WebSockets fail open, and only for that one code.
 - **`evaluate` returns whatever the page holds.** That is the feature: a page that can read an internal endpoint from its own origin can also hand it to the model.
