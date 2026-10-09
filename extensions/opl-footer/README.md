@@ -77,8 +77,9 @@ See the tracked [`configs/opl-footer.json.sample`](../../configs/opl-footer.json
 ## Cross-extension seams
 
 While a footer is mounted, `opl-footer` publishes `__footerRequestRender` so another
-extension (`opl-modes`) can ask for a re-render outside a turn, and it reads `__agentMode`
-for the `mode_switcher` segment. Both sides are optional at install time, so the reads are
+extension (`opl-modes`) can ask for a re-render outside a turn, and it reads `__agentMode`,
+`__planMode`, `__chatMode` and `__caveman` for the `mode_switcher`, `plan_mode`, `chat_mode`
+and `caveman` segments. Both sides are optional at install time, so the reads are
 valid rather than trusted: only a `{ mode: <non-empty string> }` is honoured, a malformed or
 missing value renders `Mode: Normal`, and a `modeColor` that is not a string is ignored.
 `session_shutdown` deletes the published trigger, because it closes over this session's TUI

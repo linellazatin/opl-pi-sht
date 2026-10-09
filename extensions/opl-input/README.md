@@ -83,3 +83,17 @@ Invalid theme tokens fall back to the theme's `border` token; invalid hex render
 ## Architecture
 
 `index.ts` installs the editor integration and disposes companion render timers on editor replacement or session shutdown; `mode-style.ts` resolves Bash > published mode appearance > compiled fallback; `config.ts` loads editor and companion settings; and `utils.ts` handles color and rendering helpers. `opl-modes` is the sole publisher of active mode appearance through `globalThis.__agentMode`.
+
+Two couplings are worth knowing before editing this extension:
+
+- **pi-tui's text output.** Re-framing the editor means recognising its horizontal borders and
+  its scroll indicator, and pi-tui exposes neither as an API: they are the literal strings `─`
+  and `─── ↑ 3 more `. Those markers are collected in one place (`isSolidBorder`,
+  `scrollIndicatorText`, `isBorderLike` in `index.ts`) and
+  `tests/opl-input-pi-tui-markers.test.mjs` asserts the installed pi-tui still emits them. They
+  were byte-identical in pi-tui 0.87.0, 0.99.1 and 1.1.0; a failure there means the format
+  changed and the re-framing needs updating, not that the test is wrong.
+- **The bundle's idle heartbeat.** This component owns the only render timer, so the footer's
+  time-based cells advance because of it. Disabling `opl-input` freezes that clock; with
+  `companion.enabled: false` the tick slows to one repaint per `IDLE_REPAINT_MS` rather than
+  stopping.

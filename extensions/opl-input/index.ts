@@ -13,6 +13,34 @@ function plainText(line: string): string {
 	return line.replace(ANSI_RE, "");
 }
 
+// ─── pi-tui private render format ─────────────────────────────────────────────
+// The box renderers below must tell the editor's horizontal borders from its scroll
+// indicator, and pi-tui exposes neither as an API nor as a stable class: it is plain text.
+// These two markers are the whole contract, so they live here instead of being duplicated in
+// each renderer, and tests/opl-input-pi-tui-markers.test.mjs asserts the installed pi-tui
+// still emits them. Verified byte-identical in pi-tui 0.87.0, 0.99.1 and 1.1.0
+// (dist/components/editor.js: `─── ${direction} ${hiddenLineCount} more `).
+const BORDER_CHAR = "─";
+const SCROLL_INDICATOR_RE = /((?:↑|↓)\s*\d+\s*more)/;
+
+/** Solid border: after stripping ANSI every character is the box-drawing horizontal. */
+export function isSolidBorder(line: string): boolean {
+	return plainText(line).replaceAll(BORDER_CHAR, "").length === 0;
+}
+
+/** The scroll indicator (`─── ↑ 3 more `) is border-like but carries text worth preserving. */
+export function scrollIndicatorText(line: string): string | null {
+	const plain = plainText(line);
+	if (!plain.startsWith(BORDER_CHAR)) return null;
+	const match = plain.match(SCROLL_INDICATOR_RE);
+	return match ? match[1]! : null;
+}
+
+/** Anything that marks the top or bottom edge of the stock editor output. */
+export function isBorderLike(line: string): boolean {
+	return isSolidBorder(line) || scrollIndicatorText(line) !== null;
+}
+
 function activeMode(): { mode: string; appearance?: ModeAppearance } {
 	const state = (globalThis as Record<string, unknown>).__agentMode as
 		| { mode?: string; appearance?: ModeAppearance }
@@ -121,19 +149,6 @@ class ChatInput extends CustomEditor {
 	): string[] {
 		const innerWidth = width - 2;
 
-		// Solid border: after stripping ANSI every char is "─"
-		const isSolidBorder = (line: string) => plainText(line).replace(/─/g, "").length === 0;
-
-		// Scroll indicator: starts with "─" and contains ↑/↓ N more
-		const getScrollText = (line: string): string | null => {
-			const plain = plainText(line);
-			if (!plain.startsWith("─")) return null;
-			const m = plain.match(/((?:↑|↓)\s*\d+\s*more)/);
-			return m ? m[1] : null;
-		};
-
-		const isBorderLike = (line: string) => isSolidBorder(line) || getScrollText(line) !== null;
-
 		const firstIdx = stock.findIndex(isBorderLike);
 		let lastIdx = -1;
 		for (let i = stock.length - 1; i >= 0; i--) {
@@ -158,8 +173,8 @@ class ChatInput extends CustomEditor {
 			return border("└") + border(mid) + border("─".repeat(remaining)) + border("┘");
 		};
 
-		const topScrollText = firstIdx !== -1 ? getScrollText(stock[firstIdx]!) : null;
-		const bottomScrollText = lastIdx !== -1 && lastIdx !== firstIdx ? getScrollText(stock[lastIdx]!) : null;
+		const topScrollText = firstIdx !== -1 ? scrollIndicatorText(stock[firstIdx]!) : null;
+		const bottomScrollText = lastIdx !== -1 && lastIdx !== firstIdx ? scrollIndicatorText(stock[lastIdx]!) : null;
 
 		const top = buildTop(topScrollText);
 		const bottom = buildBottom(bottomScrollText);
@@ -207,19 +222,6 @@ class ChatInput extends CustomEditor {
 		accent: (s: string) => string,
 		prefix: string,
 	): string[] {
-		// Solid border: after stripping ANSI every char is "─"
-		const isSolidBorder = (line: string) => plainText(line).replace(/─/g, "").length === 0;
-
-		// Scroll indicator: starts with "─" and contains ↑/↓ N more
-		const getScrollText = (line: string): string | null => {
-			const plain = plainText(line);
-			if (!plain.startsWith("─")) return null;
-			const m = plain.match(/((?:↑|↓)\s*\d+\s*more)/);
-			return m ? m[1] : null;
-		};
-
-		const isBorderLike = (line: string) => isSolidBorder(line) || getScrollText(line) !== null;
-
 		const firstIdx = stock.findIndex(isBorderLike);
 		let lastIdx = -1;
 		for (let i = stock.length - 1; i >= 0; i--) {
@@ -244,8 +246,8 @@ class ChatInput extends CustomEditor {
 			return border(mid) + border("─".repeat(remaining));
 		};
 
-		const topScrollText = firstIdx !== -1 ? getScrollText(stock[firstIdx]!) : null;
-		const bottomScrollText = lastIdx !== -1 && lastIdx !== firstIdx ? getScrollText(stock[lastIdx]!) : null;
+		const topScrollText = firstIdx !== -1 ? scrollIndicatorText(stock[firstIdx]!) : null;
+		const bottomScrollText = lastIdx !== -1 && lastIdx !== firstIdx ? scrollIndicatorText(stock[lastIdx]!) : null;
 
 		const top = buildTop(topScrollText);
 		const bottom = buildBottom(bottomScrollText);

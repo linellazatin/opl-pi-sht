@@ -7,8 +7,16 @@ interface CavemanState {
   mode: string;
 }
 
+/**
+ * Nothing in this collection writes `__caveman` - a standalone extension does - so the shape
+ * is validated instead of cast: `mode.toUpperCase()` is a crash on a number, and a footer
+ * that throws takes every row down with it.
+ */
 function readCavemanState(): CavemanState | undefined {
-  return (globalThis as Record<string, unknown>).__caveman as CavemanState | undefined;
+  const state = (globalThis as Record<string, unknown>).__caveman as unknown;
+  if (!state || typeof state !== "object") return undefined;
+  const { enabled, mode } = state as { enabled?: unknown; mode?: unknown };
+  return typeof enabled === "boolean" && typeof mode === "string" ? { enabled, mode } : undefined;
 }
 
 export const cavemanSegment = {

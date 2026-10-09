@@ -14,6 +14,9 @@ import {
   transition,
 } from "../extensions/opl-modes/state.ts";
 import { modeSwitcherSegment } from "../extensions/opl-footer/segments/mode-switcher.ts";
+import { planModeSegment } from "../extensions/opl-footer/segments/plan-mode.ts";
+import { chatModeSegment } from "../extensions/opl-footer/segments/chat-mode.ts";
+import { cavemanSegment } from "../extensions/opl-footer/segments/caveman.ts";
 
 const theme = { fg: (_name, text) => text };
 const ctx = { theme };
@@ -97,6 +100,29 @@ test("the footer mode segment only honours a well-formed state", () => {
       const out = modeSwitcherSegment.render(ctx);
       assert.equal(out.visible, visible, `${String(value)}: ${note ?? ""}`);
       if (expect) assert.match(out.content, expect, `${String(value)}: ${note ?? ""}`);
+    });
+  }
+});
+
+test("the other mode segments refuse malformed seam values instead of throwing", () => {
+  const cases = [
+    [planModeSegment, "__planMode", { mode: "plan" }, true, /ON/],
+    [planModeSegment, "__planMode", { mode: "off" }, true, /OFF/],
+    [planModeSegment, "__planMode", { mode: 5 }, false, null],
+    [planModeSegment, "__planMode", "plan", false, null],
+    [planModeSegment, "__planMode", undefined, false, null],
+    [chatModeSegment, "__chatMode", { mode: "chat" }, true, /ON/],
+    [chatModeSegment, "__chatMode", { mode: ["chat"] }, false, null],
+    [cavemanSegment, "__caveman", { enabled: true, mode: "grunting" }, true, /GRUNTING/],
+    [cavemanSegment, "__caveman", { enabled: "yes", mode: "grunting" }, false, null],
+    [cavemanSegment, "__caveman", { enabled: true, mode: 7 }, false, null],
+    [cavemanSegment, "__caveman", { enabled: true }, false, null],
+  ];
+  for (const [segment, name, value, visible, expect] of cases) {
+    withGlobal(name, value, () => {
+      const out = segment.render(ctx);
+      assert.equal(out.visible, visible, `${name} = ${JSON.stringify(value) ?? String(value)}`);
+      if (expect) assert.match(out.content, expect);
     });
   }
 });
