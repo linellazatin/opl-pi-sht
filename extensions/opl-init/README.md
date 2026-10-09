@@ -23,4 +23,6 @@ Refinement needs pi 0.86.0 or newer (`ctx.modelRegistry.streamSimple`, `ctx.relo
 
 ## Architecture
 
+Every `git` call goes through one guard. A repository is attacker-chosen data and can declare programs of its own (`[diff "x"] textconv`, `core.fsmonitor`, `core.hooksPath`, or a system/user config naming a helper) that git runs while answering what looks like a read-only query. The guard passes `--no-pager`, `-c core.fsmonitor=false`, `-c core.hooksPath=`, `-c protocol.ext.allow=never`, `-c credential.helper=`, `GIT_CONFIG_NOSYSTEM`, `GIT_ATTR_NOSYSTEM`, `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0`, plus `--no-ext-diff --no-textconv` on diff-family subcommands. Probes still ask for name-only or porcelain output, because that is all a fingerprint needs. The block is duplicated in `opl-footer/git-status.ts` - installs are per-directory, so the two cannot share a module - and `tests/net-guard-parity.test.mjs` fails if the copies drift.
+
 `index.ts` owns crawling, fingerprinting, the evidence packet, the model call, output validation, and writing. Git repositories fingerprint `schema version + HEAD + sha256 of every dirty tracked and untracked file` (root `AGENTS.md` excluded); non-git repositories use sorted path/size/mtime tuples. `/init` writes the file itself and reloads the session context; the main agent is never enlisted.
