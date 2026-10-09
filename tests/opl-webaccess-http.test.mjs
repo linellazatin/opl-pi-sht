@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
 import { createServer } from "node:http";
+import { gzipSync, deflateSync, brotliCompressSync } from "node:zlib";
 import { pinnedFetch, buildRequestOptions } from "../extensions/opl-webaccess/http.ts";
 import { extractPdfBuffer } from "../extensions/opl-webaccess/pdf.ts";
 import { fetchAllContent } from "../extensions/opl-webaccess/extract.ts";
@@ -84,6 +85,112 @@ function target(url, addresses) {
   const parsed = new URL(url);
   return { url, host: parsed.hostname, addresses };
 }
+
+for (const [encoding, compress] of [["gzip", gzipSync], ["deflate", deflateSync], ["br", brotliCompressSync]]) {
+  test(`decodes ${encoding} even when the server ignores accept-encoding identity`, async () => {
+    const server = await serve(() => ({ headers: { "content-type": "text/plain", "content-encoding": encoding }, body: compress(Buffer.from("Readable text")) }));
+    try {
+      const url = `http://127.0.0.1:${server.address().port}/`;
+      const [result] = await fetchAllContent([url], undefined, { allowLoopback: true });
+      assert.equal(result.error, null);
+      assert.equal(result.content, "Readable text");
+    } finally { await close(server); }
+  });
+
+  test(`${encoding} decoded bytes cannot exceed the response limit`, async () => {
+    const server = await serve(() => ({ headers: { "content-encoding": encoding }, body: compress(Buffer.from("x".repeat(8192))) }));
+    try {
+      const url = `http://compressed.example:${server.address().port}/`;
+      await assert.rejects(() => pinnedFetch(target(url, ["127.0.0.1"]), { maxResponseBytes: 1024 }), /1024 byte limit/);
+    } finally { await close(server); }
+  });
+}
+
+test("rejects malformed, unsupported and chained content encodings", async () => {
+  for (const encoding of ["gzip", "deflate", "br", "unknown", "gzip, br"]) {
+    const server = await serve(() => ({ headers: { "content-encoding": encoding }, body: "not a compressed body" }));
+    try {
+      await assert.rejects(() => pinnedFetch(target(`http://encoded.example:${server.address().port}/`, ["127.0.0.1"])), /encoding|decompress|header|data|compression|brotli|incorrect/i);
+    } finally { await close(server); }
+  }
+});
+
+test("compressed wire bytes are capped independently of decoded bytes", async () => {
+  // Gzip framing makes this tiny payload occupy more wire bytes than decoded bytes.
+  const compressed = gzipSync(Buffer.from("ok"));
+  const server = await serve(() => ({ headers: { "content-encoding": "gzip" }, body: compressed }));
+  try {
+    await assert.rejects(() => pinnedFetch(target(`http://encoded.example:${server.address().port}/`, ["127.0.0.1"]), { maxResponseBytes: 10 }), /10 byte limit/);
+  } finally { await close(server); }
+});
+
+test("a compressed stream without content-length is capped on received bytes", async () => {
+  const body = gzipSync(Buffer.from("ok"));
+  const server = await serve((_req, res) => {
+    res.writeHead(200, { "content-encoding": "gzip" });
+    res.write(body);
+    res.end();
+    return "hold";
+  });
+  try {
+    await assert.rejects(() => pinnedFetch(target(`http://encoded.example:${server.address().port}/`, ["127.0.0.1"]), { maxResponseBytes: 10 }), /10 byte limit/);
+  } finally { await close(server); }
+});
+
+for (const reason of ["abort", "deadline"]) {
+  test(`${reason} destroys an unfinished compressed response`, async () => {
+    let disconnected;
+    const closed = new Promise((resolve) => { disconnected = resolve; });
+    const controller = new AbortController();
+    const server = await serve((_req, res) => {
+      _req.socket.on("close", disconnected);
+      res.writeHead(200, { "content-encoding": "gzip" });
+      res.write(gzipSync(Buffer.from("partial")).subarray(0, 10));
+      if (reason === "abort") controller.abort();
+      return "hold";
+    });
+    try {
+      await assert.rejects(() => pinnedFetch(target(`http://stream.example:${server.address().port}/`, ["127.0.0.1"]), {
+        signal: controller.signal, timeoutMs: 100,
+      }), reason === "abort" ? /aborted/i : /timed out/);
+      await closed;
+    } finally { await close(server); }
+  });
+}
+
+test("completion removes the caller abort listener", async () => {
+  const controller = new AbortController();
+  const listeners = new Set();
+  const signal = controller.signal;
+  const add = signal.addEventListener.bind(signal);
+  const remove = signal.removeEventListener.bind(signal);
+  signal.addEventListener = (type, listener, options) => { if (type === "abort") listeners.add(listener); return add(type, listener, options); };
+  signal.removeEventListener = (type, listener, options) => { if (type === "abort") listeners.delete(listener); return remove(type, listener, options); };
+  const server = await serve();
+  try {
+    await pinnedFetch(target(`http://complete.example:${server.address().port}/`, ["127.0.0.1"]), { signal });
+    assert.equal(listeners.size, 0);
+  } finally { await close(server); }
+});
+
+test("a redirect without Location is read and capped as a final response", async () => {
+  const server = await serve(() => ({ status: 302, body: "x".repeat(4096) }));
+  try {
+    await assert.rejects(() => pinnedFetch(target(`http://final.example:${server.address().port}/`, ["127.0.0.1"]), { maxResponseBytes: 1024 }), /1024 byte limit/);
+  } finally { await close(server); }
+});
+
+test("all supported redirect statuses return headers with an empty body", async () => {
+  for (const status of [301, 302, 303, 307, 308]) {
+    const server = await serve(() => ({ status, headers: { location: "/final", "content-encoding": "unknown" }, body: "x".repeat(4096) }));
+    try {
+      const response = await pinnedFetch(target(`http://redirect.example:${server.address().port}/`, ["127.0.0.1"]), { maxResponseBytes: 1 });
+      assert.equal(response.status, status);
+      assert.equal(response.headers.get("location"), "/final");
+      assert.equal(response.body.length, 0);
+    } finally { await close(server); }
+  }
+});
 
 test("the socket goes to the pinned address, not to a fresh lookup", async () => {
   const server = await serve();

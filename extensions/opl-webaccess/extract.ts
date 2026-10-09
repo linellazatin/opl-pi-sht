@@ -3,7 +3,7 @@ import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
 import { extractPdfBuffer } from "./pdf.js";
 import { errorMessage, isAbortError, isPdfUrl, isPdfContentType, resolveSafeHostUrl, type HttpUrlOptions } from "./utils.js";
-import { pinnedFetch, type PinnedResponse } from "./http.js";
+import { pinnedFetch, isRedirectStatus, type PinnedResponse } from "./http.js";
 import type { ExtractedContent } from "./types.js";
 
 const CONCURRENT_LIMIT = 3;
@@ -63,7 +63,7 @@ async function fetchWithRedirectValidation(
       timeoutMs: opts.timeoutMs,
     };
     const response = await (opts.transport ?? pinnedFetch)(target, request);
-    if (response.status < 300 || response.status >= 400) return response;
+    if (!isRedirectStatus(response.status)) return response;
     const location = response.headers.get("location");
     if (!location) return response; // 3xx without a Location: treat as final
     current = new URL(location, target.url).href;
@@ -72,11 +72,15 @@ async function fetchWithRedirectValidation(
 }
 
 async function fetchOne(url: string, signal?: AbortSignal, opts: HttpUrlOptions = {}): Promise<ExtractedContent> {
+  const deadline = new AbortController();
+  const budget = opts.timeoutMs ?? FETCH_TIMEOUT_MS;
+  // Own this timer across all hops. Bun cancels AbortSignal.timeout when its last listener
+  // is removed, so transport cleanup between literal-IP hops must not cancel the deadline.
+  const timer = setTimeout(() => deadline.abort(), budget);
   try {
-    const budget = opts.timeoutMs ?? FETCH_TIMEOUT_MS;
     const fetchSignal = signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(budget)])
-      : AbortSignal.timeout(budget);
+      ? AbortSignal.any([signal, deadline.signal])
+      : deadline.signal;
     const response = await fetchWithRedirectValidation(url, fetchSignal, opts);
 
     if (!response.ok) {
@@ -121,5 +125,7 @@ async function fetchOne(url: string, signal?: AbortSignal, opts: HttpUrlOptions 
   } catch (err) {
     if (isAbortError(err)) return { url, title: "", content: "", error: "Aborted" };
     return { url, title: "", content: "", error: errorMessage(err) };
+  } finally {
+    clearTimeout(timer);
   }
 }

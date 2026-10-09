@@ -13,6 +13,8 @@
 import http from "node:http";
 import https from "node:https";
 import type { LookupAddress, LookupOptions } from "node:dns";
+import { createGunzip, createInflate, createBrotliDecompress } from "node:zlib";
+import type { Transform } from "node:stream";
 import type { SafeHttpTarget } from "./utils.ts";
 
 /** Keeps site responses identical to the fetch path this replaces. */
@@ -25,7 +27,7 @@ export interface PinnedFetchOptions {
   signal?: AbortSignal;
   /** Socket inactivity deadline (ms). 0 or unset means no transport-side deadline. */
   timeoutMs?: number;
-  /** Hard ceiling on the response body. 0 or unset means unlimited. */
+  /** Hard ceiling on both received and decoded body bytes. 0 or unset means unlimited. */
   maxResponseBytes?: number;
 }
 
@@ -85,7 +87,7 @@ export function buildRequestOptions(
   const headers: Record<string, string> = {
     "user-agent": USER_AGENT,
     accept: "*/*",
-    // No advertised compression: the body is handed back as fetched, like the fetch path did.
+    // Prefer identity, but decode supported encodings if the server compresses anyway.
     "accept-encoding": "identity",
     ...opts.headers,
   };
@@ -116,6 +118,11 @@ export function pinnedAgent(url: string): http.Agent | https.Agent {
   return url.startsWith("https:") ? new https.Agent({ keepAlive: false }) : new http.Agent({ keepAlive: false });
 }
 
+/** Only these status codes redirect a GET; other 3xx responses are final. */
+export function isRedirectStatus(status: number): boolean {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+}
+
 /**
  * Fetch one already-validated target. Redirects are returned, never followed: the caller re-runs the
  * guard and re-pins for each hop, which is the only place a new host can appear.
@@ -127,49 +134,99 @@ export function pinnedFetch(target: SafeHttpTarget, opts: PinnedFetchOptions = {
 
   return new Promise<PinnedResponse>((resolve, reject) => {
     let settled = false;
+    let incoming: http.IncomingMessage | undefined;
+    let decoder: Transform | undefined;
+    let inactivityTimer: ReturnType<typeof setTimeout> | undefined;
+    const abort = () => fail(abortError());
+    const resetTimeout = () => {
+      if (!opts.timeoutMs || opts.timeoutMs <= 0) return;
+      clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => fail(new Error(`Request to ${target.host} timed out after ${opts.timeoutMs} ms`)), opts.timeoutMs);
+    };
+    const cleanup = () => {
+      opts.signal?.removeEventListener("abort", abort);
+      clearTimeout(inactivityTimer);
+      decoder?.destroy();
+      incoming?.destroy();
+      request.destroy();
+      if (options.agent && typeof options.agent === "object") options.agent.destroy();
+    };
     const fail = (err: Error) => {
       if (settled) return;
       settled = true;
+      cleanup();
       reject(err);
     };
     const request = transport.request(options, (response) => {
+      incoming = response;
+      response.on("error", fail);
+      response.on("aborted", () => fail(new Error(`Response from ${target.host} ended before its body completed`)));
+      const status = response.statusCode ?? 0;
+      const headers = {
+        get(name: string): string | null {
+          const value = response.headers[name.toLowerCase()];
+          if (Array.isArray(value)) return value.join(", ");
+          return value === undefined ? null : String(value);
+        },
+      };
+      const finish = (body: Buffer) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve({ status, ok: status >= 200 && status < 300, headers, body, text: () => body.toString("utf8") });
+      };
+      // A redirect body is irrelevant. Close this socket and let the caller validate the next hop.
+      if (isRedirectStatus(status) && headers.get("location")) {
+        finish(Buffer.alloc(0));
+        return;
+      }
+      // These responses cannot carry a body, even if they advertise its size or encoding.
+      if (options.method === "HEAD" || status === 204 || status === 304) {
+        finish(Buffer.alloc(0));
+        return;
+      }
       const declared = Number(response.headers["content-length"]);
       if (limit > 0 && Number.isFinite(declared) && declared > limit) {
-        response.destroy();
         fail(new Error(`Response from ${target.host} is ${declared} bytes, over the ${limit} byte limit (set maxResponseBytes to raise it)`));
         return;
       }
+      const encoding = (headers.get("content-encoding") ?? "identity").trim().toLowerCase();
+      switch (encoding) {
+        case "identity": break;
+        case "gzip": decoder = createGunzip(); break;
+        case "deflate": decoder = createInflate(); break;
+        case "br": decoder = createBrotliDecompress(); break;
+        default:
+          fail(new Error(`Unsupported content encoding "${encoding}" from ${target.host}`));
+          return;
+      }
       const chunks: Buffer[] = [];
-      let total = 0;
-      response.on("data", (chunk: Buffer) => {
-        total += chunk.length;
-        if (limit > 0 && total > limit) {
-          response.destroy();
-          fail(new Error(`Response from ${target.host} exceeds the ${limit} byte limit (set maxResponseBytes to raise it)`));
+      let received = 0;
+      let decoded = 0;
+      const collect = (chunk: Buffer) => {
+        if (settled) return;
+        decoded += chunk.length;
+        if (limit > 0 && decoded > limit) {
+          fail(new Error(`Decoded response from ${target.host} exceeds the ${limit} byte limit (set maxResponseBytes to raise it)`));
           return;
         }
         chunks.push(chunk);
-      });
-      response.on("error", fail);
-      response.on("end", () => {
+      };
+      response.on("data", (chunk: Buffer) => {
         if (settled) return;
-        settled = true;
-        const body = Buffer.concat(chunks);
-        const status = response.statusCode ?? 0;
-        resolve({
-          status,
-          ok: status >= 200 && status < 300,
-          headers: {
-            get(name: string): string | null {
-              const value = response.headers[name.toLowerCase()];
-              if (Array.isArray(value)) return value.join(", ");
-              return value === undefined ? null : String(value);
-            },
-          },
-          body,
-          text: () => body.toString("utf8"),
-        });
+        resetTimeout();
+        received += chunk.length;
+        if (limit > 0 && received > limit) {
+          fail(new Error(`Response from ${target.host} exceeds the ${limit} byte limit (set maxResponseBytes to raise it)`));
+        }
       });
+      const bodyStream = decoder ?? response;
+      bodyStream.on("data", collect);
+      bodyStream.on("end", () => finish(Buffer.concat(chunks)));
+      if (decoder) {
+        decoder.on("error", (err: Error) => fail(new Error(`Cannot decompress ${encoding} response from ${target.host}: ${err.message}`, { cause: err })));
+        response.pipe(decoder);
+      }
     });
     request.on("error", (err) => {
       const failure = err as Error & { code?: string };
@@ -189,26 +246,13 @@ export function pinnedFetch(target: SafeHttpTarget, opts: PinnedFetchOptions = {
     // Both the deadline and the caller's abort own their error objects. Handing destroy() an error
     // reaches the rejection reliably on Node; on Bun the socket comes back as ECONNRESET or a bare
     // "Connection closed", which would hide the reason from the model and from these tests.
-    if (opts.timeoutMs && opts.timeoutMs > 0) {
-      request.setTimeout(opts.timeoutMs, () => {
-        request.destroy();
-        fail(new Error(`Request to ${target.host} timed out after ${opts.timeoutMs} ms`));
-      });
-    }
+    resetTimeout();
     if (opts.signal) {
       if (opts.signal.aborted) {
-        request.destroy();
         fail(abortError());
         return;
       }
-      opts.signal.addEventListener(
-        "abort",
-        () => {
-          request.destroy();
-          fail(abortError());
-        },
-        { once: true },
-      );
+      opts.signal.addEventListener("abort", abort, { once: true });
     }
     request.end();
   });

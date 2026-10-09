@@ -17,6 +17,61 @@ function listen(handler) {
 
 const close = (server) => new Promise((resolve) => server.close(resolve));
 
+for (const mode of ["oversized", "unfinished"]) {
+  test(`follows redirect headers without reading an ${mode} body`, async () => {
+    const server = await listen((req, res) => {
+      if (req.url === "/final") { res.end("arrived"); return; }
+      res.writeHead(302, { location: "/final", ...(mode === "oversized" ? { "content-length": "8192" } : {}) });
+      if (mode === "unfinished") { res.flushHeaders(); return; }
+      res.end("x".repeat(8192));
+    });
+    try {
+      const [result] = await fetchAllContent([`http://127.0.0.1:${server.address().port}/`], undefined, {
+        allowLoopback: true, maxResponseBytes: 1024, timeoutMs: 500,
+      });
+      assert.equal(result.error, null);
+      assert.equal(result.content, "arrived");
+    } finally { await close(server); }
+  });
+}
+
+test("a redirect loop remains bounded", async () => {
+  let hits = 0;
+  const server = await listen((_req, res) => { hits++; res.writeHead(302, { location: "/" }); res.end(); });
+  try {
+    const [result] = await fetchAllContent([`http://127.0.0.1:${server.address().port}/`], undefined, { allowLoopback: true });
+    assert.match(result.error, /Too many redirects/);
+    assert.equal(hits, 6);
+  } finally { await close(server); }
+});
+
+test("304 with a Location is a final response rather than a redirect", async () => {
+  let hits = 0;
+  const server = await listen((_req, res) => { hits++; res.writeHead(304, { location: "/" }); res.end(); });
+  try {
+    const [result] = await fetchAllContent([`http://127.0.0.1:${server.address().port}/`], undefined, { allowLoopback: true });
+    assert.match(result.error, /HTTP 304/);
+    assert.equal(hits, 1);
+  } finally { await close(server); }
+});
+
+test("redirect hops share the caller deadline", async () => {
+  const timers = [];
+  const server = await listen((req, res) => {
+    timers.push(setTimeout(() => {
+      if (req.url === "/final") res.end("late");
+      else { res.writeHead(302, { location: "/final" }); res.end(); }
+    }, 100));
+  });
+  try {
+    const [result] = await fetchAllContent([`http://127.0.0.1:${server.address().port}/`], undefined, { allowLoopback: true, timeoutMs: 150 });
+    assert.equal(result.error, "Aborted");
+  } finally {
+    for (const timer of timers) clearTimeout(timer);
+    await close(server);
+  }
+});
+
 test("every hop of a redirect chain is resolved and pinned separately", async () => {
   const hops = [];
   const second = await listen((req, res) => {

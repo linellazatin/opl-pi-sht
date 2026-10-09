@@ -51,6 +51,7 @@
 
 ### Fixed
 
+- **`opl-webaccess`**: URL fetches decode `gzip`, `deflate` and `br` with separate received/decoded byte caps; redirect headers advance without buffering their bodies, and only 301/302/303/307/308 are followed. Abort and inactivity cleanup closes the socket and decoder; the overall deadline survives cleanup between hops.
 - **`opl-browser`, `opl-webaccess`**: fully expanded IPv6 addresses now pass through the embedded-IPv4 classifier; expanded DNS answers for unspecified, loopback and IPv6 metadata addresses follow the same policy as their compressed forms. 6to4 addresses embedding `0.0.0.0` are also refused. Both guards remain parity-checked.
 - **`opl-webaccess`**: PDF fetching converts HTTP response buffers into plain `Uint8Array` input before extraction, avoiding PDF.js rejecting Node `Buffer` values.
 - **`opl-ctxtrim`**: Google/Gemini requests were never trimmed. `functionDeclarations` and `toolSpecifications` inside `tools[]`, the `tool_config` snake_case variant, and `parametersJsonSchema`/`input_schema` declarations are now recognised, so a Gemini request loses the same tool descriptions an OpenAI request already did: 21,752 B to 5,726 B on an 11-tool payload (-73.7%; OpenAI shape -74.1%).
