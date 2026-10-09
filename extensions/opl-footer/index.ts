@@ -37,12 +37,106 @@ const LAYOUT_ROWS = [
 // Status Line Builder
 // ═══════════════════════════════════════════════════════════════════════════
 
+const isAssistantMessageEvent = (e: SessionEvent): e is AssistantMessageEvent =>
+  e.type === "message" && (e as AssistantMessageEvent).message.role === "assistant";
+
+const isThinkingEvent = (e: SessionEvent): e is ThinkingLevelEvent =>
+  e.type === "thinking_level_change";
+
+/**
+ * Branch-derived footer inputs. Every field is a pass over the whole branch and the
+ * footer re-renders on each keypress, so they are memoised on (branch length, context
+ * window) — the only inputs that can change them.
+ */
+export interface BranchFacts {
+  key: string;
+  usageStats: UsageStats;
+  thinkingLevelFromSession: string | null;
+  estimatedContextUsage: { tokens: number; percent: number } | null;
+  branchPrompts: number;
+  branchApiCalls: number;
+  branchToolCalls: number;
+}
+
+function emptyBranchFacts(key: string): BranchFacts {
+  return {
+    key,
+    usageStats: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
+    thinkingLevelFromSession: null,
+    estimatedContextUsage: null,
+    branchPrompts: 0,
+    branchApiCalls: 0,
+    branchToolCalls: 0,
+  };
+}
+
+export function deriveBranchFacts(
+  branch: SessionEvent[],
+  key: string,
+  opts: {
+    contextWindow: number;
+    needsEstimate: boolean;
+    projectedMessages: Parameters<typeof estimateContextUsage>[0] | undefined;
+  },
+): BranchFacts {
+  const completedMessages = branch
+    .filter(isAssistantMessageEvent)
+    .map((e) => e.message as AssistantMessage)
+    .filter((m) => m.stopReason !== "error" && m.stopReason !== "aborted");
+  // Session entries are host data: a missing usage block reads as zero instead of
+  // throwing and blanking every row.
+  const usageStats = completedMessages.reduce<UsageStats>(
+    (acc, m) => {
+      const u = (m.usage ?? {}) as unknown as Partial<UsageStats> & { cost?: { total?: number } };
+      return {
+        input: acc.input + (u.input ?? 0),
+        output: acc.output + (u.output ?? 0),
+        cacheRead: acc.cacheRead + (u.cacheRead ?? 0),
+        cacheWrite: acc.cacheWrite + (u.cacheWrite ?? 0),
+        cost: acc.cost + (u.cost?.total ?? 0),
+      };
+    },
+    { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
+  );
+  const thinkingEvents = branch.filter(isThinkingEvent);
+  return {
+    key,
+    usageStats,
+    // Seed null, not "off": a truthy seed made the ?? fallback unreachable, so a branch
+    // with no thinking_level_change entry rendered "off" instead of Pi's real level.
+    thinkingLevelFromSession: thinkingEvents.length
+      ? thinkingEvents.reduce((_, e) => e.thinkingLevel ?? "off", "off")
+      : null,
+    estimatedContextUsage:
+      opts.needsEstimate && opts.contextWindow > 0 && opts.projectedMessages
+        ? estimateContextUsage(opts.projectedMessages, opts.contextWindow)
+        : null,
+    // Prompt/API/tool counts are reconstructed from the branch so they survive quit/resume.
+    // Timing stats (llmMs, toolMs, ttftSamples) are ephemeral — not stored in messages.
+    branchPrompts: branch.filter(
+      (e) => e.type === "message" && (e as AssistantMessageEvent).message?.role === "user",
+    ).length,
+    branchApiCalls: completedMessages.length,
+    branchToolCalls: completedMessages.reduce((sum, msg) => {
+      const content = (msg as { content?: unknown }).content;
+      return sum + (Array.isArray(content) ? content.filter((block) => (block as any)?.type === "toolCall").length : 0);
+    }, 0),
+  };
+}
+
 /** Render a single segment and return its content with width */
 function renderSegmentWithWidth(
   segId: StatusLineSegmentId,
   ctx: SegmentContext
 ): { content: string; width: number; visible: boolean } {
-  const rendered = renderSegment(segId, ctx);
+  let rendered;
+  try {
+    rendered = renderSegment(segId, ctx);
+  } catch {
+    // One throwing segment used to blank the whole footer on every frame. Show a
+    // marker in its place so the failure is visible and the rest still renders.
+    return { content: "[?]", width: 3, visible: true };
+  }
   if (!rendered.visible || !rendered.content) {
     return { content: "", width: 0, visible: false };
   }
@@ -58,7 +152,7 @@ function buildFooterContent(
   leftSegments: StatusLineSegmentId[],
   rightSegments: StatusLineSegmentId[],
   availableWidth: number,
-): string {
+): { text: string; visible: boolean } {
   const maxContentWidth = Math.max(0, availableWidth - 2);
 
   // Render left segments
@@ -87,15 +181,25 @@ function buildFooterContent(
   let leftStr = leftParts.join(" ");
   let rightStr = rightParts.join(" ");
 
+  // A row whose segments are all disabled is not padding: report it as invisible so
+  // render() can drop the line and its divider instead of charging the terminal a
+  // fixed six-line footer.
+  if (leftParts.length === 0 && rightParts.length === 0) {
+    return { text: "", visible: false };
+  }
+
   // Handle case with no right segments
   if (rightParts.length === 0) {
     const finalLeft = truncateToWidth(leftStr, maxContentWidth);
-    return " " + finalLeft + " ".repeat(Math.max(0, maxContentWidth - visibleWidth(finalLeft))) + " ";
+    return {
+      text: " " + finalLeft + " ".repeat(Math.max(0, maxContentWidth - visibleWidth(finalLeft))) + " ",
+      visible: true,
+    };
   }
 
   // If right side alone is too big, just show right side
   if (rightWidth >= maxContentWidth) {
-    return " " + truncateToWidth(rightStr, maxContentWidth) + " ";
+    return { text: " " + truncateToWidth(rightStr, maxContentWidth) + " ", visible: true };
   }
 
   // Ensure at least 1 space between left and right
@@ -106,7 +210,7 @@ function buildFooterContent(
   const padding = maxContentWidth - finalLeftWidth - rightWidth;
 
   const result = " " + finalLeft + " ".repeat(padding) + rightStr + " ";
-  return truncateToWidth(result, availableWidth);
+  return { text: truncateToWidth(result, availableWidth), visible: true };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -117,8 +221,9 @@ export default function footer(pi: ExtensionAPI) {
   let sessionStartTime = Date.now();
   let currentCtx: ExtensionContext | null = null;
   let footerDataRef: ReadonlyFooterDataProvider | null = null;
-  let lastBranchLength = 0;
-  let cachedUsageStats: UsageStats | null = null;
+  // Every field below is a pass over the whole branch. The footer re-renders on each
+  // keypress, so they are derived once per (branch length, context window) instead.
+  let branchFacts: BranchFacts | null = null;
   let tuiRef: TUI | null = null;
   let codexUsage: CodexUsageSnapshot | null = null;
   let codexUsageLastAttempt = 0;
@@ -293,8 +398,7 @@ export default function footer(pi: ExtensionAPI) {
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
     sessionStartTime = Date.now();
     currentCtx = ctx;
-    lastBranchLength = 0;
-    cachedUsageStats = null;
+    branchFacts = null;
     cancelCodexUsageRefresh();
     codexUsage = null;
     codexUsageLastAttempt = 0;
@@ -432,53 +536,34 @@ export default function footer(pi: ExtensionAPI) {
     const colors = effectiveConfig.colors ?? getDefaultColors();
 
     const branch = (ctx.sessionManager?.getBranch?.() ?? []) as SessionEvent[];
-    const branchLen = branch.length;
-
-    const isAssistantMessageEvent = (e: SessionEvent): e is AssistantMessageEvent =>
-      e.type === "message" && (e as AssistantMessageEvent).message.role === "assistant";
-    const completedMessages = branch
-      .filter(isAssistantMessageEvent)
-      .map(e => e.message as AssistantMessage)
-      .filter(m => m.stopReason !== "error" && m.stopReason !== "aborted");
-
-    // Cache usageStats — only recompute when branch grows
-    let usageStats: UsageStats;
-    if (cachedUsageStats && branchLen === lastBranchLength) {
-      usageStats = cachedUsageStats;
-    } else {
-      usageStats = completedMessages.reduce<UsageStats>(
-        (acc, m) => ({
-          input: acc.input + m.usage.input,
-          output: acc.output + m.usage.output,
-          cacheRead: acc.cacheRead + m.usage.cacheRead,
-          cacheWrite: acc.cacheWrite + m.usage.cacheWrite,
-          cost: acc.cost + m.usage.cost.total,
-        }),
-        { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
-      );
-      cachedUsageStats = usageStats;
-      lastBranchLength = branchLen;
-    }
-
-    const isThinkingEvent = (e: SessionEvent): e is ThinkingLevelEvent =>
-      e.type === "thinking_level_change";
-    const thinkingEvents = branch.filter(isThinkingEvent);
-    // Seed null, not "off": a truthy seed made the ?? fallback below unreachable, so a
-    // branch with no thinking_level_change entry rendered "off" instead of Pi's real level.
-    const thinkingLevelFromSession = thinkingEvents.length
-      ? thinkingEvents.reduce((_, e) => e.thinkingLevel ?? "off", "off")
-      : null;
 
     // Prefer Pi's canonical context usage (0.87). Immediately after compaction it is
     // null until the next assistant reply, so estimate the rebuilt projection instead.
     const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
     const contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
-    const projectedMessages = ctx.sessionManager?.buildSessionProjection?.().messages;
-    const estimatedContextUsage = usage?.percent === null && contextWindow > 0 && projectedMessages
-      ? estimateContextUsage(projectedMessages, contextWindow)
-      : null;
-    const contextPercent = usage?.percent ?? estimatedContextUsage?.percent ?? null;
-    const contextEstimated = estimatedContextUsage !== null;
+
+    const factsKey = `${branch.length}:${contextWindow}`;
+    let facts = branchFacts;
+    if (!facts || facts.key !== factsKey) {
+      const projectedMessages = usage?.percent === null
+        ? ctx.sessionManager?.buildSessionProjection?.().messages
+        : undefined;
+      try {
+        facts = deriveBranchFacts(branch, factsKey, {
+          contextWindow,
+          needsEstimate: usage?.percent === null,
+          projectedMessages,
+        });
+      } catch {
+        // The transcript is host data: an unexpected entry should degrade the cells that
+        // read it, not throw and blank every row.
+        facts = emptyBranchFacts(factsKey);
+      }
+      branchFacts = facts;
+    }
+
+    const contextPercent = usage?.percent ?? facts.estimatedContextUsage?.percent ?? null;
+    const contextEstimated = facts.estimatedContextUsage !== null;
 
     // Get git status (cached). Skip the probes entirely when no visible row renders the
     // git segment — otherwise an unused cell keeps spawning git once per second.
@@ -497,25 +582,12 @@ export default function footer(pi: ExtensionAPI) {
     // This allows litellm proxy to correctly separate local vs cloud models
     const isLocalModel = ctx.model?.id?.startsWith?.("local.") ?? false;
 
-    // Reconstruct prompt/API-call/tool-call counts from the branch so they survive quit/resume.
-    // Timing stats (llmMs, toolMs, ttftSamples) are ephemeral — not stored in messages.
-    const branchPrompts = branch.filter(
-      (e) => e.type === "message" && (e as AssistantMessageEvent).message?.role === "user",
-    ).length;
-    const branchApiCalls = completedMessages.length;
-
-    // Count tool calls from assistant message content
-    const branchToolCalls = completedMessages.reduce((sum, msg) => {
-      const content = (msg as any).content || [];
-      return sum + content.filter((block: any) => block?.type === "toolCall").length;
-    }, 0);
-
     return {
       model: ctx.model,
       isLocalModel,
-      thinkingLevel: thinkingLevelFromSession ?? pi.getThinkingLevel(),
+      thinkingLevel: facts.thinkingLevelFromSession ?? pi.getThinkingLevel(),
       sessionId: ctx.sessionManager?.getSessionId?.(),
-      usageStats,
+      usageStats: facts.usageStats,
       contextPercent,
       contextEstimated,
       contextWindow,
@@ -527,7 +599,15 @@ export default function footer(pi: ExtensionAPI) {
       theme,
       colors,
       icons: getIcons(effectiveConfig.icons),
-      sessionStats: { prompts: branchPrompts, apiCalls: branchApiCalls, toolCalls: branchToolCalls, llmMs, toolMs, ttftSamples, lastTurnaroundMs },
+      sessionStats: {
+        prompts: facts.branchPrompts,
+        apiCalls: facts.branchApiCalls,
+        toolCalls: facts.branchToolCalls,
+        llmMs,
+        toolMs,
+        ttftSamples,
+        lastTurnaroundMs,
+      },
       agentStatus: statusTracker.status(),
       codexUsage,
       openRouterUsage,
@@ -559,28 +639,25 @@ export default function footer(pi: ExtensionAPI) {
             return [];
           }
 
-          const row1 = buildFooterContent(
-            segmentCtx,
-            effectiveConfig.row1LeftSegments,
-            effectiveConfig.row1RightSegments,
-            width,
-          );
-          const row2 = buildFooterContent(
-            segmentCtx,
-            effectiveConfig.row2LeftSegments,
-            effectiveConfig.row2RightSegments,
-            width,
-          );
-          const row3 = buildFooterContent(
-            segmentCtx,
-            effectiveConfig.row3LeftSegments,
-            effectiveConfig.row3RightSegments,
-            width,
-          );
+          const rowSpecs: Array<[StatusLineSegmentId[], StatusLineSegmentId[]]> = [
+            [effectiveConfig.row1LeftSegments, effectiveConfig.row1RightSegments],
+            [effectiveConfig.row2LeftSegments, effectiveConfig.row2RightSegments],
+            [effectiveConfig.row3LeftSegments, effectiveConfig.row3RightSegments],
+          ];
+          const rows = rowSpecs
+            .map(([left, right]) => buildFooterContent(segmentCtx, left, right, width))
+            .filter((row) => row.visible);
+          if (rows.length === 0) return [];
 
           const divider = fg(theme, "separator", "─".repeat(width), segmentCtx.colors);
-
-          return ["", row1, divider, row2, divider, row3];
+          // The leading blank keeps the transcript off the first footer line. Dividers
+          // only go between rows that exist, so a one-row layout costs two lines, not six.
+          const lines: string[] = [""];
+          rows.forEach((row, index) => {
+            if (index > 0) lines.push(divider);
+            lines.push(row.text);
+          });
+          return lines;
         },
       };
     });

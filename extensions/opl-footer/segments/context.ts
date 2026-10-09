@@ -72,14 +72,15 @@ export const contextPctSegment = {
     const midFrac = barOpts.gradientMidPoint ?? DEFAULT_MID_FRAC;
 
     const filled = Math.round((pct / 100) * barWidth);
+    // Every unfilled cell is identical, so resolve its colour once instead of probing
+    // the theme once per cell on every frame.
+    const unfilledCell = applyColor(ctx.theme, unfilledColor, unfilledChar);
 
     let bar = "";
     for (let i = 0; i < barWidth; i++) {
-      if (i < filled) {
-        bar += positionColor(i, barWidth, start, mid, end, midFrac) + filledChar;
-      } else {
-        bar += applyColor(ctx.theme, unfilledColor, unfilledChar);
-      }
+      bar += i < filled
+        ? positionColor(i, barWidth, start, mid, end, midFrac) + filledChar
+        : unfilledCell;
     }
     bar += "\x1b[0m";
 
