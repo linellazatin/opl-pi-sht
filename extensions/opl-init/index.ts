@@ -31,6 +31,7 @@ type Crawl = {
   extCounts: Map<string, number>;
   manifests: { path: string; content: string }[];
   workspaceMembers: string[];
+  skippedGlobs: string[];
   seen: Set<string>;
 };
 
@@ -129,6 +130,7 @@ function crawl(root: string): Crawl {
     extCounts: new Map(),
     manifests: [],
     workspaceMembers: [],
+    skippedGlobs: [],
     seen: new Set(),
   };
 
@@ -205,7 +207,7 @@ function crawl(root: string): Crawl {
   // Manifest-first monorepo expansion: enumerate declared workspace members
   // with a fresh depth budget so packages/foo/src is not penalized by its
   // grouping prefix.
-  for (const member of workspaceMembers(root)) {
+  for (const member of workspaceMembers(root, result.skippedGlobs)) {
     if (result.tree.length >= MAX_TREE_LINES) break;
     const abs = join(root, member);
     let stats;
@@ -228,23 +230,42 @@ function crawl(root: string): Crawl {
   if (result.tree.length >= MAX_TREE_LINES) {
     result.tree.push(`(tree truncated at ${MAX_TREE_LINES} entries)`);
   }
+  if (result.skippedGlobs.length > 0) {
+    result.tree.push(
+      `(skipped workspace glob(s) that could not be compiled: ${result.skippedGlobs.join(", ")})`,
+    );
+  }
   return result;
 }
 
 // ponytail: naive glob matcher supporting only what workspace files use in
-// practice: `**` across segments, `*` within a segment, optional trailing "/".
-function globToRegExp(pattern: string): RegExp {
+// practice: `**` across segments, `*` within a segment, `?` for one character,
+// optional trailing "/". Everything else is escaped, so a directory name that is
+// itself regex syntax (`libs/c++/*`) matches literally instead of throwing.
+// Returns null for a pattern that cannot be compiled: workspace files are
+// user-authored, and one bad line must not abort /init.
+function globToRegExp(pattern: string): RegExp | null {
   const cleaned = pattern.replace(/\/$/, "");
-  const source = cleaned
-    .split("/**/")
-    .map((seg) => seg.replace(/[*]/g, "[^/]*"))
-    .join("(?:/.*)?");
-  return new RegExp(`^${source}$`);
+  if (cleaned === "") return null;
+  try {
+    const source = cleaned
+      .split("/**/")
+      .map((segment) =>
+        segment
+          .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+          .replace(/\*/g, "[^/]*")
+          .replace(/\?/g, "[^/]"),
+      )
+      .join("(?:/.*)?");
+    return new RegExp(`^${source}$`);
+  } catch {
+    return null;
+  }
 }
 
 // ponytail: line-based subset parsing of pnpm-workspace.yaml and Cargo.toml
 // [workspace] members. Full YAML/TOML parsing not warranted for glob lists.
-function workspaceMembers(root: string): string[] {
+function workspaceMembers(root: string, skipped: string[]): string[] {
   const globs: string[] = [];
 
   try {
@@ -280,6 +301,10 @@ function workspaceMembers(root: string): string[] {
   const members = new Set<string>();
   for (const glob of globs) {
     const re = globToRegExp(glob);
+    if (!re) {
+      if (!skipped.includes(glob)) skipped.push(glob);
+      continue;
+    }
     // Match against shallow candidate paths from the tree we already walked,
     // plus one extra readdir of likely parent dirs. Simple approach: test every
     // tree dir line's relative path.
