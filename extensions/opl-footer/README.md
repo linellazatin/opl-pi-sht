@@ -61,12 +61,14 @@ Probes are also hardened against the repository itself. A worktree can declare p
 {
   "row1LeftSegments": ["pi", "separator", "model", "separator", "path", "git"],
   "row1RightSegments": ["context_pct"],
-  "row2LeftSegments": ["thinking", "separator", "mode_switcher"],
+  "row2LeftSegments": ["thinking", "separator", "caveman", "separator", "mode_switcher"],
   "row2RightSegments": ["token_total", "separator", "cost"],
   "row3LeftSegments": ["session_stats"],
   "row3RightSegments": ["perf_stats"]
 }
 ```
+
+That is the shipped default layout (`DEFAULT_CONFIG` in `config.ts`); `codex_usage` and `openrouter_usage` start disabled and are added by editing the arrays or using `/configure-opl`.
 
 See the tracked [`configs/opl-footer.json.sample`](../../configs/opl-footer.json.sample) for a complete example. Segment IDs, color fields, context-bar options, thinking-level colors, and icon overrides are documented below. Colors accept Pi theme tokens, six-digit hex, or the three-digit `#abc` shorthand (expanded to `#aabbcc`); the context bar gradient resolves both forms to RGB. An unknown token or malformed hex renders that text uncolored instead of failing the footer render, so a typo in `colors` or in `opl-modes`' `appearance.modeColor` costs you a color, not the footer.
 
@@ -79,9 +81,9 @@ See the tracked [`configs/opl-footer.json.sample`](../../configs/opl-footer.json
 While a footer is mounted, `opl-footer` publishes `__footerRequestRender` so another
 extension (`opl-modes`) can ask for a re-render outside a turn, and it reads `__agentMode`,
 `__planMode`, `__chatMode` and `__caveman` for the `mode_switcher`, `plan_mode`, `chat_mode`
-and `caveman` segments. Both sides are optional at install time, so the reads are
-valid rather than trusted: only a `{ mode: <non-empty string> }` is honoured, a malformed or
-missing value renders `Mode: Normal`, and a `modeColor` that is not a string is ignored.
+and `caveman` segments. Both sides are optional at install time, so the reads are validated rather than trusted:
+only a `{ mode: <non-empty string> }` is honoured, a malformed or missing value renders
+`Mode: Normal`, and a `modeColor` that is not a string is ignored.
 `session_shutdown` deletes the published trigger, because it closes over this session's TUI
 and a stale one would hand a dead component to the next session.
 
@@ -91,7 +93,7 @@ and a stale one would hand a dead component to the next session.
 |---------|-------------|-------|
 | `pi` | π symbol in accent blue | `pi` icon can be modified in config file |
 | `model` | Model name in pink + `(provider)` in dim | No icon; provider omitted if unavailable |
-| `path` | Current working directory | `segmentOptions.path.mode`: `"full"` (default) · `"abbreviated"` · `"basename"` |
+| `path` | Session directory (`ExtensionContext.cwd`), not the directory the harness was launched from | `segmentOptions.path.mode`: `"full"` (default) · `"abbreviated"` · `"basename"` |
 | `git` | Git branch and dirty indicators | `showBranch`, `showStaged`, `showUnstaged`, `showUntracked` (all bool) |
 | `context_pct` | Gradient bar + `X.X%` + max tokens | Bar fully configurable via `segmentOptions.contextBar` (see below). % and max tokens use `contextLabel` colour. Max tokens formatted with K/M suffix (e.g. `128k`, `2M`). Usage comes from `ctx.getContextUsage()`; when Pi reports it as unknown right after compaction, the segment estimates the rebuilt projection with Pi’s `estimateTokens()` and marks the bar and values with `≈` until a fresh assistant response provides exact usage. If no projection is available, it renders `(--%)` rather than a stale value. Set `DEBUG_PCT` in `context.ts` to a number (0–100) to pin the bar at a fixed value for visual testing. |
 | `cost` | `$<amount>` (4 decimals, e.g. `$0.0123`) | `$` dim, amount in `cost` colour (`muted` by default). Four decimals keep cheap local or short sessions distinguishable instead of pinning at `$0.00`. Shows dim `(no pricing)` when the session total is zero on a non-local model (provider has no pricing configured), and `(local model)` for local models |

@@ -51,10 +51,22 @@ Full action set: `navigate` (url, or `back`/`forward`/`reload`), `snapshot`, `ex
 
   See [Network policy](#network-policy) for what this still cannot cover: DNS rebinding, blind
   redirect side effects, and `evaluate` returning page-held data.
-- **Screenshot paths are confined.** Paths must use `.png`/`.jpg`, stay inside the project
-  directory, and are refused when the file already exists, so a bad action cannot overwrite or
-  plant arbitrary files.
-- **Per-page capture.** Console messages and network requests are buffered per page as they occur; `console` and `network` actions return the active page's buffer, capped at the most recent `200` entries per page so an active long-running page cannot grow the buffer without bound. `navigate: back`/ `forward` on a fresh session reports `(no history to go back/forward)` instead of silently returning the unchanged page.
+- **Screenshots are contained and reserved.** The target must use `.png`/`.jpg` and stay inside
+  the **session directory** (`ExtensionContext.cwd`, never the directory the harness was started
+  in). Containment is checked on the real path: every symlink in the existing part of the path is
+  followed first, so a `shots -> ~/.pi` entry inside the project cannot carry the write out of it,
+  and a symlink standing at the target is refused like any other existing file instead of being
+  followed onto whatever it points at. Then the file is created with `wx`, so "refuse to overwrite"
+  and "hand this path to Playwright" are one atomic operation rather than a check-then-write race.
+  The action returns the resolved absolute path, and a capture that throws leaves no empty file
+  behind.
+- **Pages are addressed, not guessed.** Any page-scoped action accepts `index`; without it the
+  selected page is used. A stale selection is an error that names the page count, never a silent
+  retarget to the last page - so `close_page` cannot make a later `screenshot` or `navigate` act on
+  a different document than the model meant. `new_page` selects the page it actually created, and
+  `close_page` keeps the same page selected when what closed was a different one (stepping to the
+  nearest survivor when the selected page itself closes).
+- **Per-page capture.** Console messages and network requests are buffered per page as they occur; `console` and `network` actions return the target page's buffer, capped at the most recent `200` entries per page so an active long-running page cannot grow the buffer without bound. `navigate: back`/ `forward` on a fresh session reports `(no history to go back/forward)` instead of silently returning the unchanged page.
 - **One reused browser per session.** Launched on first use, closed automatically on `session_shutdown`, or on demand via `action: "close"`.
 
 ## Configuration
@@ -85,7 +97,7 @@ Hosts are classified after resolution, not from the URL text, so `http://169.254
 
 What is **not** covered, and the reason:
 
-- **DNS rebinding.** Validation resolves, then Playwright connects with its own lookup. An attacker who runs DNS for the hostname (TTL 0, alternating answers) can still land on an internal address. Closing this needs a filtering proxy the browser connects through, which is scheduled with the loopback default flip.
+- **DNS rebinding.** Validation resolves, then Playwright connects with its own lookup. An attacker who runs DNS for the hostname (TTL 0, alternating answers) can still land on an internal address. Closing this needs a filtering proxy the browser connects through, or IP pinning between the check and the socket; neither is in place, and loopback being opt-in only narrows what is reachable.
 - **Blind side effects through redirects.** Playwright hands a route handler only the first URL of a redirect chain, and `<img>` or no-cors `fetch` results are not readable anyway, so those legs are not re-checked. The page-level result *is* cleared by the frame check above.
 - **`ENOTFOUND` for page requests.** A hostname the resolver does not know is let through, because hosts a page references willy-nilly (telemetry that is blocked in the hosts file, ad domains) would otherwise break every page. Navigations and `opl-webaccess` fetches fail closed on the same error; only page-initiated subresources and WebSockets fail open, and only for that one code.
 - **`evaluate` returns whatever the page holds.** That is the feature: a page that can read an internal endpoint from its own origin can also hand it to the model.

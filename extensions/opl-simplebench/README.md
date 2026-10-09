@@ -172,7 +172,7 @@ The stats endpoint is metadata-only and does not change inference routing. Its s
 
 ## Artifacts and privacy
 
-Baseline and coding-lite artifacts are written to `process.cwd()` as JSON. `--test-all` writes a bundle:
+Baseline and coding-lite artifacts are written into the **session directory** (`ExtensionContext.cwd`), which the tool passes down explicitly; a run with no Pi session has none, so only then does it fall back to the harness working directory. `--test-all` writes a bundle:
 
 ```text
 simplebench--test-all-<sanitized-model>-<thinking>-<UTC-timestamp>/
@@ -232,17 +232,17 @@ Use `--coding-lite` for coding tasks only. Use `--test-all` to run the existing 
 
 ### Recommendation policy
 
-The recommendation is based on the three (or four) displayed categories:
+Four categories can be in play: the closed-answer contract, instruction following, tool usage, and (with `--coding-lite`) coding. A category counts as passed when its own rule succeeds - the closed-answer contract counts as passed at `STRONG` **or** `MODERATE`, and coding counts as passed on its efficiency-weighted average. The label then depends on how many passed, and on how many categories actually ran:
 
-| Result | Recommendation |
-|---|---|
-| Strong reasoning, JSON pass, tool pass, all coding STRONG | STRONG |
-| Strong reasoning, JSON pass, tool pass (coding not all STRONG) | GOOD |
-| Any three categories pass | USABLE |
-| Two categories pass | LIMITED |
-| One or zero categories pass | WEAK |
+| Categories passed | Baseline (3 categories) | With coding (4 categories) |
+|---|---|---|
+| All | STRONG if the contract is `STRONG` and, when coding ran, every task is `STRONG`; GOOD otherwise | |
+| All but one | GOOD | GOOD |
+| Two | USABLE | LIMITED |
+| One | LIMITED | LIMITED |
+| None | WEAK | WEAK |
 
-When coding-lite is included, the coding category uses efficiency-weighted scoring (STRONG=1.0, MODERATE=0.7, WEAK=0.4, FAIL=0). The category counts as passing when the weighted average ≥ 0.5 across all tasks.
+`WEAK` therefore requires that **nothing** passed; one passing category is `LIMITED`. A run that omits coding can report `USABLE` where the same results with coding report `LIMITED`, because the denominator changes. For runs with no clean category counts (an error or a cancelled run), `report.ts` falls back to the average `tests[].score`: `>= 0.8` `GOOD`, `>= 0.5` `USABLE`, `>= 0.2` `LIMITED`, otherwise `WEAK`. The coding category is scored efficiency-weighted (STRONG=1.0, MODERATE=0.7, WEAK=0.4, FAIL=0) and passes when that weighted average is >= 0.5 across all tasks.
 
 ## Provider authentication
 
@@ -274,7 +274,7 @@ AWS CLI v2 is therefore required when the selected profile uses SSO or an assume
 | OpenRouter returns 401 | Set `OPENROUTER_API_KEY`, configure the provider key, or authenticate Pi so `auth.json` has an API key. |
 | Bedrock says credentials are unavailable | Run `aws configure export-credentials --profile "$AWS_PROFILE"` and resolve profile login/role issues first. |
 | Bedrock rejects `--thinking-max` | The selected model does not advertise max thinking in Pi metadata, or the provider rejected its model-specific reasoning request. |
-| Artifact is absent | Check the report for `--no-artifact` or an artifact-write warning; the file is written to Pi's cwd. |
+| Artifact is absent | Check the report for `--no-artifact` or an artifact-write warning; the file lands in the session directory, not where the shell was standing. |
 | Token or TTFT values are null | The provider response did not expose authoritative usage/timing values. |
 
 ## Architecture
@@ -283,13 +283,15 @@ AWS CLI v2 is therefore required when the selected profile uses SSO or an assume
 index.ts       Pi registration, command parsing, tool schema
 benchmark.ts   provider adapters and benchmark orchestration
 llama-server.ts direct llama-server /props and /metrics capture
+coding.ts      the six execution-backed coding tasks and their agent loop
+research.ts    grounded research fixtures and the deterministic verifier
 tests.ts       benchmark fixtures
 scoring.ts     extraction and scoring
 metrics.ts     request/usage aggregation
-artifact.ts    cwd JSON artifact writer
+artifact.ts    session-directory JSON artifact writer
 report.ts      terminal output and recommendation policy
 types.ts       shared benchmark types
-util/          local configuration, formatting, debugging, and provider helpers
+util/          local configuration, formatting, debugging, exec-environment scrubbing, and provider helpers
 ```
 
-The extension is self-contained under `extensions/opl-simplebench/`, ready to copy into the `opl-pi-sht` extension stack after local verification.
+Everything lives under `extensions/opl-simplebench/` because `install.sh` installs one extension directory at a time; the only environment boundary model-authored code gets is `util/exec-env.ts`, which is where a new child process must go through.

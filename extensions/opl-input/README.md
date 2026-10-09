@@ -67,7 +67,7 @@ The companion requires at least 40 terminal columns and reserves three top-paddi
 
 Every color option accepts either:
 
-- **A Pi theme token** — one of the 45 tokens defined by Pi's `Theme`:
+- **A Pi theme token** — a color name from Pi's theme schema (56 names at pi 0.87.0 and 1.1.0, 7 of them `*Bg` fills). The ones that matter here:
   - Core: `accent`, `border`, `borderAccent`, `borderMuted`, `success`, `error`, `warning`, `muted`, `dim`, `text`
   - Messages/content: `thinkingText`, `searchMatchText`, `userMessageText`, `customMessageText`, `customMessageLabel`
   - Tools: `toolTitle`, `toolOutput`, `toolDiffAdded`, `toolDiffRemoved`, `toolDiffContext`
@@ -75,7 +75,7 @@ Every color option accepts either:
   - Syntax: `syntaxComment`, `syntaxKeyword`, `syntaxFunction`, `syntaxVariable`, `syntaxString`, `syntaxNumber`, `syntaxType`, `syntaxOperator`, `syntaxPunctuation`
   - Thinking borders: `thinkingOff`, `thinkingMinimal`, `thinkingLow`, `thinkingMedium`, `thinkingHigh`, `thinkingXhigh`, `thinkingMax`
   - Special: `bashMode`
-- **A hex color** — `"#c07898"`, or the three-digit shorthand `"#abc"` (expanded to `#aabbcc`; rendered as ANSI truecolor, downgraded automatically on 256-color terminals).
+- **A hex color** — `"#c07898"`, or the three-digit shorthand `"#abc"` (expanded to `#aabbcc`). Hex values are emitted as ANSI truecolor (`38;2;r;g;b`); there is no 256-color downgrade in this extension, so on a 256-only terminal a hex color may render approximately or not at all, while a theme token renders correctly.
 
 Invalid theme tokens fall back to the theme's `border` token; invalid hex renders uncolored rather than crashing.
 - A mode `prefix` is clamped to one terminal cell (continuation lines reserve a single space), so a wide or multi-character `appearance.prefix` such as `👀` is truncated to one cell rather than pushing the box border past the editor width.

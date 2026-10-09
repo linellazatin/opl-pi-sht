@@ -11,7 +11,7 @@ Copy `configs/opl-guardian.json.sample` to `~/.pi/agent/configs/opl-guardian.jso
 - `confirmDestructive` controls confirmations for starting a new session (`clearSession`), resuming another session when unanswered user work exists (`switchWithUnsavedWork`), and forking (`forkSession`). All default to `true`. `confirmDestructive.blockWithoutUI` also defaults to `true`; set it to `false` to allow these actions without an interactive confirmation.
 - `dropMalformedToolCalls` defaults to `true`. Set it to `false` to disable only malformed-call filtering and its incident log.
 - `logging.incidentFile` chooses where incidents go. It defaults to `null`, which is `<agent dir>/guardian-incidents.jsonl`; a relative path also resolves under the agent dir, an absolute or `~/` path is used as given, and `false` stops writing. The session cwd is never consulted, so opening a repository cannot leave a log inside it.
-- `logging.maxBytes` defaults to `262144`. Before an append that would pass it, the current log moves to `guardian-incidents.jsonl.1` and a fresh file starts: one generation of history, nothing older.ident log.
+- `logging.maxBytes` defaults to `262144`. Before an append that would pass it, the current log moves to `guardian-incidents.jsonl.1` and a fresh file starts: one generation of history, nothing older is kept.
 
 Malformed or invalid config sections generate a warning when a UI is available and fall back to safe defaults for the affected settings. Invalid individual regexes or protected-path entries are reported; valid entries continue to apply. Empty arrays are explicit opt-outs.
 
@@ -39,6 +39,8 @@ Starting a new session, resuming another session with a pending user message, an
 
 A tool call is malformed when its ID or name is blank after trimming whitespace. The extension drops malformed calls before Pi persists or replays them, preserves valid sibling calls, and turns invalid-only responses into a text-only stop so the user can continue. Unfamiliar but non-empty tool names are not rejected. As defense in depth, the `tool_call` boundary also blocks any blank-id/name call that slips through, so a malformed call can never execute even if the `message_end` filter is bypassed.
 
+A Bash call whose `command` is not a string is blocked outright rather than coerced: there is no command to inspect, and matching a coerced array (`String(["rm","-rf"])` reads as `rm,-rf`) would confirm the wrong thing.
+
 ## Forensic JSONL
 
 Each malformed-call incident appends one JSON object to:
@@ -49,9 +51,9 @@ Each malformed-call incident appends one JSON object to:
 
 That is pi's own directory (`PI_CODING_AGENT_DIR`, default `~/.pi/agent`), not the project: an untracked `err/` directory inside whatever repository a session happens to open is noise, and it would hold fragments of provider payloads. Override the location with `logging.incidentFile`, or set it to `false` to keep no log at all.
 
-Records include timestamp (falling back to the current time when a provider omitted or zeroed it), session/project/provider/model metadata, and one summary per dropped tool call: tool name, argument *key* names, and the byte size of the arguments. Argument values are never recorded - a malformed call can carry file contents, commands or credentials, and those belong in the session transcript, not a log file.
+Records carry the timestamp (falling back to the current time when a provider omitted or zeroed it), session/project/provider/model metadata, and one summary per dropped tool call: tool name, sorted argument *key* names, and the byte size of the arguments. Argument values are never recorded - a malformed call can carry file contents, commands or credentials, and those belong in the session transcript, not a log file. So the log holds no prompts, assistant text, thinking, or tool results, but argument key names are still names: a tool that labels an argument after its content would show up here.
 
-Records include timestamp (falling back to the current time when a provider omitted or zeroed it), session/project/provider/model metadata, and removed tool-call blocks. The log does not contain prompts, assistant text, thinking, or tool results, but tool-call arguments may include paths, commands, or user text. Treat it as local diagnostic data and ignore `err/` in version control where appropriate. On POSIX, a newly created log is restricted to mode `0600` on a best-effort basis. If logging fails, malformed calls are still removed and the diagnostic reports the write failure.
+Treat it as local diagnostic data. On POSIX a newly created log is restricted to mode `0600` on a best-effort basis. If logging fails, malformed calls are still removed and the diagnostic reports the write failure.
 
 ## Testing
 
