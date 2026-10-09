@@ -61,7 +61,7 @@ function shortenSchemaDescriptions(node: unknown): void {
   }
 }
 
-// A tool entry across the three supported provider shapes exposes a name, a
+// A tool entry across the supported provider shapes exposes a name, a
 // holder object carrying `description`, and (optionally) a parameters schema.
 interface ToolView {
   name: string;
@@ -92,12 +92,13 @@ function viewTool(tool: unknown): ToolView | null {
     }
   }
 
-  // OpenAI Responses / Anthropic / Google: { name, description, parameters|input_schema }
+  // OpenAI Responses / Anthropic / Google declarations:
+  // { name, description, parameters | input_schema | parametersJsonSchema }
   if (typeof record.name === "string") {
     return {
       name: record.name,
       descriptionHolder: record,
-      parameters: record.parameters ?? record.input_schema,
+      parameters: record.parameters ?? record.input_schema ?? record.parametersJsonSchema,
     };
   }
 
@@ -117,12 +118,31 @@ function trimToolView(view: ToolView): boolean {
   return true;
 }
 
+// Keys that hold a declaration array directly, per provider dialect.
+const DECLARATION_KEYS = ["functionDeclarations", "toolSpecifications"];
+// Keys that wrap tool settings; Google uses camelCase, some gateways snake_case.
+const TOOL_CONFIG_KEYS = ["toolConfig", "tool_config"];
+
+function arraysInto(target: unknown[][], value: unknown, keys: string[]): void {
+  if (!value || typeof value !== "object") return;
+  const record = value as Record<string, unknown>;
+  if (Array.isArray(record.tools)) target.push(record.tools);
+  for (const key of keys) {
+    if (Array.isArray(record[key])) target.push(record[key] as unknown[]);
+  }
+}
+
 // Locate the tool arrays inside a provider payload across supported shapes.
 function toolArrays(payload: Record<string, unknown>): unknown[][] {
   const arrays: unknown[][] = [];
-  if (Array.isArray(payload.tools)) arrays.push(payload.tools);
-  const toolConfig = payload.toolConfig as Record<string, unknown> | undefined;
-  if (toolConfig && Array.isArray(toolConfig.tools)) arrays.push(toolConfig.tools);
+  if (Array.isArray(payload.tools)) {
+    arrays.push(payload.tools);
+    // Google (Generative AI and Vertex) nests declarations one level deeper:
+    // tools: [{ functionDeclarations: [{ name, description, parametersJsonSchema }] }]
+    // and pi-ai emits exactly this shape (pi-ai dist/api/google-shared.js:338).
+    for (const entry of payload.tools) arraysInto(arrays, entry, DECLARATION_KEYS);
+  }
+  for (const key of TOOL_CONFIG_KEYS) arraysInto(arrays, payload[key], DECLARATION_KEYS);
   return arrays;
 }
 
