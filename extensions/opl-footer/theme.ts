@@ -5,7 +5,8 @@ import type { ColorScheme, ColorValue, SemanticColor } from "./types.js";
 // their absence signals "use rainbow" in thinking.ts.
 const DEFAULT_COLORS: ColorScheme = {
   pi: "accent",
-  model: "#c07898",
+  // model: "#c07898",
+  model: "accent",
   path: "dim",
   git: "success",
   gitDirty: "warning",
