@@ -602,6 +602,9 @@ export default function footer(pi: ExtensionAPI) {
       contextWindow,
       usingSubscription,
       sessionStartTime,
+      // The session directory, not the directory the harness was launched from: a session opened
+      // elsewhere must show that project's path.
+      cwd: ctx.cwd || process.cwd(),
       git: gitStatus,
       options: effectiveConfig.segmentOptions ?? {},
       width,

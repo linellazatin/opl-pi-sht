@@ -165,9 +165,9 @@ export function extractPlanText(message: string): string | null {
 
 // ─── Plan File I/O ────────────────────────────────────────────────────────────
 
-/** Ensure .pi/plans/ exists, return its absolute path. */
-export function ensurePlanDir(): string {
-  const dir = join(process.cwd(), PLAN_DIR);
+/** Ensure <sessionCwd>/.pi/plans/ exists, return its absolute path. */
+export function ensurePlanDir(cwd: string): string {
+  const dir = join(cwd, PLAN_DIR);
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -203,8 +203,8 @@ export function sanitizePlanName(name: string): string | null {
 }
 
 /** List available plan files in .pi/plans/ with titles from # Plan: heading. */
-export function listPlanFiles(): PlanFileSummary[] {
-  const dir = join(process.cwd(), PLAN_DIR);
+export function listPlanFiles(cwd: string): PlanFileSummary[] {
+  const dir = join(cwd, PLAN_DIR);
   if (!existsSync(dir)) return [];
 
   const files = readdirSync(dir)
@@ -265,4 +265,8 @@ export function applyLabelColor(theme: Theme, color: string, text: string): stri
   } catch {
     return text;
   }
+}
+/** Absolute path of a plan file inside the session directory. */
+export function planFilePath(cwd: string, filename: string): string {
+  return join(cwd, PLAN_DIR, filename);
 }

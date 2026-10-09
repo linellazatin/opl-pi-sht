@@ -7,12 +7,17 @@ import type { AgentMode, AgentModeBlob, ModeAppearanceConfig, ModeModelConfig } 
 const state: {
   mode: AgentMode;
   activePlanFile: string | null;
+  sessionCwd: string;
   restoringModel: ModeModelConfig | null;
   refining: boolean;
   refineCount: number;
 } = {
   mode: "off",
   activePlanFile: null,
+  // Until the first `session_start` hands us the real one, the directory the harness was started
+  // in is the only candidate. Plans and the footer path must never be resolved from
+  // `process.cwd()` at the call site: a session opened elsewhere would write its plans there.
+  sessionCwd: process.cwd(),
   restoringModel: null,
   refining: false,
   refineCount: 0,
@@ -212,4 +217,13 @@ export function resetState(): void {
   state.refining = false;
   state.refineCount = 0;
   syncGlobalThis();
+}
+
+/** The directory the current session lives in (`.pi/plans/` is resolved against this). */
+export function getSessionCwd(): string {
+  return state.sessionCwd;
+}
+
+export function setSessionCwd(cwd: string): void {
+  if (cwd) state.sessionCwd = cwd;
 }

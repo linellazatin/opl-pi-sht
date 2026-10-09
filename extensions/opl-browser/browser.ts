@@ -260,7 +260,8 @@ function serialize<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
-/** `cwd` is the session directory from `ExtensionContext`, never `process.cwd()`: a screenshot
+/** `cwd` is the session directory from `ExtensionContext`, never the harness working
+ *  directory: a screenshot
  *  name that arrives from the model has to be contained against the project the user is in, and
  *  the harness working directory is not that directory. */
 export function runAction(p: BrowserParams, cfg: BrowserConfig, cwd: string): Promise<BrowserActionResult> {

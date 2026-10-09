@@ -127,6 +127,8 @@ export interface SegmentContext {
   contextWindow: number;
   usingSubscription: boolean;
   sessionStartTime: number;
+  /** Session directory (`ExtensionContext.cwd`): the base the Path segment renders. */
+  cwd: string;
   git: GitStatus;
   options: StatusLineSegmentOptions;
   width: number;

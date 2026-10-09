@@ -217,14 +217,16 @@ test("resolves Bedrock max thinking from Pi model metadata", () => {
   assert.throws(() => resolveThinkingMode({ kind: "bedrock" }, { ...active, thinkingLevelMap: {} }, true), /does not advertise max thinking/);
 });
 
-test("writes artifacts in the current working directory", () => {
+test("writes artifacts into the directory it is given, not the harness cwd", () => {
   assert.equal(artifactFileName("global.openai.gpt-5.6-terra", "test-all", "max", new Date("2026-08-23T12:00:00Z")), "simplebench--test-all-global.openai.gpt-5.6-terra-max-2026-08-23T12-00-00Z.json");
   assert.equal(artifactFileName("global.openai.gpt-5.6-terra", "baseline", "default", new Date("2026-08-23T12:00:00Z")), "simplebench--3ptest-global.openai.gpt-5.6-terra-default-2026-08-23T12-00-00Z.json");
   const cwd = process.cwd();
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "simplebench-test-"));
   try {
-    process.chdir(temp);
-    const output = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", model: "test/model", provider: "test", providerKind: "test", thinking: { requested: "default", effective: "provider-default", level: null, modelMetadataSource: null }, startedAt: "", finishedAt: "", wallTimeMs: 0, artifactEnabled: true }, tests: [], summary: {} });
+    // The writer takes the session directory explicitly, so launching the harness somewhere else
+    // cannot move the artifact out of the project the user is in.
+    process.chdir(cwd);
+    const output = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", model: "test/model", provider: "test", providerKind: "test", thinking: { requested: "default", effective: "provider-default", level: null, modelMetadataSource: null }, startedAt: "", finishedAt: "", wallTimeMs: 0, artifactEnabled: true }, tests: [], summary: {} }, temp);
     const artifact = JSON.parse(fs.readFileSync(output, "utf8"));
     assert.equal(fs.realpathSync(path.dirname(output)), fs.realpathSync(temp));
     assert.equal(artifact.benchmark.model, "test/model");
@@ -241,7 +243,7 @@ test("writes test-all research artifacts into a result bundle", () => {
   const artifact = { schemaVersion: 1 as const, benchmark: { name: "opl-simplebench" as const, suite: "test-all" as const, model: "test/model", provider: "test", providerKind: "test", thinking: { requested: "default" as const, effective: "provider-default" as const, level: null, modelMetadataSource: null }, startedAt: "", finishedAt: "", wallTimeMs: 0, artifactEnabled: true }, tests: [], summary: {} };
   try {
     process.chdir(temp);
-    const bundle = writeArtifactBundle(artifact, { "research.md": "# Sources", "page.html": "<main>Page</main>" });
+    const bundle = writeArtifactBundle(artifact, { "research.md": "# Sources", "page.html": "<main>Page</main>" }, temp);
     assert.equal(fs.existsSync(path.join(bundle, "result.json")), true);
     assert.equal(fs.readFileSync(path.join(bundle, "research.md"), "utf8"), "# Sources");
     assert.equal(fs.readFileSync(path.join(bundle, "page.html"), "utf8"), "<main>Page</main>");
@@ -256,8 +258,8 @@ test("does not overwrite an artifact created within the same second", () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "simplebench-artifact-"));
   const artifact = { schemaVersion: 1 as const, benchmark: { name: "opl-simplebench" as const, model: "test/model", provider: "test", providerKind: "test", thinking: { requested: "default" as const, effective: "provider-default" as const, level: null, modelMetadataSource: null }, startedAt: "", finishedAt: "", wallTimeMs: 0, artifactEnabled: true }, tests: [], summary: {} };
   try {
-    process.chdir(temp);
-    assert.notEqual(writeArtifact(artifact), writeArtifact(artifact));
+    process.chdir(cwd);
+    assert.notEqual(writeArtifact(artifact, temp), writeArtifact(artifact, temp));
   } finally {
     process.chdir(cwd);
     fs.rmSync(temp, { recursive: true });

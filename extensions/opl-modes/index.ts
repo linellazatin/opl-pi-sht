@@ -58,6 +58,7 @@ import {
   extractPlanText,
   isPlanLike,
   ensurePlanDir,
+  planFilePath,
   titleFromFilename,
   listPlanFiles,
   sanitizePlanName,
@@ -81,6 +82,8 @@ import {
   incrementRefineCount,
   publishModeGlobals,
   clearModeGlobals,
+  getSessionCwd,
+  setSessionCwd,
 } from "./state.js";
 import { showSelectMenu } from "./menus.js";
 
@@ -263,7 +266,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   function getPlanFilePath(): string | null {
     const file = getActivePlanFile();
     if (!file) return null;
-    return join(process.cwd(), PLAN_DIR, file);
+    return planFilePath(getSessionCwd(), file);
   }
 
   function getPlanDisplayTitle(): string | null {
@@ -447,7 +450,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   /** Open the mode picker. Handles all mode transitions including cross-mode switches. */
   async function openModePicker(ctx: ExtensionContext): Promise<void> {
     const current = getMode();
-    const planFiles = listPlanFiles();
+    const planFiles = listPlanFiles(getSessionCwd());
 
     // Build mode list dynamically from registry (skip invisible/disabled modes)
     const registryModes = Array.from(MODE_REGISTRY.entries())
@@ -718,7 +721,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     setRefining(false);
 
     if (planText) {
-      const planDir = ensurePlanDir();
+      const planDir = ensurePlanDir(getSessionCwd());
       const activeFile = getActivePlanFile();
       let filename = activeFile;
       if (!filename) {
@@ -869,7 +872,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       ctx.ui.notify(USER_CONFIG.labels.plan.notifyLoaded.replace("{title}", displayName), "info");
     }
 
-    const filePath = join(process.cwd(), PLAN_DIR, filename);
+    const filePath = planFilePath(getSessionCwd(), filename);
     if (existsSync(filePath)) {
       const planContent = readFileSync(filePath, "utf-8");
       // The entry copy is display/session only (plain custom entries never reach the
@@ -1007,7 +1010,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       if (!input) {
         const current = getMode();
         if (current === "off") {
-          const files = listPlanFiles();
+          const files = listPlanFiles(getSessionCwd());
           if (files.length === 0) {
             await promptNameAndEnterPlanMode(ctx);
           } else {
@@ -1050,7 +1053,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
         return;
       }
       const filename = `${PLAN_FILE_PREFIX}${sanitized}.md`;
-      const filePath = join(process.cwd(), PLAN_DIR, filename);
+      const filePath = planFilePath(getSessionCwd(), filename);
 
       if (existsSync(filePath)) {
         if (getMode() !== "off") enterOffMode(ctx, undefined, true);
@@ -1103,7 +1106,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
           pi.sendUserMessage("Execute the plan steps now.", { deliverAs: "followUp" });
           return;
         }
-        const files = listPlanFiles();
+        const files = listPlanFiles(getSessionCwd());
         if (files.length === 0) {
           if (ctx.hasUI) ctx.ui.notify("No plan files found. Run /plan first.", "warning");
           return;
@@ -1125,7 +1128,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
         return;
       }
       const filename = `${PLAN_FILE_PREFIX}${sanitized}.md`;
-      const filePath = join(process.cwd(), PLAN_DIR, filename);
+      const filePath = planFilePath(getSessionCwd(), filename);
       if (!existsSync(filePath)) {
         if (ctx.hasUI) ctx.ui.notify(`Plan "${input}" not found. Check /plan for available plans.`, "warning");
         return;

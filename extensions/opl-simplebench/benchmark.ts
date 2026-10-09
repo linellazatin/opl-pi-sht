@@ -756,6 +756,9 @@ function getCurrentModel(ctx: any): string | undefined {
 
 async function testModelExtended(model: string, ctx?: any, options: SimplebenchOptions = { allModels: false, writeArtifact: true }): Promise<string> {
   const lines: string[] = [];
+  // The artifact lands in the session directory when Pi invoked the tool. A bare
+  // programmatic run has no session, so the harness directory is all there is.
+  const artifactDir = ctx?.cwd ?? process.cwd();
   const totalStart = Date.now();
   const providerInfo = ctx ? detectProvider(ctx) : { kind: "ollama" as const, name: "ollama" };
   const resolvedModel = resolveBenchmarkModel(ctx, model);
@@ -844,7 +847,7 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
       let artifactPath: string | null = null;
       const serverStats = await captureServerStats();
       if (options.writeArtifact) {
-        try { artifactPath = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", suite, ...(options.tag ? { tag: options.tag } : {}), model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: codingTestRecords(codingSummary), summary: { coding: { passed: codingSummary.passed, total: codingSummary.total, efficiency: { strong: codingSummary.results.filter(r => r.efficiency === "STRONG").length, moderate: codingSummary.results.filter(r => r.efficiency === "MODERATE").length, weak: codingSummary.results.filter(r => r.efficiency === "WEAK").length, fail: codingSummary.results.filter(r => r.efficiency === "FAIL").length } }, ...(serverStats ? { serverStats } : {}) } }); }
+        try { artifactPath = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", suite, ...(options.tag ? { tag: options.tag } : {}), model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: codingTestRecords(codingSummary), summary: { coding: { passed: codingSummary.passed, total: codingSummary.total, efficiency: { strong: codingSummary.results.filter(r => r.efficiency === "STRONG").length, moderate: codingSummary.results.filter(r => r.efficiency === "MODERATE").length, weak: codingSummary.results.filter(r => r.efficiency === "WEAK").length, fail: codingSummary.results.filter(r => r.efficiency === "FAIL").length } }, ...(serverStats ? { serverStats } : {}) } }, artifactDir); }
         catch (e: any) { lines.push(warn(`Artifact could not be written: ${e?.message || e}`)); }
       }
       const effCounts = { strong: codingSummary.results.filter(r => r.efficiency === "STRONG").length, moderate: codingSummary.results.filter(r => r.efficiency === "MODERATE").length, weak: codingSummary.results.filter(r => r.efficiency === "WEAK").length };
@@ -915,7 +918,7 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   if (options.writeArtifact) {
     try {
       const artifact = { schemaVersion: 1 as const, benchmark: { name: "opl-simplebench" as const, suite, ...(options.tag ? { tag: options.tag } : {}), model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: artifactTests, summary: { reasoning: { score: reasoning.score, passed: reasoning.results.filter(r => r.pass).length, total: reasoning.results.length }, instructions: instructions.score, tools: tools.score, ...(codingSummary ? { coding: { passed: codingSummary.passed, total: codingSummary.total, efficiency: { strong: codingSummary.results.filter(r => r.efficiency === "STRONG").length, moderate: codingSummary.results.filter(r => r.efficiency === "MODERATE").length, weak: codingSummary.results.filter(r => r.efficiency === "WEAK").length, fail: codingSummary.results.filter(r => r.efficiency === "FAIL").length } } } : {}), ...(researchGrounded ? { researchGrounded: researchGrounded.score } : {}), ...(researchArtifact ? { researchLive: researchArtifact.score } : {}), metrics: aggregate, ...(serverStats ? { serverStats } : {}) } };
-      artifactPath = researchGrounded ? writeArtifactBundle(artifact, researchGrounded.files) : writeArtifact(artifact);
+      artifactPath = researchGrounded ? writeArtifactBundle(artifact, researchGrounded.files, artifactDir) : writeArtifact(artifact, artifactDir);
     } catch (e: any) { lines.push(warn(`Artifact could not be written: ${e?.message || e}`)); }
   }
   

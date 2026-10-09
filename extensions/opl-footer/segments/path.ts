@@ -8,7 +8,7 @@ export const pathSegment = {
     const opts = ctx.options.path ?? {};
     const mode = opts.mode ?? "basename";
 
-    let pwd = process.cwd();
+    let pwd = ctx.cwd || process.cwd();
     const home = process.env.HOME || process.env.USERPROFILE;
 
     if (mode === "basename") {
