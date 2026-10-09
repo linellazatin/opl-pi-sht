@@ -7,7 +7,7 @@ Provides branch-aware model-managed tasks with a non-capturing overlay and full-
 - `/todos`: open the current branch's full-screen task list; `Esc` closes it.
 - Tool: `todo` with `list`, `add`, `toggle`, and `clear` actions.
 - `shortcuts.toggleWidget`: show or hide the overlay, default `ctrl+alt+t`.
-- `shortcuts.resetDone`: clear only a fully completed list, default `ctrl+alt+r`.
+- `shortcuts.resetDone`: clear completed todos while keeping unfinished items, default `ctrl+alt+r`.
 
 ## Extension features
 
@@ -33,7 +33,7 @@ Copy [`configs/opl-todo.json.sample`](../../configs/opl-todo.json.sample) to `~/
 |---|---:|---|
 | `allDoneHideMs` | `5000` | Delay before a completed overlay hides; `0` hides immediately. |
 | `shortcuts.toggleWidget` | `ctrl+alt+t` | Toggle overlay visibility. |
-| `shortcuts.resetDone` | `ctrl+alt+r` | Clear only a fully completed list. |
+| `shortcuts.resetDone` | `ctrl+alt+r` | Clear completed todos while keeping unfinished items. |
 | `widget.widthPercent` | `33` | Overlay width, greater than 0 through 100. |
 | `widget.maxHeightPercent` | `50` | Percentage of the **renderer-reported** terminal height used for the item cap (minus the box's own chrome, floor of 3 items). |
 | `widget.minWidth` | `32` | Minimum overlay width; values below 20 are rejected. |

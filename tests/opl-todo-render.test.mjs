@@ -50,6 +50,41 @@ test("renderCall survives missing and partial args", () => {
   }
 });
 
+test("resetDone clears only completed todos and persists the remaining list", async () => {
+  if (!tool) return;
+  const ext = (await import("../extensions/opl-todo/index.ts")).default;
+  const localHandlers = {};
+  const shortcuts = {};
+  const branch = [];
+  let localTool;
+  ext({
+    registerTool: (t) => { localTool = t; },
+    on: (ev, fn) => { localHandlers[ev] = fn; },
+    registerShortcut: (key, options) => { shortcuts[key] = options.handler; },
+    registerCommand: () => {},
+    appendEntry: (customType, data) => branch.push({ type: "custom", customType, data }),
+  });
+  const ctx = { mode: "headless", sessionManager: { getBranch: () => branch } };
+  await localHandlers.session_start({}, ctx);
+
+  const invoke = async (params) => {
+    const out = await localTool.execute("t1", params, undefined, undefined, ctx);
+    branch.push({ type: "message", message: { role: "toolResult", toolName: "todo", details: out.details } });
+    return out;
+  };
+  for (let i = 1; i <= 10; i++) await invoke({ action: "add", text: `todo ${i}` });
+  for (let id = 1; id <= 7; id++) await invoke({ action: "toggle", id });
+
+  await shortcuts["ctrl+alt+r"](ctx);
+  const expected = [8, 9, 10].map((id) => ({ id, text: `todo ${id}`, done: false }));
+  assert.deepEqual((await localTool.execute("t1", { action: "list" }, undefined, undefined, ctx)).details.todos, expected);
+
+  await localHandlers.session_tree({}, ctx);
+  assert.deepEqual((await localTool.execute("t1", { action: "list" }, undefined, undefined, ctx)).details.todos, expected);
+  const added = await localTool.execute("t1", { action: "add", text: "todo 11" }, undefined, undefined, ctx);
+  assert.equal(added.details.todos.at(-1).id, 11);
+});
+
 test("session_start reconstruction skips malformed results and keeps valid state", async () => {
   if (!tool || !handlers.session_start) return;
   const branch = [

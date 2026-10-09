@@ -24,6 +24,13 @@ interface TodoDetails {
 	error?: string;
 }
 
+interface TodoStateSnapshot {
+	todos: Todo[];
+	nextId: number;
+}
+
+const TODO_STATE_ENTRY = "opl-todo-state";
+
 // ── Widget constants ─────────────────────────────────────────────────────────
 
 const TodoParams = Type.Object({
@@ -210,6 +217,15 @@ export default function (pi: ExtensionAPI) {
 		nextId = 1;
 
 		for (const entry of ctx.sessionManager.getBranch()) {
+			if (entry.type === "custom" && entry.customType === TODO_STATE_ENTRY) {
+				const state = entry.data as TodoStateSnapshot | undefined;
+				if (state && Array.isArray(state.todos) && typeof state.nextId === "number") {
+					todos.length = 0;
+					todos.push(...state.todos);
+					nextId = state.nextId;
+				}
+				continue;
+			}
 			if (entry.type !== "message") continue;
 			const msg = entry.message;
 			if (msg.role !== "toolResult" || msg.toolName !== "todo") continue;
@@ -280,12 +296,16 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerShortcut(CONFIG.shortcuts.resetDone as KeyId, {
-		description: "Clear completed todos (only when all are done)",
+		description: "Clear completed todos",
 		handler: (_ctx) => {
-			if (todos.length === 0 || !todos.every((t) => t.done)) return;
-			todos.length = 0;
-			nextId = 1;
-			hideWidget();
+			const remaining = todos.filter((todo) => !todo.done);
+			if (remaining.length === todos.length) return;
+			todos.splice(0, todos.length, ...remaining);
+			if (todos.length === 0) nextId = 1;
+			clearTimeout(autoHideTimer);
+			pi.appendEntry(TODO_STATE_ENTRY, { todos: [...todos], nextId } satisfies TodoStateSnapshot);
+			if (todos.length === 0) hideWidget();
+			else showWidget();
 		},
 	});
 
