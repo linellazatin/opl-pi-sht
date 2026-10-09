@@ -54,6 +54,7 @@ export type StatusLineSegmentId =
   | "chat_mode"
   | "mode_switcher"
   | "session_stats"
+  | "compactions"
   | "perf_stats"
   | "status"
   | "codex_usage"
@@ -136,6 +137,7 @@ export interface SegmentContext {
   colors: ColorScheme;
   icons: IconSet;
   sessionStats: SessionStats;
+  compactions: number;
   agentStatus: AgentStatus;
   codexUsage: CodexUsageSnapshot | null;
   openRouterUsage: OpenRouterUsageSnapshot | null;

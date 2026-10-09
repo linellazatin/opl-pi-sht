@@ -13,6 +13,7 @@ import { planModeSegment } from "./plan-mode.js";
 import { chatModeSegment } from "./chat-mode.js";
 import { modeSwitcherSegment } from "./mode-switcher.js";
 import { sessionStatsSegment, perfStatsSegment } from "./session-stats.js";
+import { compactionsSegment } from "./compactions.js";
 import { statusSegment } from "./status.js";
 import { codexUsageSegment } from "./codex-usage.js";
 import { openRouterUsageSegment } from "./openrouter-usage.js";
@@ -37,6 +38,7 @@ const SEGMENTS = {
   chat_mode: chatModeSegment,
   mode_switcher: modeSwitcherSegment,
   session_stats: sessionStatsSegment,
+  compactions: compactionsSegment,
   perf_stats: perfStatsSegment,
   status: statusSegment,
   codex_usage: codexUsageSegment,

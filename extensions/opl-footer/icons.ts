@@ -3,6 +3,7 @@ export interface IconSet {
   folder: string;
   branch: string;
   git: string;
+  compress: string;
   separator: string;
 }
 
@@ -12,6 +13,7 @@ export const NERD_ICONS: IconSet = {
   folder: "\uF115",     // nf-fa-folder_open
   branch: "\uF126",     // nf-fa-code_fork
   git: "\uF1D3",        // nf-fa-git
+  compress: "\u{F05C4}", // nf-md-zip_box
   separator: "|",
 };
 
@@ -21,6 +23,7 @@ export const ASCII_ICONS: IconSet = {
   folder: "📂",
   branch: "⎇",
   git: "⎇",
+  compress: "📦",
   separator: "|",
 };
 

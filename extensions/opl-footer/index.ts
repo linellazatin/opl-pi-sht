@@ -63,6 +63,7 @@ export interface BranchFacts {
   thinkingLevelFromSession: string | null;
   estimatedContextUsage: { tokens: number; percent: number } | null;
   branchPrompts: number;
+  branchCompactions: number;
   branchApiCalls: number;
   branchToolCalls: number;
 }
@@ -74,6 +75,7 @@ function emptyBranchFacts(key: string): BranchFacts {
     thinkingLevelFromSession: null,
     estimatedContextUsage: null,
     branchPrompts: 0,
+    branchCompactions: 0,
     branchApiCalls: 0,
     branchToolCalls: 0,
   };
@@ -125,6 +127,7 @@ export function deriveBranchFacts(
     branchPrompts: branch.filter(
       (e) => e.type === "message" && (e as AssistantMessageEvent).message?.role === "user",
     ).length,
+    branchCompactions: branch.filter((entry) => entry.type === "compaction").length,
     branchApiCalls: completedMessages.length,
     branchToolCalls: completedMessages.reduce((sum, msg) => {
       const content = (msg as { content?: unknown }).content;
@@ -633,6 +636,7 @@ export default function footer(pi: ExtensionAPI) {
         ttftSamples,
         lastTurnaroundMs,
       },
+      compactions: facts.branchCompactions,
       agentStatus: statusTracker.status(),
       codexUsage,
       openRouterUsage,

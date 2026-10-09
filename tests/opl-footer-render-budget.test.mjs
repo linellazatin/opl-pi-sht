@@ -101,6 +101,32 @@ const singleRow = (segments) => ({
 
 const dividers = (lines) => lines.filter((l) => /^─+$/.test(stripAnsi(l))).length;
 
+test("compactions initializes from compaction entries when resuming a session", async () => {
+  const branchRef = { value: Array.from({ length: 11 }, () => ({ type: "compaction" })) };
+  const h = await mount({ config: singleRow(["compactions"]), branchRef });
+  try {
+    assert.match(stripAnsi(h.render().join("\\n")), /11/);
+  } finally {
+    h.dispose();
+  }
+});
+
+test("compactions stays hidden at zero and displays each compaction event", async () => {
+  const branchRef = { value: [] };
+  const h = await mount({ config: singleRow(["compactions"]), branchRef });
+  try {
+    assert.equal(h.render().length, 0, "zero compactions should leave the footer empty");
+    branchRef.value.push({ type: "compaction" });
+    await h.fire("session_compact", {});
+    assert.match(stripAnsi(h.render().join("\\n")), /1/);
+    branchRef.value.push({ type: "compaction" });
+    await h.fire("session_compact", {});
+    assert.match(stripAnsi(h.render().join("\\n")), /2/);
+  } finally {
+    h.dispose();
+  }
+});
+
 test("a layout with one populated row costs two lines, not six", async () => {
   const h = await mount({ config: singleRow(["text:branch"]) });
   try {

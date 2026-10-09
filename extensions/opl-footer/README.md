@@ -33,7 +33,7 @@ The third row is populated after the first completed turn. Its session and perfo
 - **Token and cost tracking**: total, cache, input/output, and accumulated cost segments
 - **Codex subscription quota**: optional exact 5-hour and weekly ChatGPT Codex usage percentages with reset countdowns and stale-snapshot fallback
 - **OpenRouter key-limit usage**: optional per-key paid-usage amount, limit, and percentage with stale-snapshot fallback
-- **Session statistics**: prompt, API-call, and model tool-call counts
+- **Session statistics**: prompt, API-call, model tool-call, and compaction counts
 - **Performance statistics**: cumulative LLM/tool duration, most recent user-prompt-to-completion turnaround time, average time to first token, output rate, and cache-hit percentage
 - **Thinking, mode, and status indicators**: thinking-level colors plus caveman, plan, chat, unified mode, and `Working`/`Waiting`/`Ready` status segments
 - **Nerd Font support**: automatic detection with plain-icon fallbacks
@@ -109,6 +109,7 @@ and a stale one would hand a dead component to the next session.
 | `cache_write` | Cache write tokens (hidden if zero) | — |
 | `context_total` | Total context window size | — |
 | `session_stats` | Prompt, API-call, and tool-call counts | Hidden until the first prompt |
+| `compactions` | Manual and automatic compaction count | Nerd Font zip-box icon or 📦 fallback; hidden at zero; resets when the session starts |
 | `perf_stats` | LLM/tool timing, TTFT, output rate, and cache-hit percentage | Hidden until the first prompt |
 | `status` | `Working`, `Waiting`, or `Ready` | `accent`, `warning`, and `success` theme colors respectively; optional and hidden by default |
 | `codex_usage` | `5h 76% ↻2h18m · W 37% ↻3d7h` | Exact remaining ChatGPT Codex subscription quota; OAuth-only, optional and hidden by default; a retained snapshot is marked `(stale)` after refresh failure |
