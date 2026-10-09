@@ -15,6 +15,14 @@
 A portable collection of various Pi coding agent extensions. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
 
 >
+> ### v0.2.13 - address-based network policy, execution boundaries, floor CI
+> - **Breaking** — `allowLoopback` now defaults to `false` in `opl-browser` and `opl-webaccess`: neither reaches `localhost`, `127.0.0.0/8` or `::1` until you opt in.
+> - `opl-webaccess` and `opl-browser` apply their host policy to **resolved addresses** (a public hostname answering with an internal address is rejected), and `opl-browser` enforces it on requests a page makes itself, on page WebSockets, and on any frame a redirect lands on a blocked host.
+> - `opl-simplebench` runs model-authored verifier code with an allowlisted environment and resolves AWS credentials through argv instead of a shell string; its dead `models.json` write path is gone.
+> - `opl-guardian`'s Bash rules match **paths**, not command substrings, so `grep "process.env" src` and `cat .env.example` are no longer blocked.
+> - Every extension reads its config from pi's own agent directory (`PI_CODING_AGENT_DIR`), and `install.sh` installs the shipped sample configs from a clone and prunes stale extension directories.
+> - New gates: `npm run typecheck` (strict, 86 extension files) and a CI `floor` job that runs the suite against pi `0.87.0` and fails when it did not really use that build.
+> - Token and render budget: `opl-modes` caps plan injection (default 24 KB) instead of carrying the whole file every turn, `opl-ctxtrim` trims Google/Gemini tool declarations as well as OpenAI ones, `opl-webaccess` keeps session entries as bounded previews with bodies spilled to `<agent-dir>/web-access-cache/`, and `opl-footer` renders only the rows that exist.
 > ### v0.2.12 - refresh OpenRouter/Codex usage during agent runs
 > - `opl-footer` fixed usage refresh from agent_settled to after every turn/toolcall
 > ### v0.2.11 - OpenRouter key-limit usage in opl-footer
@@ -24,11 +32,11 @@ A portable collection of various Pi coding agent extensions. Repository director
 > ### v0.2.9 - pi dependencies patch, updated test scripts
 > - `devDependencies` updated to `>=0.87.0`, conforming to latest pi release `v0.99.x`; TUI and tests updates
 > ### v0.2.8 - SSRF and tool-safety hardening
-> - `opl-webaccess` and `opl-browser` block private/link-local hosts by default and cloud metadata always (localhost stays available for dev), fetch redirects are re-checked per hop, screenshots refuse to overwrite existing files, and `evaluate` no longer crashes on `undefined`.
+> - `opl-webaccess` and `opl-browser` block private/link-local hosts by default and cloud metadata always (localhost stayed available for dev, opt-in since v0.2.13), fetch redirects are re-checked per hop, screenshots refuse to overwrite existing files, and `evaluate` no longer crashes on `undefined`.
 >
 > See [CHANGELOG](CHANGELOG.md) for more details.
 >
-> `Current project state also marked 'SAFE' for pi v1.0.0 release`
+> `Current project state marked 'SAFE' for pi >=1.0.0` (validated against pi v1.1.0; broader extension compatibility floor stays pi >=0.87.0).
 >
 
 ## Installation
@@ -78,10 +86,10 @@ chmod +x install.sh
 ./install.sh --link                  # non-destructive symlinks
 ./install.sh --only opl-init opl-todo
 ./install.sh --link --only opl-input # installs the complete UI bundle
-PI_AGENT_DIR=/path/to/.pi/agent ./install.sh --link
+PI_CODING_AGENT_DIR=/path/to/.pi/agent ./install.sh --link   # PI_AGENT_DIR is a legacy alias
 ```
 
-Copy mode overwrites matching destinations. Link mode skips existing destinations. `--only`/`-o` accepts one or more extension names; selecting `opl-footer`, `opl-input`, or `opl-modes` installs all three because they share active-mode state. Use `./install.sh --help` for flags. The repository uses standard `.json` only.
+Copy mode refreshes extension directories but keeps a config that already exists in the target; pass `--force-configs` to replace it. A config comes from `configs/<name>.json` when the repo carries one, otherwise from the shipped `configs/<name>.json.sample`, so a fresh clone installs defaults instead of silently installing none. What was installed is recorded in `<agent-dir>/extensions/.opl-pi-sht.installed`, and a recorded directory that this release no longer ships is pruned on the next run (`--no-prune` keeps it, and nothing outside the record is ever touched). Link mode skips existing destinations. `--only`/`-o` accepts one or more extension names; selecting `opl-footer`, `opl-input`, or `opl-modes` installs all three because they share active-mode state. Use `./install.sh --help` for flags. The repository uses standard `.json` only.
 
 ## Extensions
 
@@ -92,7 +100,7 @@ Copy mode overwrites matching destinations. Link mode skips existing destination
 | [`opl-simplebench`](extensions/opl-simplebench/README.md)     | Auditable provider-aware model benchmark with JSON artifacts and metrics.                                                                                                                                                    | `/simplebench`, `simplebench`; supports Ollama, OpenAI-compatible providers, and Bedrock; optional `opl-simplebench.json`. |
 | [`opl-webaccess`](extensions/opl-webaccess/README.md)         | Search plus readable URL/PDF retrieval with session recovery.                                                                                                                                                                | `web_search`, `fetch_content`, `get_search_content`; `opl-webaccess.json`.                                     |
 | [`opl-browser`](extensions/opl-browser/README.md)             | Chromium automation via Playwright with structured extraction of rendered pages; single dispatcher tool replacing the chrome-devtools MCP.                                                                                   | `browser` (action-based); `opl-browser.json`.                                                                  |
-| [`opl-ctxtrim`](extensions/opl-ctxtrim/README.md)             | Trims verbose`ctx_*` tool-schema descriptions on outbound provider requests (~67% smaller schema, ~4,700-6,300 tokens/request). Built specifically for the [context-mode](https://github.com/mksglu/context-mode) extension. | No commands/tools; no config.                                                                                  |
+| [`opl-ctxtrim`](extensions/opl-ctxtrim/README.md)             | Trims verbose`ctx_*` tool-schema descriptions on outbound provider requests (~67-74% smaller tool payloads per measured shape, ~4,700-6,300 tokens/request). Built specifically for the [context-mode](https://github.com/mksglu/context-mode) extension. | No commands/tools; no config.                                                                                  |
 | [`opl-guardian`](extensions/opl-guardian/README.md)           | Configurable tool and session safety: dangerous-Bash confirmation, protected paths, destructive-session confirmation, and malformed-call filtering. | No commands/tools; `opl-guardian.json`. |
 | [`opl-todo`](extensions/opl-todo/README.md)                   | Branch-aware task tool, overlay, and task list.                                                                                                                                                                              | `todo`, `/todos`; `opl-todo.json`.                                                                             |
 | [`opl-questionnaire`](extensions/opl-questionnaire/README.md) | Interactive structured-choice tool.                                                                                                                                                                                          | `questionnaire`; no config.                                                                                    |
@@ -108,7 +116,7 @@ Install one, some, or all. The value is grouped by outcome below, not by extensi
 
 Two extensions shrink the cached prompt prefix that Pi writes once and re-reads on every turn, so the savings compound across a whole conversation:
 
-- **`opl-ctxtrim`** trims verbose `ctx_*` tool-schema descriptions on outbound requests. It is built specifically for the [context-mode](https://github.com/mksglu/context-mode) extension: ~67% smaller schemas, roughly **4,700-6,300 tokens saved per request**, on every request.
+- **`opl-ctxtrim`** trims verbose `ctx_*` tool-schema descriptions on outbound requests, in OpenAI Chat/Responses, Mistral, Bedrock and Google/Gemini (`functionDeclarations`) shapes alike. It is built specifically for the [context-mode](https://github.com/mksglu/context-mode) extension: ~67-74% smaller tool payloads measured per shape, roughly **4,700-6,300 tokens saved per request**, on every request.
 - **`opl-modes` lazy tools** withhold heavy tool schemas (`subagent`, `browser`, `simplebench`, ...) from the resting prefix until the model calls `load_tools`. In a measured `/init` session this removed **~5,000 tokens from the cold cache write (17.6K to 12.6K)** and it repeats every session.
 
 ```text
@@ -122,19 +130,19 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 
 ### Run the agent without babysitting it
 
-- **`opl-modes`** chat and plan modes swap the active toolset for read-only lists and gate Bash to safe inspection patterns **per shell segment**, so `cat f && node -e '...'`, `cat x & rm -rf /tmp/x`, and `echo "$(node -e ...)"` can no longer ride the first command's allowance. Destructive checks still fire inside otherwise-safe commands (anchored to command position, so `du -sh` and `find . -name '*.sh'` stay allowed; `find -delete`, `find -fprint`, `git log --output`, `sort -o`, `npm audit fix`, `git clean`, `sudo`, and quote-obfuscated `r"m"`/`-del"ete"` are blocked; `env`/`printenv` are not safe-listed). The plan to execute lifecycle keeps exploration and mutation cleanly separated. Add custom modes (like below) for your workflow needs. Execute-mode auto-exit needs pi >= 0.87.0 (the `agent_before_settle` boundary).
+- **`opl-modes`** chat and plan modes swap the active toolset for read-only lists and gate Bash to safe inspection patterns **per shell segment**, so `cat f && node -e '...'`, `cat x & rm -rf /tmp/x`, and `echo "$(node -e ...)"` can no longer ride the first command's allowance. Destructive checks still fire inside otherwise-safe commands (anchored to command position, so `du -sh` and `find . -name '*.sh'` stay allowed; `find -delete`, `find -fprint`, `git log --output`, `sort -o`, `npm audit fix`, `git clean`, `sudo`, and quote-obfuscated `r"m"`/`-del"ete"` are blocked; `env`/`printenv` are not safe-listed). The plan to execute lifecycle keeps exploration and mutation cleanly separated. Add custom modes (like below) for your workflow needs. Execute-mode auto-exit needs pi >= 0.87.0 (the `agent_before_settle` boundary). Plan injection is capped: `plan.maxInjectBytes` (default 24 KB) bounds what rides the system prompt and `plan.maxEntryBytes` (default 4 KB) bounds the `plan-mode` session copy, with the marker naming the plan file so the file stays authoritative.
 ![custom mode sample](images/ss-mode-custom.png)
 - `load_tools` activation is bounded by the current mode, so a read-only mode cannot be tricked into enabling a write-capable tool.
-- **`opl-guardian`** combines configurable safety checks in one extension: it confirms dangerous Bash commands in the terminal or over RPC, blocks configured protected paths for file tools (including symlink targets), and confirms session clear/switch-with-pending-work/fork actions. Without a UI, configured dangerous commands and session actions block by default. It also removes malformed provider tool calls before persistence or replay and records incidents in `err/guardian.jsonl`. Protected-path Bash matching is literal best-effort, not shell sandboxing.
+- **`opl-guardian`** combines configurable safety checks in one extension: it confirms dangerous Bash commands in the terminal or over RPC, blocks configured protected paths for file tools (including symlink targets), and confirms session clear/switch-with-pending-work/fork actions. Without a UI, configured dangerous commands and session actions block by default. It also removes malformed provider tool calls before persistence or replay and records incidents in `err/guardian.jsonl`. Protected-path Bash rules match path-shaped words in the command, resolved against the session directory and through symlinks, so argument text like `grep "process.env" src` is no longer blocked; they stay best-effort, not shell sandboxing, because a path built at run time cannot be recognised from text.
 
 
 ### Move through work faster
 
 - **`opl-init`** deterministically crawls and refines `AGENTS.md` with a single out-of-band model call (never a synthetic user message), writes it, and reloads context so the session runs on the new guide. A current fingerprint means zero model calls; mid-session invocations wait for the agent to settle instead of interrupting it. Needs pi >= 0.86.0.
 ![init](images/ss-init.png)
-- **`opl-browser`** gives full Chromium automation (navigate, snapshot, extract rendered-page markdown, interact, screenshot, console/network capture, evaluate) through a single tool, with handle+preview output for large results — navigation is http(s)-only, blocks private/link-local hosts by default and cloud metadata always (SSRF guard; localhost is allowed for dev), and screenshots must use `.png`/`.jpg`, stay in the project directory, and never overwrite an existing file.
-- **`opl-webaccess`** adds provider-backed search plus readable URL and PDF extraction, with session recovery of earlier results, an http(s)-only fetch that blocks private/link-local hosts by default and cloud metadata always, re-checks every redirect hop (SSRF guard; localhost is allowed for dev), a 10 MB response cap, and a 30s timeout.
-- **`opl-simplebench`** benchmarks models on deterministic closed-answer contracts, instruction-following, and tool-call generation so you pick a model on evidence, not vibes.
+- **`opl-browser`** gives full Chromium automation (navigate, snapshot, extract rendered-page markdown, interact, screenshot, console/network capture, evaluate) through a single tool, with handle+preview output for large results — navigation is http(s)-only and host-policy-checked against resolved addresses (private/link-local blocked by default, cloud metadata always, loopback opt-in via `allowLoopback`); the same check is installed as a context route and a WebSocket route so page-initiated subresources, script fetches, JS redirects, popups and `ws://`/`wss://` handshakes are blocked too, service workers are blocked, and a page or frame that a redirect lands on a blocked host is cleared before it can be read, and screenshots must use `.png`/`.jpg`, stay in the project directory, and never overwrite an existing file.
+- **`opl-webaccess`** adds provider-backed search plus readable URL and PDF extraction, with session recovery of earlier results, an http(s)-only fetch whose host policy is checked against resolved addresses and re-applied on every redirect hop (private/link-local blocked by default, cloud metadata and unspecified addresses always, loopback opt-in via `allowLoopback`), a 10 MB response cap, and a configurable `timeoutMs` deadline (default 30 s) on provider and URL fetches. Results land as bounded previews while the full body spills to `<agent-dir>/web-access-cache/<responseId>.json` (1 h TTL, 32 MB ceiling, oldest trimmed first) and is rehydrated on request, so a session entry costs kilobytes instead of the page.
+- **`opl-simplebench`** benchmarks models on deterministic closed-answer contracts, instruction-following, and tool-call generation so you pick a model on evidence, not vibes. Its coding tasks execute model-authored code, so the verifier runs with an allowlisted environment: provider keys, `AWS_*`, tokens and agent paths are withheld from generated code and from anything it spawns.
 ![simplebench](images/ss-simplebench.png)
 - **`opl-todo`** tracks branch-aware tasks that persist across a session and reconstruct from history.
 ![todo](images/ss-todo.png)
@@ -143,7 +151,7 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 
 ### See what the agent is doing
 
-- **`opl-footer`** surfaces model, cost, token and cache activity, git state, agent status, per-turn timing, optional exact remaining ChatGPT Codex subscription quota and OpenRouter API-key cap usage. Both usage segments refresh during agent runs after assistant responses and tool completions (30-second floor, coalesced trailing refresh). The OpenRouter segment resolves Pi's active key locally and calls only OpenRouter's key endpoint; keys and response bodies are neither persisted nor logged. `/configure-opl` edits and reorders its layout interactively.
+- **`opl-footer`** surfaces model, cost, token and cache activity, git state, agent status, per-turn timing, optional exact remaining ChatGPT Codex subscription quota and OpenRouter API-key cap usage. Rows whose segments are all disabled are dropped with their dividers (one populated row costs 2 lines, not 6), a segment that throws shows `[?]` instead of blanking the footer, and branch-derived counts are memoised per branch instead of recomputed on every keypress. Both usage segments refresh during agent runs after assistant responses and tool completions (30-second floor, coalesced trailing refresh). The OpenRouter segment resolves Pi's active key locally and calls only OpenRouter's key endpoint; keys and response bodies are neither persisted nor logged. `/configure-opl` edits and reorders its layout interactively.
 - **`opl-input`** is a configurable editor that reflects the active mode's identity, so you always know which mode you are typing into.
 ![input-footer](images/ss-input-footer.png)
 
@@ -239,4 +247,4 @@ A Pi package (npm or Git) still needs the one-time `npx playwright install chrom
 npm test
 ```
 
-Run one extension suite with `npm run test:opl-<name>` for `browser`, `footer`, `guardian`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, `simplebench`, or `ctxtrim`. `npm run test:pi-host` uses Pi 0.87.0's real extension loader to load every entrypoint and assert no loader errors. Every helper, functional, and selected-entrypoint smoke check uses Bun's named-test reporter; output includes per-test status, timings, and pass/fail totals. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.
+Run one extension suite with `npm run test:opl-<name>` for `browser`, `footer`, `guardian`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, `simplebench`, or `ctxtrim`. `npm run test:pi-host` uses the Pi build this machine actually runs (the installed managed release, falling back to the `>=0.87.0` devDependency when none is present) and its real extension loader to load every entrypoint and assert no loader errors. Every helper, functional, and selected-entrypoint smoke check uses Bun's named-test reporter; output includes per-test status, timings, and pass/fail totals. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.
