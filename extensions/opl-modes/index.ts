@@ -41,6 +41,7 @@ import {
   PLAN_DIR,
   buildExecutePrompt,
   buildRefinePrompt,
+  capPlan,
   USER_CONFIG,
   MODE_REGISTRY,
   getModeDefinition,
@@ -578,7 +579,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       const filePath = getPlanFilePath();
       if (filePath && existsSync(filePath)) {
         const planContent = readFileSync(filePath, "utf-8");
-        return { systemPrompt: event.systemPrompt + "\n\n" + buildRefinePrompt(planContent) };
+        return { systemPrompt: event.systemPrompt + "\n\n" + buildRefinePrompt(planContent, filePath) };
       }
     }
     
@@ -590,12 +591,14 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       const customTemplate = modeDef.prompt;
       if (typeof customTemplate === "string" && customTemplate.trim().length > 0) {
         // User-configured template via modes.execute.prompt — {plan} is replaced with the plan file content.
+        // Capped here too: a custom template must not become a way around the injection budget.
+        const capped = capPlan(planContent, USER_CONFIG.plan.maxInjectBytes, filePath).text;
         const filled = customTemplate.includes("{plan}")
-          ? customTemplate.replace("{plan}", planContent)
-          : `${customTemplate}\n\nPlan:\n${planContent}`;
+          ? customTemplate.replace("{plan}", capped)
+          : `${customTemplate}\n\nPlan:\n${capped}`;
         return { systemPrompt: event.systemPrompt + "\n\n" + filled };
       }
-      return { systemPrompt: event.systemPrompt + "\n\n" + buildExecutePrompt(planContent) };
+      return { systemPrompt: event.systemPrompt + "\n\n" + buildExecutePrompt(planContent, filePath) };
     }
     
     // Generic mode prompt from registry
@@ -853,14 +856,17 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     const filePath = join(process.cwd(), PLAN_DIR, filename);
     if (existsSync(filePath)) {
       const planContent = readFileSync(filePath, "utf-8");
-      pi.appendEntry("plan-mode", { title: displayName, plan: planContent });
+      // The entry copy is display/session only (plain custom entries never reach the
+      // model), but it is written to the session file forever, so it gets its own budget.
+      const entry = capPlan(planContent, USER_CONFIG.plan.maxEntryBytes, filePath);
+      pi.appendEntry("plan-mode", { title: displayName, plan: entry.text, truncated: entry.truncated, file: filePath });
     }
   }
 
   // ─── Entry renderer for TUI-only plan cards (never sent to the model) ──────
 
   pi.registerEntryRenderer("plan-mode", (entry, _options, theme) => {
-    const data = (entry.data ?? {}) as { title?: string; plan?: string };
+    const data = (entry.data ?? {}) as { title?: string; plan?: string; truncated?: boolean; file?: string };
     const border = new DynamicBorder((s: string) => theme.fg("border", s));
     const container = new Container();
     container.addChild(border);
@@ -869,6 +875,9 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     if (body) {
       container.addChild(new Spacer());
       container.addChild(new Text(body));
+    }
+    if (data.truncated) {
+      container.addChild(new Text(theme.fg("muted", `✂ truncated copy — full plan: ${data.file ?? PLAN_DIR}`)));
     }
     container.addChild(border);
     return container;

@@ -154,6 +154,12 @@ export interface ModeSwitcherUserConfig {
   shortcuts?: ShortcutsUserConfig;
   /** @deprecated Use `modes` registry instead. Kept for backward compat. */
   labels?: LabelsUserConfig;
+  plan?: {
+    /** Ceiling for a plan body injected into a system prompt, in bytes (default 24000). Larger plans truncate with a marker pointing at the file. */
+    maxInjectBytes?: number;
+    /** Ceiling for the plan copy kept in the `plan-mode` session entry, in bytes (default 4096). */
+    maxEntryBytes?: number;
+  };
   bashPatterns?: BashPatternsUserConfig;
   /** Replace-only: provide a list of tool names to replace the default CHAT mode tool set. Omit to keep defaults. */
   chatAllowedTools?: string[];

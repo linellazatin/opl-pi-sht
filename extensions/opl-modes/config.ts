@@ -150,7 +150,8 @@ After listing all steps, stop and wait for the user to choose:
 Do NOT attempt to make any file changes, run destructive commands, or modify anything.`;
 
 /** System prompt injected when in EXECUTE mode. */
-export function buildExecutePrompt(planContent: string): string {
+export function buildExecutePrompt(planContent: string, source?: string): string {
+  const capped = capPlan(planContent, USER_CONFIG.plan.maxInjectBytes, source);
   return `\
 You are in EXECUTE MODE. Execute the plan below step by step.
 
@@ -159,16 +160,17 @@ After completing ALL steps, call plan_complete() to signal that execution is fin
 If the \`todo\` tool is available, use it to track progress: add all plan steps at the start of execution, then toggle each one done as you complete it.
 
 Plan:
-${planContent}`;
+${capped.text}`;
 }
 
 /** System prompt injected when refining a plan in PLAN mode. */
-export function buildRefinePrompt(planContent: string): string {
+export function buildRefinePrompt(planContent: string, source?: string): string {
+  const capped = capPlan(planContent, USER_CONFIG.plan.maxInjectBytes, source);
   return `\
 You are in PLAN MODE (refining). The user wants to revise the current plan based on their feedback.
 
 Current plan:
-${planContent}
+${capped.text}
 
 Each step MUST be self-contained — write it as if the executor has no memory of this conversation. Include enough context that it can be carried out with only the plan file and the codebase. Assume the executor will read the relevant files fresh — do not rely on findings you discovered during planning.
 
@@ -195,6 +197,10 @@ const DEFAULT_CONFIG = {
   UI: {
     HIDE_NOTIFY: false,
     HIDE_WIDGET: true,
+  },
+  PLAN: {
+    MAX_INJECT_BYTES: 24000,
+    MAX_ENTRY_BYTES: 4096,
   },
   SHORTCUTS: {
     CYCLE_MODE: "ctrl+alt+m",
@@ -338,9 +344,47 @@ export function lazyToolsToEnable(
   return want.filter((n) => lazy.has(n) && (!allowed || allowed.has(n)) && !active.has(n));
 }
 
+/** Positive integer from user config, else the default. Anything else is ignored rather than trusted. */
+function positiveInt(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+export interface CappedPlan {
+  text: string;
+  truncated: boolean;
+  omittedBytes: number;
+}
+
+/**
+ * Bound a plan body before it is injected into a prompt or stored as an entry.
+ * A plan file is user-authored and uncapped: injected whole it is re-sent on
+ * every provider request for the run, and stored whole it lives in the session
+ * file forever. Truncation is announced so the reader can open the file.
+ */
+export function capPlan(plan: string, maxBytes: number, source?: string): CappedPlan {
+  const bytes = Buffer.byteLength(plan, "utf8");
+  if (!Number.isFinite(maxBytes) || maxBytes <= 0 || bytes <= maxBytes) {
+    return { text: plan, truncated: false, omittedBytes: 0 };
+  }
+  // Leave room for the marker so the result still honours maxBytes.
+  const limit = Math.max(0, maxBytes - 200);
+  let head = Buffer.from(plan, "utf8").subarray(0, limit).toString("utf8");
+  if (head.endsWith("\uFFFD")) head = head.slice(0, -1); // never cut mid-codepoint
+  const newline = head.lastIndexOf("\n");
+  if (newline > head.length * 0.5) head = head.slice(0, newline); // prefer a line boundary
+  const shown = Buffer.byteLength(head, "utf8");
+  const omitted = bytes - shown;
+  const marker = `\n\n[… plan truncated: showing ${shown} of ${bytes} bytes, ${omitted} omitted — read ${source ?? "the plan file"} for the rest …]`;
+  return { text: head + marker, truncated: true, omittedBytes: omitted };
+}
+
 export const USER_CONFIG = {
   cleanup: {
     cleanupOnComplete: userConfig.cleanup?.cleanupOnComplete ?? DEFAULT_CONFIG.CLEANUP.CLEANUP_ON_COMPLETE,
+  },
+  plan: {
+    maxInjectBytes: positiveInt(userConfig.plan?.maxInjectBytes, DEFAULT_CONFIG.PLAN.MAX_INJECT_BYTES),
+    maxEntryBytes: positiveInt(userConfig.plan?.maxEntryBytes, DEFAULT_CONFIG.PLAN.MAX_ENTRY_BYTES),
   },
   ui: {
     hideNotify: userConfig.ui?.hideNotify ?? DEFAULT_CONFIG.UI.HIDE_NOTIFY,
