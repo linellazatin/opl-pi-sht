@@ -37,7 +37,7 @@
     "separator": "|"
   },
   "colors": {
-    "model": "#c07898",
+    "model": "accent",
     "thinkingHigh": "#afb9fe",
     "thinkingXhigh": "#9575cd",
     "thinkingMax": "#ce93d8",
