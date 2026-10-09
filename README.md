@@ -16,6 +16,7 @@ A portable collection of various Pi coding agent extensions. Repository director
 
 >
 > ### v0.2.13 - address-based network policy, execution boundaries, floor CI
+> - **Breaking** - `opl-browser` and `opl-webaccess` always block the entire `64:ff9b:1::/48` local-use translation prefix, including public translations and requests with both network opt-ins enabled.
 > - **Breaking** — `allowLoopback` now defaults to `false` in `opl-browser` and `opl-webaccess`: neither reaches `localhost`, `127.0.0.0/8` or `::1` until you opt in.
 > - `opl-webaccess` and `opl-browser` apply their host policy to **resolved addresses** (a public hostname answering with an internal address is rejected), and `opl-browser` enforces it on requests a page makes itself, on page WebSockets, and on any frame a redirect lands on a blocked host.
 > - `opl-simplebench` runs model-authored verifier code with an allowlisted environment and resolves AWS credentials through argv instead of a shell string; its dead `models.json` write path is gone.

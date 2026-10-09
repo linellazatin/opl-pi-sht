@@ -4,6 +4,7 @@
 
 ### Breaking
 
+- **`opl-browser`, `opl-webaccess`**: the entire local-use translation prefix `64:ff9b:1::/48` is blocked, even with `allowPrivateNetwork` and `allowLoopback` enabled. The well-known `64:ff9b::/96` prefix still follows embedded-IPv4 policy.
 - **`opl-browser`, `opl-webaccess`**: `allowLoopback` now defaults to **`false`**, so neither tool reaches `localhost`, `127.0.0.0/8` or `::1` unless you opt in. Before this, a model could drive a dev server, a Docker socket proxy or an IDaaS callback on your machine. Set `"allowLoopback": true` in the extension's config if your work depends on a local service. Endpoints you configure yourself (`ddgs.apiUrl`, `searxng.instanceUrl`) are not covered by this key. It shipped defaulting to `true` so the flip could be announced in advance.
   - **`allowLoopback`** gates loopback in both extensions and both shipped samples. Private/link-local/reserved space stays governed by `allowPrivateNetwork`, cloud metadata by neither. The guard is duplicated across the two extensions (`install.sh` installs one directory at a time), pinned by `tests/net-guard-parity.test.mjs`.
 
@@ -50,6 +51,7 @@
 
 ### Fixed
 
+- **`opl-browser`, `opl-webaccess`**: fully expanded IPv6 addresses now pass through the embedded-IPv4 classifier; expanded DNS answers for unspecified, loopback and IPv6 metadata addresses follow the same policy as their compressed forms. 6to4 addresses embedding `0.0.0.0` are also refused. Both guards remain parity-checked.
 - **`opl-webaccess`**: PDF fetching converts HTTP response buffers into plain `Uint8Array` input before extraction, avoiding PDF.js rejecting Node `Buffer` values.
 - **`opl-ctxtrim`**: Google/Gemini requests were never trimmed. `functionDeclarations` and `toolSpecifications` inside `tools[]`, the `tool_config` snake_case variant, and `parametersJsonSchema`/`input_schema` declarations are now recognised, so a Gemini request loses the same tool descriptions an OpenAI request already did: 21,752 B to 5,726 B on an 11-tool payload (-73.7%; OpenAI shape -74.1%).
 - **`opl-footer`**: one bad input could blank the entire footer on every frame. A segment that throws now renders a `[?]` marker in its own cell while its siblings survive, transcript oddities (a message without a `usage` block, an unexpected `thinking_level_change` value) read as zero instead of throwing, and branch-derived counts plus the context estimate are memoised on (branch length, context window) rather than recomputed on every keypress. The context bar resolves its unfilled colour once per frame instead of once per cell.

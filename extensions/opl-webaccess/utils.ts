@@ -92,9 +92,9 @@ const BLOCKED_METADATA_HOSTS = new Set([
 ]);
 
 /** Cloud metadata IPv6 literals (e.g. AWS IMDS over IPv6). Always blocked. */
-const BLOCKED_METADATA_V6 = new Set(["fd00:ec2::254"]);
+const BLOCKED_METADATA_V6 = new Set(["fd00:ec2:0:0:0:0:0:254"]);
 
-type HostClass = "loopback" | "metadata" | "unspecified" | "private" | "public";
+type HostClass = "loopback" | "metadata" | "unspecified" | "translation" | "private" | "public";
 
 /** The four octets of an IPv4 address. The arity is the whole point of the classifier, so it is a
  *  tuple rather than a list whose elements TypeScript must assume could be missing. */
@@ -192,16 +192,17 @@ function ipv6Groups(ip: string): Ipv6Groups | null {
     return out;
   };
   const head = parse(sides[0] ?? "");
-  const tail = sides.length === 2 ? parse(sides[1] ?? "") : null;
-  if (!head || !tail) return null;
+  if (!head) return null;
   if (sides.length === 1) return asIpv6Groups(head);
+  const tail = parse(sides[1] ?? "");
+  if (!tail) return null;
   const fill = 8 - head.length - tail.length;
   if (fill < 1) return null; // `::` must stand for at least one zero group
   return asIpv6Groups([...head, ...Array(fill).fill(0), ...tail]);
 }
 
-/** IPv4 that an IPv6 literal still routes to: mapped (`::ffff:`), NAT64 (`64:ff9b::/96` and the
- *  local-use `64:ff9b:1::`), 6to4 (`2002::/16`) and the deprecated IPv4-compatible form (`::a.b`).
+/** IPv4 that an IPv6 literal still routes to: mapped (`::ffff:`), NAT64 (`64:ff9b::/96`),
+ *  6to4 (`2002::/16`) and the deprecated IPv4-compatible form (`::a.b`).
  *  Wherever those prefixes are still routable they reach the embedded address, so the embedded
  *  address is what has to be classified — otherwise `http://[64:ff9b::a9fe:a9fe]/` walks past the
  *  metadata block one literal away from 169.254.169.254, and a DNS64 answer can do the same. */
@@ -211,12 +212,11 @@ function embeddedIpv4Octets(ip: string): Ipv4 | null {
   const zeros = (from: number, to: number) => g.slice(from, to).every((x) => x === 0);
   const low32 = (): Ipv4 => [(g[6] >> 8) & 0xff, g[6] & 0xff, (g[7] >> 8) & 0xff, g[7] & 0xff];
   if (g[5] === 0xffff && zeros(0, 5)) return low32();
-  if (g[0] === 0x2002 && (g[1] !== 0 || g[2] !== 0)) {
+  if (g[0] === 0x2002) {
     return [(g[1] >> 8) & 0xff, g[1] & 0xff, (g[2] >> 8) & 0xff, g[2] & 0xff]; // 6to4 carries v4 after the prefix (tuple by return type)
   }
   if (g[0] === 0x0064 && g[1] === 0xff9b) {
     if (zeros(2, 6)) return low32(); // NAT64 well-known prefix
-    if (g[2] === 0x0001 && zeros(3, 6)) return low32(); // NAT64 local-use prefix
   }
   if (zeros(0, 6) && (g[6] !== 0 || g[7] !== 0)) return low32(); // IPv4-compatible (deprecated)
   return null;
@@ -232,11 +232,16 @@ function classifyIpv4Octets(o: Ipv4): HostClass {
 
 function classifyIpv6Host(host: string): HostClass {
   const ip = host.replace(/^\[/, "").replace(/\]$/, "").replace(/%.*$/, "").toLowerCase();
-  if (BLOCKED_METADATA_V6.has(ip)) return "metadata";
-  if (ip === "::1") return "loopback";
+  const groups = ipv6Groups(ip);
+  if (groups) {
+    if (BLOCKED_METADATA_V6.has(groups.map((g) => g.toString(16)).join(":"))) return "metadata";
+    if (groups.every((g) => g === 0)) return "unspecified";
+    if (groups.slice(0, 7).every((g) => g === 0) && groups[7] === 1) return "loopback";
+    // Local-use translation layouts vary; no opt-in may bypass this prefix block.
+    if (groups[0] === 0x0064 && groups[1] === 0xff9b && groups[2] === 1) return "translation";
+  }
   const embedded = embeddedIpv4Octets(ip);
   if (embedded) return classifyIpv4Octets(embedded);
-  if (ip === "::") return "unspecified";
   if (/^f[cd]/.test(ip)) return "private"; // fc00::/7 unique-local
   if (/^fe[89ab]/.test(ip)) return "private"; // fe80::/10 link-local
   if (/^ff/.test(ip)) return "private"; // ff00::/8 multicast
@@ -254,7 +259,7 @@ function classifyHost(host: string): HostClass {
 
 function isBlockedNetworkHost(host: string, allowPrivateNetwork: boolean, allowLoopback: boolean): boolean {
   const cls = classifyHost(host);
-  if (cls === "metadata" || cls === "unspecified") return true; // never toggleable
+  if (cls === "metadata" || cls === "unspecified" || cls === "translation") return true; // never toggleable
   if (cls === "loopback") return !allowLoopback;
   if (cls === "public") return false;
   return !allowPrivateNetwork; // private / link-local / reserved
@@ -263,7 +268,7 @@ function isBlockedNetworkHost(host: string, allowPrivateNetwork: boolean, allowL
 /**
  * Normalize a URL, allowing only http/https. Loopback (localhost/127.0.0.0/8/::1) is
  * opt-in through allowLoopback; private/link-local/reserved ranges are blocked unless
- * allowPrivateNetwork is set; cloud metadata and unspecified addresses are always blocked.
+ * allowPrivateNetwork is set; cloud metadata, unspecified addresses and 64:ff9b:1::/48 are always blocked.
  */
 export function assertHttpUrl(url: string, opts: HttpUrlOptions = {}): string {
   let parsed: URL;
@@ -276,7 +281,7 @@ export function assertHttpUrl(url: string, opts: HttpUrlOptions = {}): string {
     throw new Error(`Only http/https URLs are allowed, "${parsed.protocol}"`);
   }
   if (isBlockedNetworkHost(parsed.hostname, opts.allowPrivateNetwork === true, opts.allowLoopback === true)) {
-    throw new Error(`Blocked network host "${parsed.hostname}" — private, link-local, and reserved URLs are not allowed (set allowPrivateNetwork to opt in to private ranges, or allowLoopback for localhost and 127.0.0.0/8; cloud-metadata and unspecified addresses such as 0.0.0.0 are always blocked)`);
+    throw new Error(`Blocked network host "${parsed.hostname}" — private, link-local, and reserved URLs are not allowed (set allowPrivateNetwork to opt in to private ranges, or allowLoopback for localhost and 127.0.0.0/8; cloud-metadata, unspecified addresses such as 0.0.0.0, and the 64:ff9b:1::/48 translation prefix are always blocked)`);
   }
   return parsed.href;
 }
@@ -354,7 +359,7 @@ export async function resolveSafeHostUrl(url: string, opts: HttpUrlOptions = {})
   const allowLoopback = opts.allowLoopback === true;
   for (const answer of answers) {
     if (isBlockedNetworkHost(answer, allowPrivate, allowLoopback)) {
-      throw new Error(`Blocked network host "${host}" — it resolves to ${answer}, and private, link-local, and reserved addresses are not allowed (set allowPrivateNetwork to opt in to private ranges, or allowLoopback for localhost and 127.0.0.0/8; cloud-metadata and unspecified addresses such as 0.0.0.0 are always blocked)`);
+      throw new Error(`Blocked network host "${host}" — it resolves to ${answer}, and private, link-local, and reserved addresses are not allowed (set allowPrivateNetwork to opt in to private ranges, or allowLoopback for localhost and 127.0.0.0/8; cloud-metadata, unspecified addresses such as 0.0.0.0, and the 64:ff9b:1::/48 translation prefix are always blocked)`);
     }
   }
   return { url: normalized, host, addresses: answers };

@@ -220,6 +220,26 @@ const fakePage = (urls, blanked) => ({
   goto: async () => { blanked.n++; },
 });
 
+test("translation prefix is blocked on routes, WebSockets and frame rechecks with opt-ins", async () => {
+  const guard = { allowPrivateNetwork: true, allowLoopback: true };
+  const url = "http://[64:ff9b:1:a9fe:a9:fe00::]/";
+  const events = [];
+  await makeRouteHandler(guard)({
+    request: () => ({ url: () => url }),
+    abort: async (reason) => { events.push(`abort:${reason}`); },
+    continue: async () => { events.push("continue"); },
+  });
+  await makeWebSocketGuard(guard)({
+    url: () => url.replace("http:", "ws:"),
+    close: async () => { events.push("close"); },
+    connectToServer: () => { events.push("connect"); },
+  });
+  assert.deepEqual(events, ["abort:blockedbyclient", "close"]);
+  const blanked = { n: 0 };
+  await assert.rejects(() => assertFrameTargetsSafe(fakePage([url], blanked), guard), /Blocked network host/);
+  assert.equal(blanked.n, 1);
+});
+
 test("assertFrameTargetsSafe blanks and rejects a page whose frame landed on a blocked host", async () => {
   const blanked = { n: 0 };
   const page = fakePage(["http://127.0.0.1:8080/stolen"], blanked);
