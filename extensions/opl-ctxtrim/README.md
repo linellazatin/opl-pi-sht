@@ -17,6 +17,7 @@ Supported provider payload shapes:
 - OpenAI Responses / Anthropic / Google: `{ name, description, parameters }`
 - OpenAI Chat Completions / Mistral: `{ function: { name, description, parameters } }`
 - Amazon Bedrock Converse: `toolConfig.tools[].toolSpec`
+- Google/Gemini `generateContent`: `tools[].functionDeclarations[]` (also `toolSpecifications[]`), function calling under `toolConfig` or `tool_config`, and a declaration's schema in `parameters`, `input_schema` or `parametersJsonSchema`
 
 Any unrecognized payload shape, any non-`ctx_*` tool, and any `ctx_*` tool not in the built-in description map are returned unchanged (fail open). This means a future context-mode release that adds or renames a tool is left untouched at runtime until the extension is updated; the test suite flags such tools for review.
 
@@ -32,7 +33,7 @@ The test suite queries the installed context-mode **v1.0.169** server (11 `ctx_*
 | Current `opl-ctxtrim` output | 9,152 | **18,867 fewer (67.3%)** |
 | Hypothetical empty descriptions, schemas retained | 4,683 | 23,336 fewer (83.3%) |
 
-The final row is a ceiling, not a recommended configuration. Current replacements retain compact tool guidance and parameter descriptions; empty descriptions would remove another 4,469 bytes but make tool selection and argument construction less reliable. The remaining 4,683 bytes are mostly required schema structure, parameter names, types, enums, bounds, and `required` fields.
+The suite also builds the same tool set into the other supported shapes: an OpenAI array goes 21,912 → 5,666 bytes (-74.1%) and a Gemini `functionDeclarations` array goes 21,752 → 5,726 (-73.7%), so a Gemini request is trimmed like the others instead of passing through whole. The final row is a ceiling, not a recommended configuration. Current replacements retain compact tool guidance and parameter descriptions; empty descriptions would remove another 4,469 bytes but make tool selection and argument construction less reliable. The remaining 4,683 bytes are mostly required schema structure, parameter names, types, enums, bounds, and `required` fields.
 
 Run `npm run test:opl-ctxtrim` to regenerate the first two rows. It also reports a rough 3-4 bytes-per-token estimate of 4,717-6,289 tokens per request. Treat that as a byte heuristic, not billing data.
 

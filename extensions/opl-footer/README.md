@@ -45,6 +45,10 @@ Create `~/.pi/agent/configs/opl-footer.json` or copy the tracked example from [`
 
 The config is cached for five seconds. Changes normally appear automatically; use `/reload` or restart Pi if needed.
 
+### Layout cost
+
+A row whose segments are all disabled renders nothing: the line and its divider are dropped, so a one-row layout costs two lines (a leading blank plus the row) and a three-row layout still costs six. A segment that throws during render shows `[?]` in its own cell instead of blanking the whole footer, and an unexpected session entry (a message without a `usage` block, for example) reads as zero rather than taking the rows with it. Branch-derived counters and the context estimate are recomputed only when the branch length or the context window changes, not on every keypress.
+
 ### Git probing
 
 The `git` segment reads branch (500 ms cache) and dirty counts (1 s cache) so an idle footer never spawns more than a couple of `git` processes per second. Two guards keep that floor honest:
