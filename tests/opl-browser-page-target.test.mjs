@@ -3,10 +3,13 @@ import { test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolvePageIndex, indexAfterClose } from "../extensions/opl-browser/browser.ts";
+import { resolvePageIndex, indexAfterClose, runAction, closeBrowser } from "../extensions/opl-browser/browser.ts";
+import { createRequire } from "node:module";
+import { DEFAULT_CONFIG } from "../extensions/opl-browser/config.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const browserSrc = readFileSync(join(root, "extensions/opl-browser/browser.ts"), "utf-8");
+const { chromium } = await import(createRequire(new URL("../extensions/opl-browser/browser.ts", import.meta.url)).resolve("playwright"));
 
 test("resolvePageIndex: an empty page list is an error, not a fallback", () => {
   assert.throws(() => resolvePageIndex(0, 0), /no open pages/);
@@ -56,12 +59,105 @@ test("the stale-index fallback is gone from the page resolver", () => {
   assert.ok(!/function page\(\)/.test(browserSrc), "the unresolvable page() helper returned");
 });
 
-test("page-scoped actions resolve their target through the index argument", () => {
-  assert.ok(browserSrc.includes("const target = () => pageAt(p.index)"), "target binding missing");
-  assert.match(browserSrc, /case "close_page"[\s\S]*?indexAfterClose\(activeIndex, i, pages\.length\)/);
-  assert.match(browserSrc, /case "select_page"[\s\S]*?resolvePageIndex\(activeIndex, ctx\.pages\(\)\.length, p\.index \?\? 0\)/);
-  // new_page must select the page it created rather than assuming it landed last.
-  assert.match(browserSrc, /case "new_page"[\s\S]*?ctx\.pages\(\)\.indexOf\(pg\)/);
+async function driver(onNewPage = () => {}) {
+  await closeBrowser();
+  const launch = chromium.launch;
+  const pages = [];
+  let count = 0;
+  const context = {
+    pages: () => [...pages],
+    route: async () => {},
+    routeWebSocket: async () => {},
+    close: async () => { for (const page of [...pages]) await page.close(); },
+    newPage: async () => {
+      const name = `page-${count++}`;
+      let closed = false;
+      const page = {
+        name, onFrames: null,
+        on() {}, setDefaultNavigationTimeout() {},
+        frames() { this.onFrames?.(); return []; },
+        url: () => "about:blank",
+        goto: async () => {},
+        isClosed: () => closed,
+        evaluate: async () => { if (closed) throw new Error("target page closed"); return name; },
+        close: async () => { closed = true; const i = pages.indexOf(page); if (i >= 0) pages.splice(i, 1); },
+      };
+      pages.push(page);
+      onNewPage(page);
+      return page;
+    },
+  };
+  chromium.launch = async () => ({ newContext: async () => context, close: async () => {} });
+  const act = (params, cfg = DEFAULT_CONFIG) => runAction(params, cfg, root);
+  await act({ action: "pages" });
+  return { pages, act, dispose: async () => { await closeBrowser(); chromium.launch = launch; } };
+}
+
+test("externally closing the selected page requires explicit recovery", async () => {
+  const h = await driver();
+  try {
+    await h.act({ action: "new_page" });
+    await h.act({ action: "new_page" });
+    await h.act({ action: "select_page", index: 1 });
+    await h.pages[1].close();
+    await assert.rejects(() => h.act({ action: "evaluate", script: "window.name" }), /closed|no page/);
+    assert.ok(!(await h.act({ action: "pages" })).text.includes("*"));
+    assert.equal((await h.act({ action: "evaluate", index: 1, script: "window.name" })).text, "page-2");
+    await assert.rejects(() => h.act({ action: "evaluate", script: "window.name" }), /closed|no page/);
+    await h.act({ action: "select_page", index: 1 });
+    assert.equal((await h.act({ action: "evaluate", script: "window.name" })).text, "page-2");
+  } finally { await h.dispose(); }
+});
+
+test("externally closing an earlier page preserves the selected document", async () => {
+  const h = await driver();
+  try {
+    await h.act({ action: "new_page" });
+    await h.act({ action: "new_page" });
+    await h.act({ action: "select_page", index: 1 });
+    await h.pages[0].close();
+    assert.equal((await h.act({ action: "evaluate", script: "window.name" })).text, "page-1");
+    assert.match((await h.act({ action: "pages" })).text, /\* \[0\]/);
+  } finally { await h.dispose(); }
+});
+
+test("a page closing during its safety check cannot retarget the action", async () => {
+  const h = await driver();
+  try {
+    await h.act({ action: "new_page" });
+    const first = h.pages[0];
+    first.onFrames = () => { void first.close(); };
+    await assert.rejects(() => h.act({ action: "evaluate", index: 0, script: "window.name" }), /closed|no page/);
+  } finally { await h.dispose(); }
+});
+
+test("deliberate closes preserve selection or choose the nearest surviving page", async () => {
+  const h = await driver();
+  try {
+    await h.act({ action: "new_page" });
+    await h.act({ action: "new_page" });
+    await h.act({ action: "select_page", index: 1 });
+    await h.act({ action: "close_page", index: 0 });
+    assert.equal((await h.act({ action: "evaluate", script: "window.name" })).text, "page-1");
+    await h.act({ action: "close_page" });
+    assert.equal((await h.act({ action: "evaluate", script: "window.name" })).text, "page-2");
+    await h.act({ action: "close_page" });
+    await assert.rejects(() => h.act({ action: "evaluate", script: "window.name" }), /no open pages/);
+    await h.act({ action: "new_page" });
+    assert.equal((await h.act({ action: "evaluate", script: "window.name" })).text, "page-3");
+  } finally { await h.dispose(); }
+});
+
+test("a new page closing during validation fails instead of reporting index -1", async () => {
+  const h = await driver((page) => {
+    if (page.name === "page-1") page.onFrames = () => { void page.close(); };
+  });
+  try {
+    await assert.rejects(() => h.act({ action: "new_page", url: "http://127.0.0.1/" }, { ...DEFAULT_CONFIG, allowLoopback: true }), /closed/);
+    await assert.rejects(() => h.act({ action: "evaluate", script: "window.name" }), /closed/);
+    await h.act({ action: "select_page", index: 0 });
+    assert.equal((await h.act({ action: "evaluate", script: "window.name" })).text, "page-0");
+  } finally { await h.dispose(); }
 });
 
 test("the index argument is documented as page-scoped, not just select/close", () => {

@@ -7,7 +7,7 @@ import type { BrowserConfig } from "./config.js";
 // One browser per session is enough; add contexts only if parallel isolation matters.
 let browser: Browser | null = null;
 let context: BrowserContext | null = null;
-let activeIndex = 0;
+let selectedPage: Page | null = null;
 
 const consoleBuf = new WeakMap<Page, string[]>();
 const networkBuf = new WeakMap<Page, string[]>();
@@ -69,7 +69,7 @@ async function ensure(cfg: BrowserConfig): Promise<BrowserContext> {
   context = created;
   const page = await context.newPage();
   track(page, cfg);
-  activeIndex = 0;
+  selectedPage = page;
   return context;
 }
 
@@ -99,7 +99,11 @@ export function indexAfterClose(active: number, closed: number, count: number): 
 /** The page for the current action: an explicit `index` argument wins, otherwise the selection. */
 function pageAt(requested?: number): Page {
   const pages = context!.pages();
-  return pages[resolvePageIndex(activeIndex, pages.length, requested)]!;
+  const active = selectedPage ? pages.indexOf(selectedPage) : -1;
+  if (requested === undefined && active < 0 && pages.length > 0) {
+    throw new Error("selected page closed; use `select_page` or `new_page` to select another document");
+  }
+  return pages[resolvePageIndex(active, pages.length, requested)]!;
 }
 
 /** Budget for one DNS round-trip. Playwright has no timeout of its own on a route handler, so a
@@ -252,7 +256,7 @@ export interface BrowserParams {
 
 let last: Promise<unknown> = Promise.resolve();
 /** Serialize state-mutating browser work: a single shared context cannot service
- *  concurrent tool calls safely (activeIndex, pageAt(), ensure() all race). Each new
+ *  concurrent tool calls safely (selection, pageAt(), ensure() all race). Each new
  *  action is queued behind the previous one, and failures never break the chain. */
 function serialize<T>(task: () => Promise<T>): Promise<T> {
   const run = last.then(task, task);
@@ -275,7 +279,11 @@ async function runActionInternal(p: BrowserParams, cfg: BrowserConfig, cwd: stri
   }
 
   const ctx = await ensure(cfg);
-  const target = () => pageAt(p.index);
+  const boundPage = PAGE_BOUND_ACTIONS.has(p.action) ? pageAt(p.index) : null;
+  const target = () => {
+    if (!boundPage || boundPage.isClosed()) throw new Error("target page closed; select another document before retrying");
+    return boundPage;
+  };
   // A page can only have been landed on a blocked host through a path the route handler never
   // saw (redirect chain, history, script). Re-check before touching or reading it.
   if (PAGE_BOUND_ACTIONS.has(p.action)) await assertFrameTargetsSafe(target(), guardOf(cfg));
@@ -376,7 +384,7 @@ async function runActionInternal(p: BrowserParams, cfg: BrowserConfig, cwd: stri
       return { text: `Condition met` };
     }
     case "pages": {
-      const list = ctx.pages().map((pg, i) => `${i === activeIndex ? "*" : " "} [${i}] ${pg.url()}`);
+      const list = ctx.pages().map((pg, i) => `${pg === selectedPage ? "*" : " "} [${i}] ${pg.url()}`);
       return { text: list.join("\n") || "(no pages)" };
     }
     case "new_page": {
@@ -385,27 +393,31 @@ async function runActionInternal(p: BrowserParams, cfg: BrowserConfig, cwd: stri
       // Select the page that was actually created; `pages()` order is creation order but a popup
       // from another page can land in the same tick, so ask instead of assuming it is last.
       const created = ctx.pages().indexOf(pg);
-      activeIndex = created < 0 ? ctx.pages().length - 1 : created;
+      selectedPage = pg;
+      if (created < 0 || pg.isClosed()) throw new Error("new page closed before it could be selected");
       if (p.url) await gotoAllowed(pg, p.url, cfg);
-      return { text: `Opened page [${activeIndex}] ${pg.url()}` };
+      if (pg.isClosed()) throw new Error("new page closed during its safety check");
+      return { text: `Opened page [${ctx.pages().indexOf(pg)}] ${pg.url()}` };
     }
     case "select_page": {
-      const i = resolvePageIndex(activeIndex, ctx.pages().length, p.index ?? 0);
-      activeIndex = i;
-      await assertFrameTargetsSafe(pageAt(), guardOf(cfg));
-      return { text: `Selected page [${i}] ${pageAt().url()}` };
+      const pg = pageAt(p.index ?? 0);
+      selectedPage = pg;
+      await assertFrameTargetsSafe(pg, guardOf(cfg));
+      if (pg.isClosed()) throw new Error("selected page closed during its safety check");
+      return { text: `Selected page [${ctx.pages().indexOf(pg)}] ${pg.url()}` };
     }
     case "close_page": {
       const pages = ctx.pages();
-      const i = resolvePageIndex(activeIndex, pages.length, p.index);
-      // resolvePageIndex already bounds i, so this is a narrowing, not a new failure mode: without
-      // it the stale-selection contract would be unprovable to the compiler and `pages[i]` would
-      // dereference blind.
-      const doomed = pages[i];
-      if (!doomed) throw new Error(`No page at index ${i}; ${pages.length} page(s) open`);
+      const doomed = pageAt(p.index);
+      const i = pages.indexOf(doomed);
       await doomed.close();
-      activeIndex = indexAfterClose(activeIndex, i, pages.length);
-      return { text: `Closed page [${i}]; selection is now [${activeIndex}]${ctx.pages().length ? "" : " (no pages left)"}` };
+      const remaining = ctx.pages();
+      if (doomed === selectedPage) {
+        const next = indexAfterClose(i, i, pages.length);
+        selectedPage = remaining[Math.min(next, remaining.length - 1)] ?? null;
+      }
+      const active = selectedPage ? remaining.indexOf(selectedPage) : -1;
+      return { text: `Closed page [${i}]; selection is now ${active >= 0 ? `[${active}]` : "none"}${remaining.length ? "" : " (no pages left)"}` };
     }
     case "resize": {
       if (p.width == null || p.height == null) throw new Error("resize requires width and height");
@@ -430,5 +442,5 @@ async function closeBrowserInternal(): Promise<void> {
   }
   context = null;
   browser = null;
-  activeIndex = 0;
+  selectedPage = null;
 }

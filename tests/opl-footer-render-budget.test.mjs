@@ -15,7 +15,7 @@ const stripAnsi = (s) => s.replace(ANSI, "");
  * unknown colour token, which is how one bad value in opl-footer.json used to take the
  * whole footer down.
  */
-async function mount({ config = {}, throwOn = null, branchRef = { value: [] }, projectionMessages = [] } = {}) {
+async function mount({ config = {}, throwOn = null, branchRef = { value: [] }, projectionMessages = [], projectionRef = { value: projectionMessages }, usageRef = { value: { percent: null, contextWindow: 1000 } }, leafRef = { value: "leaf-1" }, sessionRef = { value: "session-1" } } = {}) {
   clearUserConfigCache();
   const dir = mkdtempSync(join(tmpdir(), "opl-footer-budget-"));
   mkdirSync(join(dir, "configs"), { recursive: true });
@@ -27,6 +27,7 @@ async function mount({ config = {}, throwOn = null, branchRef = { value: [] }, p
   let component;
   let projectionsBuilt = 0;
   let themeLookups = 0;
+  let renderRequests = 0;
   const pi = {
     on(name, handler) {
       if (!handlers.has(name)) handlers.set(name, []);
@@ -40,20 +41,21 @@ async function mount({ config = {}, throwOn = null, branchRef = { value: [] }, p
     mode: "tui",
     model: { provider: "alpha", id: "model-a", contextWindow: 1000 },
     modelRegistry: { isUsingOAuth: () => false },
-    getContextUsage: () => ({ percent: null, contextWindow: 1000 }),
+    getContextUsage: () => usageRef.value,
     sessionManager: {
       getBranch: () => branchRef.value,
-      getSessionId: () => "session-1",
+      getSessionId: () => sessionRef.value,
+      getLeafId: () => leafRef.value,
       buildSessionProjection: () => {
         projectionsBuilt++;
-        return { messages: projectionMessages };
+        return { messages: projectionRef.value };
       },
     },
     ui: {
       notify() {},
       setFooter(factory) {
         component = factory(
-          { requestRender() {} },
+          { requestRender() { renderRequests++; } },
           {
             fg: (name, text) => {
               themeLookups++;
@@ -73,6 +75,7 @@ async function mount({ config = {}, throwOn = null, branchRef = { value: [] }, p
 
   return {
     projectionsBuilt: () => projectionsBuilt,
+    renderRequests: () => renderRequests,
     themeLookups: () => themeLookups,
     fire: async (name, event) => {
       for (const handler of handlers.get(name) ?? []) await handler(event, ctx);
@@ -227,6 +230,79 @@ test("the estimate is re-derived when the branch grows", async () => {
   } finally {
     h.dispose();
   }
+});
+
+test("equal-length branch switches refresh counts, thinking, cost and tokens", async () => {
+  const branchRef = { value: [
+    { type: "message", message: { role: "user", content: "one" } },
+    { type: "message", message: { role: "assistant", stopReason: "stop", content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: {} }], usage: { input: 100, output: 10, cost: { total: 0.1 } } } },
+    { type: "thinking_level_change", thinkingLevel: "off" },
+  ] };
+  const leafRef = { value: "branch-a" };
+  const h = await mount({ config: singleRow(["session_stats", "thinking", "token_in", "cost"]), branchRef, leafRef });
+  try {
+    const first = stripAnsi(h.render().join("\n"));
+    assert.match(first, /1 prompts.*1 api calls.*1 tool calls/);
+    assert.match(first, /↑ 100/);
+    assert.match(first, /0\.10/);
+    branchRef.value = [
+      { type: "message", message: { role: "user", content: "one" } },
+      { type: "message", message: { role: "user", content: "two" } },
+      { type: "thinking_level_change", thinkingLevel: "high" },
+    ];
+    leafRef.value = "branch-b";
+    const second = stripAnsi(h.render().join("\n"));
+    assert.match(second, /2 prompts.*0 api calls.*0 tool calls/);
+    assert.match(second, /HIGH/);
+    assert.match(second, /↑ 0/);
+    assert.ok(!second.includes("0.10"));
+  } finally { h.dispose(); }
+});
+
+for (const event of ["session_tree", "session_compact"]) {
+  test(`${event} refreshes the projection even when the cache key inputs stay equal`, async () => {
+    const projectionRef = { value: [{ role: "user", content: "hi" }] };
+    const h = await mount({ config: singleRow(["context_pct"]), projectionRef });
+    try {
+      const before = stripAnsi(h.render().join("\n"));
+      const requests = h.renderRequests();
+      projectionRef.value = [{ role: "user", content: "changed projection ".repeat(100) }];
+      await h.fire(event, {});
+      assert.ok(h.renderRequests() > requests);
+      const after = stripAnsi(h.render().join("\n"));
+      assert.notEqual(after, before);
+      assert.equal(h.projectionsBuilt(), 2);
+      h.render();
+      assert.equal(h.projectionsBuilt(), 2);
+    } finally { h.dispose(); }
+  });
+}
+
+test("canonical usage replaces the estimate and a later unknown usage rebuilds it", async () => {
+  const usageRef = { value: { percent: null, contextWindow: 1000 } };
+  const h = await mount({ config: singleRow(["context_pct"]), usageRef });
+  try {
+    assert.match(stripAnsi(h.render().join("\n")), /≈/);
+    usageRef.value = { percent: 25, contextWindow: 1000 };
+    const exact = stripAnsi(h.render().join("\n"));
+    assert.match(exact, /25\.00%/);
+    assert.ok(!exact.includes("≈"));
+    assert.equal(h.projectionsBuilt(), 1);
+    usageRef.value = { percent: null, contextWindow: 1000 };
+    assert.match(stripAnsi(h.render().join("\n")), /≈/);
+    assert.equal(h.projectionsBuilt(), 2);
+  } finally { h.dispose(); }
+});
+
+test("changing sessions with an equal-length branch invalidates the estimate", async () => {
+  const sessionRef = { value: "session-a" };
+  const h = await mount({ config: singleRow(["context_pct"]), sessionRef });
+  try {
+    h.render();
+    sessionRef.value = "session-b";
+    h.render();
+    assert.equal(h.projectionsBuilt(), 2);
+  } finally { h.dispose(); }
 });
 
 test("the unfilled bar colour is resolved once per frame, not per cell", async () => {

@@ -51,6 +51,8 @@
 
 ### Fixed
 
+- **`opl-browser`**: selected pages are tracked by identity, so closing an earlier tab cannot switch the selected document; an externally closed selection requires explicit recovery. Each page action binds its target once, preventing a close during validation from retargeting it.
+- **`opl-footer`**: branch facts are keyed by session and leaf identity, branch length, context window and estimation state; tree navigation and compaction invalidate them. Equal-length branch switches refresh counts, tokens, cost and thinking, and canonical context usage drops the estimate marker.
 - **`opl-webaccess`**: URL fetches decode `gzip`, `deflate` and `br` with separate received/decoded byte caps; redirect headers advance without buffering their bodies, and only 301/302/303/307/308 are followed. Abort and inactivity cleanup closes the socket and decoder; the overall deadline survives cleanup between hops.
 - **`opl-browser`, `opl-webaccess`**: fully expanded IPv6 addresses now pass through the embedded-IPv4 classifier; expanded DNS answers for unspecified, loopback and IPv6 metadata addresses follow the same policy as their compressed forms. 6to4 addresses embedding `0.0.0.0` are also refused. Both guards remain parity-checked.
 - **`opl-webaccess`**: PDF fetching converts HTTP response buffers into plain `Uint8Array` input before extraction, avoiding PDF.js rejecting Node `Buffer` values.

@@ -70,6 +70,8 @@ Full action set: `navigate` (url, or `back`/`forward`/`reload`), `snapshot`, `ex
 - **Per-page capture.** Console messages and network requests are buffered per page as they occur; `console` and `network` actions return the target page's buffer, capped at the most recent `200` entries per page so an active long-running page cannot grow the buffer without bound. `navigate: back`/ `forward` on a fresh session reports `(no history to go back/forward)` instead of silently returning the unchanged page.
 - **One reused browser per session.** Launched on first use, closed automatically on `session_shutdown`, or on demand via `action: "close"`.
 
+Selection follows the page object, so closing an earlier tab preserves the selected document. If the selected page closes externally (including `window.close()`), page-scoped actions without `index` fail until `select_page` or `new_page` establishes a selection; an explicit `index` targets the current live list without changing selection. Every action binds one page before validation and cannot switch documents if that page closes mid-action. Deliberate `close_page` keeps another selected page or selects the nearest survivor when closing the selection.
+
 ## Configuration
 
 Optional `~/.pi/agent/configs/opl-browser.json` (see `opl-browser.json.sample`):

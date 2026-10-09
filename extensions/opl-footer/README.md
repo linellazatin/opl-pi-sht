@@ -47,7 +47,7 @@ The config is cached for five seconds. Changes normally appear automatically; us
 
 ### Layout cost
 
-A row whose segments are all disabled renders nothing: the line and its divider are dropped, so a one-row layout costs two lines (a leading blank plus the row) and a three-row layout still costs six. A segment that throws during render shows `[?]` in its own cell instead of blanking the whole footer, and an unexpected session entry (a message without a `usage` block, for example) reads as zero rather than taking the rows with it. Branch-derived counters and the context estimate are recomputed only when the branch length or the context window changes, not on every keypress.
+A row whose segments are all disabled renders nothing: the line and its divider are dropped, so a one-row layout costs two lines (a leading blank plus the row) and a three-row layout still costs six. A segment that throws during render shows `[?]` in its own cell instead of blanking the whole footer, and an unexpected session entry (a message without a `usage` block, for example) reads as zero rather than taking the rows with it. Branch-derived counters and the context estimate are cached by session, leaf, branch length, context window and whether usage needs estimating. Tree navigation and compaction invalidate the cache; equal-length branches refresh their values and canonical usage removes the estimate marker. Unchanged renders reuse the cached facts.
 
 ### Git probing
 

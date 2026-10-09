@@ -54,8 +54,8 @@ const isThinkingEvent = (e: SessionEvent): e is ThinkingLevelEvent =>
 
 /**
  * Branch-derived footer inputs. Every field is a pass over the whole branch and the
- * footer re-renders on each keypress, so they are memoised on (branch length, context
- * window) — the only inputs that can change them.
+ * footer re-renders on each keypress, so they are memoised by session, leaf, branch
+ * length, context window and whether canonical usage needs an estimate.
  */
 export interface BranchFacts {
   key: string;
@@ -231,7 +231,7 @@ export default function footer(pi: ExtensionAPI) {
   let currentCtx: ExtensionContext | null = null;
   let footerDataRef: ReadonlyFooterDataProvider | null = null;
   // Every field below is a pass over the whole branch. The footer re-renders on each
-  // keypress, so they are derived once per (branch length, context window) instead.
+  // keypress, so unchanged branch identities reuse the derived inputs instead.
   let branchFacts: BranchFacts | null = null;
   let tuiRef: TUI | null = null;
   let codexUsage: CodexUsageSnapshot | null = null;
@@ -437,6 +437,7 @@ export default function footer(pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", async () => {
+    branchFacts = null;
     cancelCodexUsageRefresh();
     codexUsageGeneration++;
     codexUsageInFlight = null;
@@ -447,6 +448,14 @@ export default function footer(pi: ExtensionAPI) {
     // a dead component to render into on the next session, so it goes with the footer.
     delete (globalThis as Record<string, unknown>).__footerRequestRender;
   });
+
+  const invalidateBranchFacts = (_event: unknown, ctx: ExtensionContext) => {
+    currentCtx = ctx;
+    branchFacts = null;
+    tuiRef?.requestRender();
+  };
+  pi.on("session_tree", invalidateBranchFacts);
+  pi.on("session_compact", invalidateBranchFacts);
 
   pi.on("message_end", async (event, ctx) => {
     if (event.message.role === "assistant") {
@@ -551,16 +560,20 @@ export default function footer(pi: ExtensionAPI) {
     const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
     const contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
 
-    const factsKey = `${branch.length}:${contextWindow}`;
+    const needsEstimate = usage?.percent === null;
+    const factsKey = JSON.stringify([
+      ctx.sessionManager?.getSessionId?.(), ctx.sessionManager?.getLeafId?.(),
+      branch.length, contextWindow, needsEstimate,
+    ]);
     let facts = branchFacts;
     if (!facts || facts.key !== factsKey) {
-      const projectedMessages = usage?.percent === null
+      const projectedMessages = needsEstimate
         ? ctx.sessionManager?.buildSessionProjection?.().messages
         : undefined;
       try {
         facts = deriveBranchFacts(branch, factsKey, {
           contextWindow,
-          needsEstimate: usage?.percent === null,
+          needsEstimate,
           projectedMessages,
         });
       } catch {
@@ -572,7 +585,7 @@ export default function footer(pi: ExtensionAPI) {
     }
 
     const contextPercent = usage?.percent ?? facts.estimatedContextUsage?.percent ?? null;
-    const contextEstimated = facts.estimatedContextUsage !== null;
+    const contextEstimated = needsEstimate && facts.estimatedContextUsage !== null;
 
     // Get git status (cached). Skip the probes entirely when no visible row renders the
     // git segment — otherwise an unused cell keeps spawning git once per second.
