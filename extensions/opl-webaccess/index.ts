@@ -62,7 +62,7 @@ export default function (pi: ExtensionAPI) {
         results = settled.map((s, i) =>
           s.status === "fulfilled"
             ? s.value
-            : { query: queryList[i], answer: "", results: [], error: errorMessage(s.reason) }
+            : { query: queryList[i] ?? `query #${i}`, answer: "", results: [], error: errorMessage(s.reason) } // index-aligned by allSettled; the fallback only names a list that cannot happen
         );
       } catch (err) {
         return {

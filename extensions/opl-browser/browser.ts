@@ -398,7 +398,12 @@ async function runActionInternal(p: BrowserParams, cfg: BrowserConfig, cwd: stri
     case "close_page": {
       const pages = ctx.pages();
       const i = resolvePageIndex(activeIndex, pages.length, p.index);
-      await pages[i].close();
+      // resolvePageIndex already bounds i, so this is a narrowing, not a new failure mode: without
+      // it the stale-selection contract would be unprovable to the compiler and `pages[i]` would
+      // dereference blind.
+      const doomed = pages[i];
+      if (!doomed) throw new Error(`No page at index ${i}; ${pages.length} page(s) open`);
+      await doomed.close();
       activeIndex = indexAfterClose(activeIndex, i, pages.length);
       return { text: `Closed page [${i}]; selection is now [${activeIndex}]${ctx.pages().length ? "" : " (no pages left)"}` };
     }

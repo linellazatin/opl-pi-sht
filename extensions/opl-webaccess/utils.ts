@@ -96,25 +96,51 @@ const BLOCKED_METADATA_V6 = new Set(["fd00:ec2::254"]);
 
 type HostClass = "loopback" | "metadata" | "unspecified" | "private" | "public";
 
+/** The four octets of an IPv4 address. The arity is the whole point of the classifier, so it is a
+ *  tuple rather than a list whose elements TypeScript must assume could be missing. */
+type Ipv4 = readonly [number, number, number, number];
+/** The eight groups of an IPv6 literal, with any `::` already expanded. */
+type Ipv6Groups = readonly [number, number, number, number, number, number, number, number];
+
+/** Build a tuple from a list whose arity a length check established but `split`/`map` cannot show
+ *  to TypeScript. The length test keeps the previous rejection of over-long quads; the per-element
+ *  tests are what the compiler needs. These are the only two widening points in the guard. */
+function asIpv4(values: number[]): Ipv4 | null {
+  const [a, b, c, d] = values;
+  if (values.length !== 4 || a === undefined || b === undefined || c === undefined || d === undefined) return null;
+  return [a, b, c, d];
+}
+function asIpv6Groups(values: number[]): Ipv6Groups | null {
+  const [a, b, c, d, e, f, g, h] = values;
+  if (
+    values.length !== 8 ||
+    a === undefined || b === undefined || c === undefined || d === undefined ||
+    e === undefined || f === undefined || g === undefined || h === undefined
+  ) {
+    return null;
+  }
+  return [a, b, c, d, e, f, g, h];
+}
+
 /** Decode a bare unsigned 32-bit integer hostname (e.g. 2130706433) into octets. */
-function ipv4FromInteger(n: number): number[] | null {
+function ipv4FromInteger(n: number): Ipv4 | null {
   if (!Number.isInteger(n) || n < 0 || n > 0xffffffff) return null;
   return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff];
 }
 
 /** Parse a host into IPv4 octets (dotted-quad or integer form), or null when not an IPv4 literal. */
-function ipv4Octets(host: string): number[] | null {
+function ipv4Octets(host: string): Ipv4 | null {
   if (/^\d+$/.test(host)) return ipv4FromInteger(Number(host));
   const octets = host.split(".").map((part) => (/^\d+$/.test(part) ? Number(part) : NaN));
-  if (octets.length !== 4 || octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255)) return null;
-  return octets;
+  if (octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255)) return null;
+  return asIpv4(octets);
 }
 
-function isLoopbackIpv4(o: number[]): boolean {
+function isLoopbackIpv4(o: Ipv4): boolean {
   return o[0] === 127;
 }
 
-function isMetadataIpv4(o: number[]): boolean {
+function isMetadataIpv4(o: Ipv4): boolean {
   return (
     (o[0] === 169 && o[1] === 254 && o[2] === 169 && o[3] === 254) || // AWS/Azure/GCP/Oracle
     (o[0] === 100 && o[1] === 100 && o[2] === 100 && o[3] === 200) // Alibaba
@@ -122,7 +148,7 @@ function isMetadataIpv4(o: number[]): boolean {
 }
 
 /** Non-globally-routable (blocked by default, opt-in via allowPrivateNetwork). */
-function isPrivateIpv4(o: number[]): boolean {
+function isPrivateIpv4(o: Ipv4): boolean {
   const [a, b, c] = o;
   return (
     a === 10 || // 10/8
@@ -140,12 +166,12 @@ function isPrivateIpv4(o: number[]): boolean {
 
 /** "This host on this network" (0.0.0.0/8, ::) — reaching it means reaching local listeners,
  * so it is never toggleable the way cloud metadata is not. */
-function isUnspecifiedIpv4(o: number[]): boolean {
+function isUnspecifiedIpv4(o: Ipv4): boolean {
   return o[0] === 0;
 }
 
 /** Expand a compressed, dotted-suffix or full IPv6 literal into its eight 16-bit groups. */
-function ipv6Groups(ip: string): number[] | null {
+function ipv6Groups(ip: string): Ipv6Groups | null {
   const sides = ip.split("::");
   if (sides.length > 2) return null;
   const parse = (side: string): number[] | null => {
@@ -154,9 +180,10 @@ function ipv6Groups(ip: string): number[] | null {
     for (const part of side.split(":")) {
       const dotted = part.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
       if (dotted) {
-        const o = dotted.slice(1).map(Number);
-        if (o.some((n) => n > 255)) return null;
-        out.push((o[0] << 8) | o[1], (o[2] << 8) | o[3]);
+        const o = asIpv4(dotted.slice(1, 5).map(Number));
+        if (!o || o.some((n) => n > 255)) return null;
+        const [q0, q1, q2, q3] = o;
+        out.push((q0 << 8) | q1, (q2 << 8) | q3);
         continue;
       }
       if (!part || !/^[0-9a-f]{1,4}$/.test(part)) return null;
@@ -167,10 +194,10 @@ function ipv6Groups(ip: string): number[] | null {
   const head = parse(sides[0] ?? "");
   const tail = sides.length === 2 ? parse(sides[1] ?? "") : null;
   if (!head || !tail) return null;
-  if (sides.length === 1) return head.length === 8 ? head : null;
+  if (sides.length === 1) return asIpv6Groups(head);
   const fill = 8 - head.length - tail.length;
   if (fill < 1) return null; // `::` must stand for at least one zero group
-  return [...head, ...Array(fill).fill(0), ...tail];
+  return asIpv6Groups([...head, ...Array(fill).fill(0), ...tail]);
 }
 
 /** IPv4 that an IPv6 literal still routes to: mapped (`::ffff:`), NAT64 (`64:ff9b::/96` and the
@@ -178,14 +205,14 @@ function ipv6Groups(ip: string): number[] | null {
  *  Wherever those prefixes are still routable they reach the embedded address, so the embedded
  *  address is what has to be classified — otherwise `http://[64:ff9b::a9fe:a9fe]/` walks past the
  *  metadata block one literal away from 169.254.169.254, and a DNS64 answer can do the same. */
-function embeddedIpv4Octets(ip: string): number[] | null {
+function embeddedIpv4Octets(ip: string): Ipv4 | null {
   const g = ipv6Groups(ip);
   if (!g) return null;
   const zeros = (from: number, to: number) => g.slice(from, to).every((x) => x === 0);
-  const low32 = () => [(g[6] >> 8) & 0xff, g[6] & 0xff, (g[7] >> 8) & 0xff, g[7] & 0xff];
+  const low32 = (): Ipv4 => [(g[6] >> 8) & 0xff, g[6] & 0xff, (g[7] >> 8) & 0xff, g[7] & 0xff];
   if (g[5] === 0xffff && zeros(0, 5)) return low32();
   if (g[0] === 0x2002 && (g[1] !== 0 || g[2] !== 0)) {
-    return [(g[1] >> 8) & 0xff, g[1] & 0xff, (g[2] >> 8) & 0xff, g[2] & 0xff]; // 6to4 carries v4 after the prefix
+    return [(g[1] >> 8) & 0xff, g[1] & 0xff, (g[2] >> 8) & 0xff, g[2] & 0xff]; // 6to4 carries v4 after the prefix (tuple by return type)
   }
   if (g[0] === 0x0064 && g[1] === 0xff9b) {
     if (zeros(2, 6)) return low32(); // NAT64 well-known prefix
@@ -195,7 +222,7 @@ function embeddedIpv4Octets(ip: string): number[] | null {
   return null;
 }
 
-function classifyIpv4Octets(o: number[]): HostClass {
+function classifyIpv4Octets(o: Ipv4): HostClass {
   if (isLoopbackIpv4(o)) return "loopback";
   if (isMetadataIpv4(o)) return "metadata";
   if (isUnspecifiedIpv4(o)) return "unspecified";
