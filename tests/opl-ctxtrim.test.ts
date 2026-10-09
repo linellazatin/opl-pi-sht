@@ -222,11 +222,27 @@ test("measures ctx_* schema byte reduction against the installed context-mode", 
   const tokensHi = Math.round(saved / 3);
   const tokensLo = Math.round(saved / 4);
 
+  // The README's ceiling row: every description emptied, schemas retained.
+  const emptied = JSON.parse(JSON.stringify(payload.tools)) as any[];
+  const stripDescriptions = (node: unknown): void => {
+    if (Array.isArray(node)) { node.forEach(stripDescriptions); return; }
+    if (node && typeof node === "object") {
+      const rec = node as Record<string, unknown>;
+      if (typeof rec.description === "string") rec.description = "";
+      Object.values(rec).forEach(stripDescriptions);
+    }
+  };
+  stripDescriptions(emptied);
+  const ceiling = Buffer.byteLength(JSON.stringify(emptied), "utf8");
+  const ceilingPct = (((before - ceiling) / before) * 100).toFixed(1);
+
   console.log(`[opl-ctxtrim] ctx_* tools=${ctxTools.length} covered=${ctxTools.length - uncovered.length}`);
   console.log(`[opl-ctxtrim] serialized bytes: before=${before} after=${after} saved=${saved} (${pct}%)`);
+  console.log(`[opl-ctxtrim] empty-description ceiling=${ceiling} saved=${before - ceiling} (${ceilingPct}%)`);
   console.log(`[opl-ctxtrim] approx tokens saved per request: ${tokensLo}-${tokensHi} (3-4 bytes/token)`);
 
   assert.ok(saved > 0, "expected a positive byte reduction");
+  assert.ok(ceiling < after, "emptying every description should beat the shipped trimming");
 }, 30000);
 
 test("asserts a byte saving on a full ctx_* payload in both the OpenAI and Google shapes", () => {
