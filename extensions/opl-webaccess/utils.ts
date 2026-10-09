@@ -59,8 +59,11 @@ export function isPdfContentType(contentType: string): boolean {
 export interface HttpUrlOptions {
   /** Allow private, link-local, and reserved network hosts (default false). Cloud metadata is always blocked. */
   allowPrivateNetwork?: boolean;
-  /** Allow loopback hosts — localhost, 127.0.0.0/8, ::1 (default true). */
+  /** Allow loopback hosts — localhost, 127.0.0.0/8, ::1 (default false: opt in). */
   allowLoopback?: boolean;
+  /** Deadline for one request (ms), combined with the caller's signal so the shorter
+   *  of the two wins. Used by the fetch path; the guard itself ignores it. */
+  timeoutMs?: number;
   /** Test seam for host resolution; production callers leave it unset and use node:dns. */
   resolveHost?: (host: string) => Promise<string[]>;
   /** Caller's abort signal. The lookup itself cannot be cancelled, so this only bounds how long

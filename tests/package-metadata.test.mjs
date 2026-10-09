@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "bun:test";
 
@@ -59,4 +59,30 @@ test("the root manifest declares the extension floor and the pi extension glob",
 		/^>=\d+\.\d+\.\d+$/,
 		"the pi devDependency must state the floor this collection claims to support",
 	);
+});
+
+// Operator rule (2026-10-08): a new sample parameter must be added to the live repo
+// config in the same change, and the sync is additive — existing live parameters are
+// never edited. So "in sample, not in live" is always drift: either the live config is
+// missing the new key, or the sample renamed one out from under it.
+test("every tracked sample parameter is present in the live config", () => {
+  // Only sample keys are checked. Keys that exist solely in a live config are the
+  // operator's own additions and are never drift.
+  const configDir = join(ROOT, "configs");
+  const sampleNames = readdirSync(configDir).filter((n) => n.endsWith(".json.sample"));
+  assert.ok(sampleNames.length >= 8, `expected the tracked samples, found ${sampleNames.length}`);
+  for (const sampleName of sampleNames) {
+    const name = sampleName.replace(/\.sample$/, "");
+    const livePath = join(configDir, name);
+    if (!existsSync(livePath)) continue; // extension ships a sample but no live config yet
+    const sample = JSON.parse(readFileSync(join(configDir, sampleName), "utf-8"));
+    const live = JSON.parse(readFileSync(livePath, "utf-8"));
+    for (const key of Object.keys(sample)) {
+      if (key.startsWith("_comment")) continue;
+      assert.ok(
+        Object.hasOwn(live, key),
+        `${name}: sample documents "${key}" but the live config does not carry it — add it (additively)`,
+      );
+    }
+  }
 });

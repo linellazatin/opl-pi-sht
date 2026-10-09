@@ -7,7 +7,7 @@ import { promises as dns } from "node:dns";
 export interface HttpUrlOptions {
   /** Allow private, link-local, and reserved network hosts (default false). Cloud metadata is always blocked. */
   allowPrivateNetwork?: boolean;
-  /** Allow loopback hosts — localhost, 127.0.0.0/8, ::1 (default true). */
+  /** Allow loopback hosts — localhost, 127.0.0.0/8, ::1 (default false: opt in). */
   allowLoopback?: boolean;
   /** Test seam for host resolution; production callers leave it unset and use node:dns. */
   resolveHost?: (host: string) => Promise<string[]>;

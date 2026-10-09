@@ -10,7 +10,7 @@ import {
   restoreFromSession,
 } from "./storage.js";
 import { truncate, errorMessage, paginateContent, continuationNotice } from "./utils.js";
-import { loadConfig, resolveCaps } from "./config.js";
+import { loadConfig, resolveCaps, resolveTimeoutMs } from "./config.js";
 import type { StoredData } from "./types.js";
 
 export default function (pi: ExtensionAPI) {
@@ -58,7 +58,7 @@ export default function (pi: ExtensionAPI) {
       try {
         // allSettled so one provider's throw (non-JSON body, missing key) cannot
         // discard the sibling queries' results.
-        const settled = await Promise.allSettled(queryList.map((q) => searchWeb(q, signal)));
+        const settled = await Promise.allSettled(queryList.map((q) => searchWeb(q, signal, config)));
         results = settled.map((s, i) =>
           s.status === "fulfilled"
             ? s.value
@@ -122,7 +122,7 @@ export default function (pi: ExtensionAPI) {
       let results;
       const dropped = urlList.length > caps.maxFetchUrls ? urlList.length - caps.maxFetchUrls : 0;
       try {
-        results = await fetchAllContent(urlList, signal, { allowPrivateNetwork, allowLoopback }, caps.maxFetchUrls);
+        results = await fetchAllContent(urlList, signal, { allowPrivateNetwork, allowLoopback, timeoutMs: resolveTimeoutMs(config) }, caps.maxFetchUrls);
       } catch (err) {
         return {
           content: [{ type: "text", text: `Error: ${errorMessage(err)}` }],
@@ -177,6 +177,11 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId, params) {
       const data = getResult(params.responseId);
+      // A restored entry is a capped preview until its spilled body is found; say so
+      // instead of handing the model a short answer that looks complete.
+      const staleNote = data?.truncated
+        ? "\n\n*Session copy: the cached full body is no longer on disk, so this excerpt is capped. Re-fetch to retrieve the rest.*"
+        : "";
       if (!data) {
         return {
           content: [
@@ -216,7 +221,7 @@ export default function (pi: ExtensionAPI) {
           caps.maxRetrievalChars,
         );
         return {
-          content: [{ type: "text", text: page.text + continuationNotice(page) }],
+          content: [{ type: "text", text: page.text + continuationNotice(page) + staleNote }],
           details: { responseId: params.responseId },
         };
       }
@@ -253,7 +258,7 @@ export default function (pi: ExtensionAPI) {
           caps.maxRetrievalChars,
         );
         return {
-          content: [{ type: "text", text: page.text + continuationNotice(page) }],
+          content: [{ type: "text", text: page.text + continuationNotice(page) + staleNote }],
           details: { responseId: params.responseId },
         };
       }

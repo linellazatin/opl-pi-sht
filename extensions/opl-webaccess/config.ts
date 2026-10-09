@@ -30,14 +30,19 @@ export interface WebAccessConfig {
    *  metadata is always blocked. */
   allowPrivateNetwork?: boolean;
   /** Allow fetch_content to reach loopback hosts — localhost, 127.0.0.0/8, ::1
-   *  (default true, for local development). Cloud metadata is unaffected. */
+   *  (default false: opt in). Cloud metadata is unaffected. */
   allowLoopback?: boolean;
+  /** Deadline applied to one provider search request or one fetched URL (ms,
+   *  default 30000). The agent's own abort signal is combined with it, so the
+   *  shorter of the two wins. */
+  timeoutMs?: number;
 }
 
 export const DEFAULT_MAX_CONTENT_CHARS = 30_000;
 export const DEFAULT_MAX_RETRIEVAL_CHARS = 30_000;
 export const DEFAULT_MAX_SEARCH_QUERIES = 10;
 export const DEFAULT_MAX_FETCH_URLS = 20;
+export const DEFAULT_TIMEOUT_MS = 30_000;
 
 /** Coerce an unknown value into a positive integer, else the fallback. */
 function positiveInt(value: unknown, fallback: number): number {
@@ -58,7 +63,12 @@ export function resolveCaps(
   };
 }
 
-/** Resolved per call so a custom `PI_AGENT_DIR` (pi's own agent dir) is honoured. */
+/** Per-request deadline for provider calls and URL fetches (ms). */
+export function resolveTimeoutMs(cfg: Pick<WebAccessConfig, "timeoutMs">): number {
+  return positiveInt(cfg.timeoutMs, DEFAULT_TIMEOUT_MS);
+}
+
+/** Resolved per call so a custom `PI_CODING_AGENT_DIR` (pi's own agent dir) is honoured. */
 export function configPath(): string {
   return join(getAgentDir(), "configs", "opl-webaccess.json");
 }
@@ -113,6 +123,7 @@ function normalizeConfig(parsed: unknown): WebAccessConfig {
     maxFetchUrls: record.maxFetchUrls as number | undefined,
     allowPrivateNetwork: record.allowPrivateNetwork === true,
     allowLoopback: record.allowLoopback === true,
+    timeoutMs: record.timeoutMs as number | undefined,
   };
 }
 

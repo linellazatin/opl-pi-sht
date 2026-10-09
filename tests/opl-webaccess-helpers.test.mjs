@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveCaps, loadConfig, DEFAULT_MAX_CONTENT_CHARS, DEFAULT_MAX_RETRIEVAL_CHARS, DEFAULT_MAX_SEARCH_QUERIES, DEFAULT_MAX_FETCH_URLS } from "../extensions/opl-webaccess/config.ts";
+import { resolveCaps, loadConfig, resolveTimeoutMs, DEFAULT_MAX_CONTENT_CHARS, DEFAULT_MAX_RETRIEVAL_CHARS, DEFAULT_MAX_SEARCH_QUERIES, DEFAULT_MAX_FETCH_URLS } from "../extensions/opl-webaccess/config.ts";
 import { fetchAllContent, MAX_FETCH_URLS } from "../extensions/opl-webaccess/extract.ts";
 
 test("classifies web errors and truncates retrieval content", () => {
@@ -247,6 +247,11 @@ test("webaccess config carries allowLoopback to the fetch guard, default false",
   const sample = JSON.parse(readFileSync(new URL("../configs/opl-webaccess.json.sample", import.meta.url), "utf-8"));
   assert.equal(sample.allowLoopback, false, "shipped sample carries the documented default");
   assert.match(sample["_comment_network"], /allowLoopback/, "shipped sample carries the documented key and comment");
+  // the deadline and the result cache are new in this release; the sample must describe both
+  assert.equal(sample.timeoutMs, 30000, "shipped sample carries the documented deadline");
+  assert.equal(resolveTimeoutMs(loadConfig(fileURLToPath(new URL("../configs/opl-webaccess.json.sample", import.meta.url)))), 30000);
+  assert.match(sample["_comment_timeout"], /timeoutMs/, "the deadline is explained in the sample");
+  assert.match(sample["_comment_result_cache"], /web-access-cache/, "the spill cache location is explained in the sample");
 });
 
 test("fetchAllContent caps the number of URLs per call", async () => {

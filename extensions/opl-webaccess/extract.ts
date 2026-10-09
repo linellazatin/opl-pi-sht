@@ -90,9 +90,10 @@ async function fetchWithRedirectValidation(
 
 async function fetchOne(url: string, signal?: AbortSignal, opts: HttpUrlOptions = {}): Promise<ExtractedContent> {
   try {
+    const budget = opts.timeoutMs ?? FETCH_TIMEOUT_MS;
     const fetchSignal = signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)])
-      : AbortSignal.timeout(FETCH_TIMEOUT_MS);
+      ? AbortSignal.any([signal, AbortSignal.timeout(budget)])
+      : AbortSignal.timeout(budget);
     const response = await fetchWithRedirectValidation(url, fetchSignal, opts);
 
     if (!response.ok) {
