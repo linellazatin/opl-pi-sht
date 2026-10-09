@@ -30,7 +30,7 @@ export interface CodingTaskResult {
   outputTokens: number | null;
   error: string | null;
   metrics: RequestMetrics;
-  /** STRONG = solved in 1 turn; MODERATE = 2–3 turns; WEAK = 4–5 turns; FAIL = not solved. */
+  /** Efficiency grade: STRONG = 1-2 turns, MODERATE = 3-4, WEAK = the 5-turn budget, FAIL = not solved. */
   efficiency: "STRONG" | "MODERATE" | "WEAK" | "FAIL";
 }
 
