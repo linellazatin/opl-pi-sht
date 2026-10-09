@@ -43,23 +43,55 @@ const FP_MARKER = /<!-- opl-init:fp (\S+) -->/;
 // (vs HEAD, so staged changes count) and every untracked file. Only the root
 // AGENTS.md is excluded, so writing the guide does not make it stale;
 // subdirectory AGENTS.md files are repository facts.
+// /init computes the fingerprint synchronously on the command path, and a workspace can
+// hold a dataset, model weights or a recording. Content-hashing everything cost 135 ms and
+// 245 MB RSS for a single 200 MB file, so large files are represented by their metadata and
+// the whole pass runs under a path and byte budget.
+// Known blind spot, accepted deliberately: a rewrite that keeps size and mtime identical, or
+// any change past the caps, is invisible until a change the fingerprint can see happens.
+const FP_LIMITS = {
+  maxFileBytes: 2 * 1024 * 1024,
+  maxTotalBytes: 32 * 1024 * 1024,
+  maxPaths: 5000,
+};
+
+type FpLimits = typeof FP_LIMITS;
+type FpBudget = { bytes: number; paths: number; capped: boolean };
+
 // Returns null for non-git directories (caller falls back to fingerprintFallback).
-function fingerprintGit(root: string): string | null {
+function fingerprintGit(root: string, limits: FpLimits = FP_LIMITS): string | null {
   const head = gitOutput(root, ["rev-parse", "HEAD"]);
   if (head === null) return null;
   const hash = createHash("sha256").update(`schema:${GUIDE_SCHEMA_VERSION}\0head:${head}\0`);
+  const budget: FpBudget = { bytes: 0, paths: 0, capped: false };
   // --relative keeps diff paths cwd-relative and cwd-scoped, matching
   // ls-files --others and the crawl; without it a subdirectory session would
   // resolve every dirty path to a nonexistent file and hash "DELETED".
   for (const path of (gitOutput(root, ["diff", "HEAD", "--name-only", "-z", "--relative"]) ?? "").split("\0")) {
-    if (!path || path === "AGENTS.md") continue;
-    hash.update(`${path}\0`).update(hashFile(join(root, path))).update("\0");
+    hashFingerprintPath(hash, root, path, budget, limits);
   }
   for (const path of (gitOutput(root, ["ls-files", "--others", "--exclude-standard", "-z"]) ?? "").split("\0")) {
-    if (!path || path === "AGENTS.md") continue;
-    hash.update(`${path}\0`).update(hashFile(join(root, path))).update("\0");
+    hashFingerprintPath(hash, root, path, budget, limits);
   }
+  // Fold the budget state in so crossing a cap changes the digest once and then stays
+  // stable: an oscillating digest would make every /init run regenerate the guide.
+  hash.update(`budget:${budget.paths}:${budget.bytes}:${budget.capped ? 1 : 0}\0`);
   return hash.digest("hex").slice(0, 16);
+}
+
+function hashFingerprintPath(
+  hash: ReturnType<typeof createHash>,
+  root: string,
+  path: string,
+  budget: FpBudget,
+  limits: FpLimits,
+): void {
+  if (!path || path === "AGENTS.md") return;
+  // The name is always hashed even past a cap, so adding or removing a file is still
+  // visible; only content stops being read.
+  hash.update(`${path}\0`).update(budget.paths >= limits.maxPaths ? "OVER_CAP\0" : hashFile(join(root, path), budget, limits)).update("\0");
+  budget.paths++;
+  if (budget.paths >= limits.maxPaths) budget.capped = true;
 }
 
 function gitOutput(root: string, args: string[]): string | null {
@@ -71,16 +103,33 @@ function gitOutput(root: string, args: string[]): string | null {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
-      maxBuffer: 64 * 1024 * 1024,
+      // Name-only and porcelain output is path lists: 4 MB is on the order of 100k paths.
+      // A repo that needs more makes execFileSync throw, which reads as "not a git
+      // directory" and falls through to the stat-only fingerprintFallback.
+      maxBuffer: 4 * 1024 * 1024,
     });
   } catch {
     return null;
   }
 }
 
-function hashFile(path: string): string {
+function hashFile(path: string, budget: FpBudget, limits: FpLimits): string {
+  let stats;
   try {
-    return createHash("sha256").update(readFileSync(path)).digest("hex");
+    stats = statSync(path);
+  } catch {
+    return "DELETED";
+  }
+  // Above either threshold the entry is represented by metadata instead of bytes: a
+  // change to size or mtime is still detected, and the pass stays bounded.
+  if (!stats.isFile() || stats.size > limits.maxFileBytes || budget.bytes + stats.size > limits.maxTotalBytes) {
+    budget.capped = true;
+    return `meta:${stats.size}:${Math.round(stats.mtimeMs)}`;
+  }
+  try {
+    const body = readFileSync(path);
+    budget.bytes += body.length;
+    return createHash("sha256").update(body).digest("hex");
   } catch {
     return "DELETED";
   }
@@ -474,7 +523,7 @@ async function refineGuide(ctx: any, evidence: string, marker: string): Promise<
 }
 
 // Named exports for fixture tests (tests/opl-init-*.test.mjs).
-export { crawl, fingerprint, evidencePacket, finalizeRefinedGuide, refineGuide };
+export { crawl, fingerprint, fingerprintGit, FP_LIMITS, evidencePacket, finalizeRefinedGuide, refineGuide };
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("init", {
