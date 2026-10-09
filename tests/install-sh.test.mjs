@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "bun:test";
@@ -193,4 +193,83 @@ test("link mode installs sample configs and records the manifest", async () => {
 		rmSync(repo, { recursive: true, force: true });
 		rmSync(agent, { recursive: true, force: true });
 	}
+});
+
+for (const mode of [[], ["--link"]]) {
+ test(`retained stale ownership survives --no-prune (${mode.length ? "link" : "copy"})`, async () => {
+  const repo = fakeRepo(), agent = agentDir();
+  const manifest = join(agent, "extensions", ".opl-pi-sht.installed");
+  try {
+   mkdirSync(join(agent, "extensions", "opl-legacy"), { recursive: true });
+   mkdirSync(join(agent, "extensions", "opl-user"));
+   writeFileSync(manifest, "opl-legacy\n");
+   const kept = await run(repo, [["PI_CODING_AGENT_DIR", agent]], [...mode, "--no-prune", "--only", "opl-todo"]);
+   assert.equal(kept.code, 0, kept.stderr);
+   assert.ok(readFileSync(manifest, "utf8").split("\n").includes("opl-legacy"));
+   const pruned = await run(repo, [["PI_CODING_AGENT_DIR", agent]], [...mode, "--only", "opl-browser"]);
+   assert.equal(pruned.code, 0, pruned.stderr);
+   assert.ok(!existsSync(join(agent, "extensions", "opl-legacy")));
+   assert.ok(existsSync(join(agent, "extensions", "opl-user")));
+   const names = readFileSync(manifest, "utf8").split("\n");
+   assert.ok(names.includes("opl-todo") && names.includes("opl-browser"));
+  } finally { rmSync(repo, { recursive: true, force: true }); rmSync(agent, { recursive: true, force: true }); }
+ });
+}
+
+test("link mode does not claim an existing unowned extension", async () => {
+ const repo = fakeRepo(), agent = agentDir();
+ try {
+  mkdirSync(join(agent, "extensions", "opl-todo"), { recursive: true });
+  const r = await run(repo, [["PI_CODING_AGENT_DIR", agent]], ["--link", "--only", "opl-todo"]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.ok(!readFileSync(join(agent, "extensions", ".opl-pi-sht.installed"), "utf8").split("\n").includes("opl-todo"));
+ } finally { rmSync(repo, { recursive: true, force: true }); rmSync(agent, { recursive: true, force: true }); }
+});
+
+test("failed pruning retains ownership for the next run", async () => {
+ const repo = fakeRepo(), agent = agentDir();
+ const manifest = join(agent, "extensions", ".opl-pi-sht.installed");
+ try {
+  mkdirSync(join(agent, "extensions", "opl-legacy"), { recursive: true });
+  mkdirSync(join(repo, "bin"));
+  writeFileSync(manifest, "opl-legacy\n");
+  const shim = join(repo, "bin", "rm");
+  writeFileSync(shim, '#!/bin/bash\ncase "$*" in *opl-legacy*) exit 1;; esac\nexec /bin/rm "$@"\n');
+  chmodSync(shim, 0o755);
+  const failed = await run(repo, [["PI_CODING_AGENT_DIR", agent], ["PATH", `${join(repo, "bin")}:${process.env.PATH}`]], ["--only", "opl-todo"]);
+  assert.notEqual(failed.code, 0);
+  assert.ok(readFileSync(manifest, "utf8").split("\n").includes("opl-legacy"));
+  const retry = await run(repo, [["PI_CODING_AGENT_DIR", agent]], ["--only", "opl-todo"]);
+  assert.equal(retry.code, 0, retry.stderr);
+  assert.ok(!existsSync(join(agent, "extensions", "opl-legacy")));
+ } finally { rmSync(repo, { recursive: true, force: true }); rmSync(agent, { recursive: true, force: true }); }
+});
+
+test("manifest traversal is ignored and stale symlinks do not delete their targets", async () => {
+ const repo = fakeRepo(), agent = agentDir();
+ try {
+  mkdirSync(join(agent, "extensions"));
+  mkdirSync(join(agent, "protected"));
+  writeFileSync(join(agent, "protected", "sentinel"), "keep");
+  symlinkSync(join(agent, "protected"), join(agent, "extensions", "opl-legacy"));
+  writeFileSync(join(agent, "extensions", ".opl-pi-sht.installed"), `../protected\n${join(agent, "protected")}\nopl-legacy\n`);
+  const r = await run(repo, [["PI_CODING_AGENT_DIR", agent]], ["--only", "opl-todo"]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.ok(existsSync(join(agent, "protected", "sentinel")));
+  assert.ok(!existsSync(join(agent, "extensions", "opl-legacy")));
+  assert.ok(!readFileSync(join(agent, "extensions", ".opl-pi-sht.installed"), "utf8").includes("../"));
+ } finally { rmSync(repo, { recursive: true, force: true }); rmSync(agent, { recursive: true, force: true }); }
+});
+
+test("unexpected stale files are retained and reported instead of deleted", async () => {
+ const repo = fakeRepo(), agent = agentDir();
+ try {
+  mkdirSync(join(agent, "extensions"));
+  writeFileSync(join(agent, "extensions", "opl-legacy"), "user file");
+  writeFileSync(join(agent, "extensions", ".opl-pi-sht.installed"), "opl-legacy");
+  const r = await run(repo, [["PI_CODING_AGENT_DIR", agent]], ["--only", "opl-todo"]);
+  assert.notEqual(r.code, 0);
+  assert.equal(readFileSync(join(agent, "extensions", "opl-legacy"), "utf8"), "user file");
+  assert.ok(readFileSync(join(agent, "extensions", ".opl-pi-sht.installed"), "utf8").split("\n").includes("opl-legacy"));
+ } finally { rmSync(repo, { recursive: true, force: true }); rmSync(agent, { recursive: true, force: true }); }
 });

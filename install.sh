@@ -136,6 +136,7 @@ echo "Extensions: ${SELECTED[*]}"
 echo ""
 
 mkdir -p "$AGENT_DIR/extensions" "$AGENT_DIR/configs"
+INSTALLED=()
 
 if [[ "$MODE" == "symlink" ]]; then
     echo "[SYMLINK MODE] Creating symlinks..."
@@ -148,6 +149,7 @@ if [[ "$MODE" == "symlink" ]]; then
             echo "  → $dest (exists, skipping)"
         else
             ln -s "$dir" "$dest"
+            INSTALLED+=("$extension")
             echo "  → $dest (symlinked)"
         fi
     done
@@ -185,6 +187,7 @@ else
             cp -R "$dir" "$dest"
             echo "  → $dest (copied)"
         fi
+        INSTALLED+=("$extension")
     done
 
     for extension in "${SELECTED[@]}"; do
@@ -213,48 +216,57 @@ else
     echo "Files copied."
 fi
 
-# Record what this collection installed, then drop leftovers from earlier releases.
-# pi auto-discovers $AGENT_DIR/extensions/*/index.ts, so an un-pruned directory from an
-# older release keeps loading beside the new one (duplicate commands and tools).
+# Keep ownership until a recorded directory is actually gone. Never adopt a skipped link.
 previous=()
 if [[ -f "$MANIFEST" ]]; then
-    while IFS= read -r line; do
+    while IFS= read -r line || [[ -n "$line" ]]; do
         [[ -z "$line" || "$line" == \#* ]] && continue
-        previous+=("$line")
+        if [[ ! "$line" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]; then
+            echo "  ! invalid extension name in install manifest (ignored)" >&2
+            continue
+        fi
+        contains "$line" "${previous[@]-}" || previous+=("$line")
     done < "$MANIFEST"
 fi
 
-# The record is "what this collection has installed here": the selection just installed, plus
-# anything an earlier run recorded that this release still ships (an extension installed by a
-# previous --only run). Names this release no longer ships are pruned below and forgotten.
-merged=("${SELECTED[@]}")
+merged=()
+for name in "${INSTALLED[@]-}"; do
+    [[ -z "$name" ]] || merged+=("$name")
+done
+PRUNE_FAILED=0
 for name in "${previous[@]-}"; do
-    contains "$name" "${ALL_EXTENSIONS[@]}" || continue
-    contains "$name" "${merged[@]}" || merged+=("$name")
-done
-
-TMP_MANIFEST="$MANIFEST.tmp"
-echo "# Installed by install.sh — one extension directory per line." > "$TMP_MANIFEST"
-for name in "${merged[@]}"; do
-    echo "$name" >> "$TMP_MANIFEST"
-done
-mv "$TMP_MANIFEST" "$MANIFEST"
-
-if [[ "$PRUNE" -eq 1 ]]; then
-    for name in "${previous[@]-}"; do
-        [[ -z "$name" ]] && continue
-        contains "$name" "${ALL_EXTENSIONS[@]}" && continue
-        stale="$AGENT_DIR/extensions/$name"
-        if [[ -L "$stale" || -d "$stale" ]]; then
-            rm -rf "$stale"
+    [[ -z "$name" ]] && continue
+    stale="$AGENT_DIR/extensions/$name"
+    [[ -e "$stale" || -L "$stale" ]] || continue
+    if [[ "$PRUNE" -eq 1 ]] && ! contains "$name" "${ALL_EXTENSIONS[@]}"; then
+        if [[ -L "$stale" || -d "$stale" ]] && rm -rf "$stale"; then
             echo "  - pruned $stale (not shipped by this release)"
+            stale_config="$AGENT_DIR/configs/$name.json"
+            if [[ -e "$stale_config" || -L "$stale_config" ]]; then
+                echo "  ! $stale_config belongs to a pruned extension; remove it if it was not added by hand" >&2
+            fi
+            continue
         fi
-        stale_config="$AGENT_DIR/configs/$name.json"
-        if [[ -e "$stale_config" || -L "$stale_config" ]]; then
-            echo "  ! $stale_config belongs to a pruned extension; remove it if it was not added by hand" >&2
-        fi
+        echo "  ! could not prune $stale; ownership retained for retry" >&2
+        PRUNE_FAILED=1
+    fi
+    contains "$name" "${merged[@]-}" || merged+=("$name")
+done
+
+TMP_MANIFEST=$(mktemp "$MANIFEST.XXXXXX")
+trap 'rm -f "$TMP_MANIFEST"' EXIT
+{
+    echo "# Installed by install.sh - one extension directory per line."
+    for name in "${merged[@]-}"; do
+        [[ -z "$name" ]] || echo "$name"
     done
-fi
+} > "$TMP_MANIFEST"
+mv "$TMP_MANIFEST" "$MANIFEST"
+trap - EXIT
 
 echo ""
+if [[ "$PRUNE_FAILED" -ne 0 ]]; then
+    echo "Installed extensions and configs, but cleanup failed; rerun to retry." >&2
+    exit 1
+fi
 echo "Done. Extensions and configs are now available in $AGENT_DIR."

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { test } from "bun:test";
 
 const ROOT = new URL("..", import.meta.url).pathname;
@@ -86,3 +87,27 @@ test("every tracked sample parameter is present in the live config", () => {
     }
   }
 });
+
+test("npm packages include sample configs and exclude operator configs", async () => {
+ const fixture = mkdtempSync(join(tmpdir(), "opl-pack-"));
+ try {
+  writeFileSync(join(fixture, "package.json"), JSON.stringify(root));
+  writeFileSync(join(fixture, ".gitignore"), readFileSync(join(ROOT, ".gitignore")));
+  writeFileSync(join(fixture, "README.md"), "package readme");
+  writeFileSync(join(fixture, "LICENSE"), "package license");
+  mkdirSync(join(fixture, "configs"));
+  mkdirSync(join(fixture, "extensions", "opl-todo"), { recursive: true });
+  mkdirSync(join(fixture, "images"));
+  writeFileSync(join(fixture, "configs", "opl-todo.json.sample"), '{}');
+  writeFileSync(join(fixture, "configs", "opl-todo.json"), '{"secret":"operator-canary"}');
+  writeFileSync(join(fixture, "extensions", "opl-todo", "index.ts"), "export default () => {};");
+  writeFileSync(join(fixture, "images", "example.png"), "fixture");
+  const proc = Bun.spawn(["npm", "pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: fixture, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  assert.equal(await proc.exited, 0, stderr);
+  const paths = JSON.parse(stdout)[0].files.map(file => file.path);
+  for (const path of ["configs/opl-todo.json.sample", "extensions/opl-todo/index.ts", "images/example.png", "README.md", "LICENSE"])
+   assert.ok(paths.includes(path), `missing ${path}`);
+  assert.ok(!paths.includes("configs/opl-todo.json"), "operator config must never ship");
+ } finally { rmSync(fixture, { recursive: true, force: true }); }
+}, 15000);

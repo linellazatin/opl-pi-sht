@@ -51,6 +51,8 @@
 
 ### Fixed
 
+- **Installer**: retained or unsuccessfully pruned extensions stay recorded for later cleanup; failed pruning exits nonzero, invalid manifest names cannot traverse paths, skipped link destinations are not claimed, and manifest replacement uses a unique temporary file.
+- **Packaging**: npm ships only sample configs, excluding checkout live configs; the root lock restores missing TypeScript/esbuild platform entries without upgrading existing dependencies. Release validation uses `npm ci` and strict typechecking before the full suite.
 - **`opl-browser`**: selected pages are tracked by identity, so closing an earlier tab cannot switch the selected document; an externally closed selection requires explicit recovery. Each page action binds its target once, preventing a close during validation from retargeting it.
 - **`opl-footer`**: branch facts are keyed by session and leaf identity, branch length, context window and estimation state; tree navigation and compaction invalidate them. Equal-length branch switches refresh counts, tokens, cost and thinking, and canonical context usage drops the estimate marker.
 - **`opl-webaccess`**: URL fetches decode `gzip`, `deflate` and `br` with separate received/decoded byte caps; redirect headers advance without buffering their bodies, and only 301/302/303/307/308 are followed. Abort and inactivity cleanup closes the socket and decoder; the overall deadline survives cleanup between hops.
