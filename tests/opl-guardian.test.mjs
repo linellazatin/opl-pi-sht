@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -10,7 +10,7 @@ import {
   guardAssistantMessage,
   isMalformedToolCall,
 } from "../extensions/opl-guardian/guardian.ts";
-import { appendIncident, guardMessageEnd } from "../extensions/opl-guardian/index.ts";
+import { guardMessageEnd } from "../extensions/opl-guardian/index.ts";
 import { DEFAULT_CONFIG, parseGuardianConfig } from "../extensions/opl-guardian/config.ts";
 import { getProtectedPathBlock, hasPendingUserWork, matchesProtectedPath } from "../extensions/opl-guardian/policies.ts";
 import {
@@ -84,13 +84,12 @@ test("turns an invalid-only response into a text-ready stop with no tool calls",
   assert.equal(result.message.content.some((block) => block.type === "toolCall"), false);
 });
 
-test("builds an incident record containing only metadata and removed calls", () => {
-  const message = assistantWith([toolCall("call_bad", "", { web_search: "query" })]);
-  const removedToolCalls = message.content;
+test("builds an incident record of metadata and redacted call summaries", () => {
+  const message = assistantWith([toolCall("call_bad", "", { web_search: "secret-query-value" })]);
   const incident = buildIncidentRecord(message, {
     sessionId: "session-test",
     cwd: "/tmp/project",
-  }, removedToolCalls);
+  }, message.content);
 
   assert.doesNotThrow(() => new Date(incident.timestamp).toISOString());
   assert.deepEqual({ ...incident, timestamp: "<ts>" }, {
@@ -102,8 +101,9 @@ test("builds an incident record containing only metadata and removed calls", () 
     model: "qwen/qwen3.8-flash",
     responseId: "gen-test",
     action: "dropped",
-    removedToolCalls,
+    removedToolCalls: [{ name: "(unnamed)", argumentKeys: ["web_search"], argumentsBytes: 35 }],
   });
+  assert.ok(!JSON.stringify(incident).includes("secret-query-value"), "argument values are never recorded");
 });
 
 test("incident record falls back to a valid timestamp when missing or zero", () => {
@@ -129,24 +129,14 @@ test("keeps only replayable calls with non-empty OpenAI function names", () => {
   assert.equal(replay.every((call) => call.function.name.trim().length > 0), true);
 });
 
-test("appends one JSON object per incident under the project err directory", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "opl-guardian-"));
-  const incident = buildIncidentRecord(assistantWith([]), {
-    sessionId: "session-test",
-    cwd,
-  }, [toolCall("call_bad", "")]);
-
-  try {
-    await appendIncident(cwd, incident);
-    const log = await readFile(join(cwd, "err", "guardian.jsonl"), "utf8");
-    assert.deepEqual(JSON.parse(log.trim()), incident);
-  } finally {
-    await rm(cwd, { recursive: true, force: true });
-  }
-});
+// Incident location, rotation and redaction are covered in
+// tests/opl-guardian-incident-log.test.mjs; this suite keeps to guard semantics.
 
 test("mixed responses log the dropped calls and retain valid calls", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "opl-guardian-"));
+  const agentDir = await mkdtemp(join(tmpdir(), "opl-guardian-agent-"));
+  const prev = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
   const message = assistantWith([toolCall("call_ok", "read"), toolCall("call_bad", "")]);
 
   try {
@@ -155,21 +145,30 @@ test("mixed responses log the dropped calls and retain valid calls", async () =>
     assert.equal(replacement.message.content.some(isMalformedToolCall), false);
     // Diagnostic is prepended (text before tool calls), not appended after them.
     assert.equal(replacement.message.content[0].type, "text");
-    assert.match(replacement.message.content[0].text, /err\/guardian\.jsonl/);
+    assert.match(replacement.message.content[0].text, /guardian-incidents\.jsonl/);
     assert.deepEqual(
       replacement.message.content.slice(1).map((b) => (b.type === "toolCall" ? b.name : b.type)),
       ["read"],
     );
-    const log = await readFile(join(cwd, "err", "guardian.jsonl"), "utf8");
-    assert.equal(JSON.parse(log).removedToolCalls[0].id, "call_bad");
+    // guardMessageEnd writes to the agent directory, never to the fixture cwd.
+    const log = readFileSync(join(agentDir, "guardian-incidents.jsonl"), "utf8");
+    assert.equal(JSON.parse(log).removedToolCalls[0].name, "(unnamed)");
+    assert.equal(existsSync(join(cwd, "err")), false);
   } finally {
+    if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = prev;
     await rm(cwd, { recursive: true, force: true });
+    await rm(agentDir, { recursive: true, force: true });
   }
 });
 
 test("logging failure still strips invalid-only calls and reports the failure", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "opl-guardian-"));
-  await mkdir(join(cwd, "err", "guardian.jsonl"), { recursive: true });
+  const agentDir = await mkdtemp(join(tmpdir(), "opl-guardian-agent-"));
+  // An incident file that cannot be appended: a directory of the same name.
+  await mkdir(join(agentDir, "guardian-incidents.jsonl"), { recursive: true });
+  const prev = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
 
   try {
     const replacement = await guardMessageEnd(assistantWith([toolCall("call_bad", "")]), {
@@ -178,9 +177,12 @@ test("logging failure still strips invalid-only calls and reports the failure", 
     });
     assert.equal(replacement.message.stopReason, "stop");
     assert.equal(replacement.message.content.some((block) => block.type === "toolCall"), false);
-    assert.match(replacement.message.content[0].text, /could not write err\/guardian\.jsonl/);
+    assert.match(replacement.message.content[0].text, /could not write .*guardian-incidents\.jsonl/);
   } finally {
+    if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = prev;
     await rm(cwd, { recursive: true, force: true });
+    await rm(agentDir, { recursive: true, force: true });
   }
 });
 
@@ -188,6 +190,7 @@ test("guardian config defaults enable all protections", () => {
   const { config, warnings } = parseGuardianConfig(undefined);
   assert.deepEqual(warnings, []);
   assert.equal(config.dropMalformedToolCalls, true);
+  assert.deepEqual(config.logging, { incidentFile: null, maxBytes: 256 * 1024 });
   assert.equal(config.permissionGate.blockWithoutUI, true);
   assert.equal(config.permissionGate.patterns.length, 5);
   assert.equal(config.protectedPaths.paths.length, 4);
@@ -671,6 +674,9 @@ test("configured session actions block without UI unless explicitly opted out", 
 test("message-end guard is enabled by default and preserves malformed-call filtering", async () => {
   const config = parseGuardianConfig(undefined).config;
   const cwd = await mkdtemp(join(tmpdir(), "opl-guardian-"));
+  const agentDir = await mkdtemp(join(tmpdir(), "opl-guardian-agent-"));
+  const prev = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
   try {
     const handler = createMessageEndHandler(config);
     const replacement = await handler({ type: "message_end", message: assistantWith([toolCall("call_bad", "")]) }, {
@@ -680,9 +686,13 @@ test("message-end guard is enabled by default and preserves malformed-call filte
     });
     assert.equal(replacement.message.stopReason, "stop");
     assert.equal(replacement.message.content.some((block) => block.type === "toolCall"), false);
-    assert.equal(existsSync(join(cwd, "err", "guardian.jsonl")), true);
+    assert.equal(existsSync(join(agentDir, "guardian-incidents.jsonl")), true);
+    assert.equal(existsSync(join(cwd, "err")), false, "the repository is not written to");
   } finally {
+    if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = prev;
     await rm(cwd, { recursive: true, force: true });
+    await rm(agentDir, { recursive: true, force: true });
   }
 });
 

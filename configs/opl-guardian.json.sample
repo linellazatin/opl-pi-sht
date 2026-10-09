@@ -24,5 +24,11 @@
     "forkSession": true,
     "blockWithoutUI": true
   },
-  "dropMalformedToolCalls": true
+  "dropMalformedToolCalls": true,
+  "logging": {
+    "incidentFile": null,
+    "maxBytes": 262144,
+    "_comment_incident_file": "Malformed-call forensics never go inside the open repository. null writes to <agent dir>/guardian-incidents.jsonl; a relative path also resolves under the agent dir; an absolute or ~/ path is used as given; false stops writing.",
+    "_comment_max_bytes": "Before an append that would pass this many bytes, the current log moves to guardian-incidents.jsonl.1 and a fresh one starts. One generation of history is kept."
+  }
 }

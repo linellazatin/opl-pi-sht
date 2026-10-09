@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export type Op = "read" | "write" | "edit" | "bash";
@@ -7,6 +8,18 @@ export type Op = "read" | "write" | "edit" | "bash";
 export interface PathEntry {
   path: string;
   deny: Op[];
+}
+
+export interface GuardianLogging {
+  /**
+   * Where a malformed-call incident is recorded. Never resolved against the session cwd:
+   * forensics in the open repository would be untracked noise holding provider fragments.
+   * `null` uses `<agent dir>/guardian-incidents.jsonl`, a relative value resolves under the
+   * agent dir, `~` expands to the home directory, and `false` stops writing.
+   */
+  incidentFile: string | false | null;
+  /** Rotate the log to `<file>.1` before an append that would pass this many bytes. */
+  maxBytes: number;
 }
 
 export interface GuardianConfig {
@@ -24,7 +37,13 @@ export interface GuardianConfig {
     blockWithoutUI: boolean;
   };
   dropMalformedToolCalls: boolean;
+  logging: GuardianLogging;
 }
+
+export const DEFAULT_LOGGING: GuardianLogging = {
+  incidentFile: null,
+  maxBytes: 256 * 1024,
+};
 
 const DEFAULT_PATTERN_STRINGS = [
   "\\brm\\s+(?:(?:-[a-z]+|--[a-z-]+)\\s+)*(?:-[a-z]*r[a-z]*|--recursive)(?=\\s|$)",
@@ -54,6 +73,7 @@ export const DEFAULT_CONFIG: GuardianConfig = {
     blockWithoutUI: true,
   },
   dropMalformedToolCalls: true,
+  logging: { ...DEFAULT_LOGGING },
 };
 
 /** Resolved per call so a custom `PI_AGENT_DIR` (pi's own agent dir) is honoured. */
@@ -75,6 +95,7 @@ function cloneDefaults(): GuardianConfig {
     protectedPaths: { paths: DEFAULT_PATHS.map((entry) => ({ ...entry, deny: [...entry.deny] })) },
     confirmDestructive: { ...DEFAULT_CONFIG.confirmDestructive },
     dropMalformedToolCalls: true,
+    logging: { ...DEFAULT_LOGGING },
   };
 }
 
@@ -176,7 +197,48 @@ export function parseGuardianConfig(value: unknown): { config: GuardianConfig; w
     }
   }
 
+  if (value.logging !== undefined) {
+    if (!isRecord(value.logging)) {
+      warnings.push("Invalid logging section; using defaults.");
+    } else {
+      const file = value.logging.incidentFile;
+      if (file === undefined || file === null) {
+        config.logging.incidentFile = DEFAULT_LOGGING.incidentFile;
+      } else if (file === false || typeof file === "string") {
+        config.logging.incidentFile = file;
+      } else {
+        warnings.push("logging.incidentFile must be a path or false; using the agent-directory default.");
+      }
+
+      const maxBytes = value.logging.maxBytes;
+      if (maxBytes === undefined) {
+        config.logging.maxBytes = DEFAULT_LOGGING.maxBytes;
+      } else if (typeof maxBytes === "number" && Number.isFinite(maxBytes) && maxBytes >= 1024) {
+        config.logging.maxBytes = Math.floor(maxBytes);
+      } else {
+        warnings.push("logging.maxBytes must be a number of at least 1024; using the default.");
+      }
+    }
+  }
+
   return { config, warnings };
+}
+
+/**
+ * Resolve where incident records go. Absolute paths are used as given, `~/` expands to the
+ * home directory, and anything else lands under pi's agent directory - the session cwd is
+ * never an input, so opening a repository cannot leave a log file inside it.
+ */
+export function incidentLogPath(logging: GuardianLogging): string | null {
+  if (logging.incidentFile === false) return null;
+  const value = logging.incidentFile;
+  if (typeof value !== "string" || value.trim() === "") {
+    return join(getAgentDir(), "guardian-incidents.jsonl");
+  }
+  const trimmed = value.trim();
+  if (trimmed.startsWith("~/")) return resolve(homedir(), trimmed.slice(2));
+  if (isAbsolute(trimmed)) return trimmed;
+  return join(getAgentDir(), trimmed);
 }
 
 export function loadGuardianConfig(): { config: GuardianConfig; warnings: string[] } {

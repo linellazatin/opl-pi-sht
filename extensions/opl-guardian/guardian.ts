@@ -5,6 +5,13 @@ export interface IncidentContext {
   cwd: string;
 }
 
+export interface RemovedToolCallSummary {
+  name: string;
+  argumentKeys: string[];
+  /** Size of the arguments that were dropped; the values themselves are never recorded. */
+  argumentsBytes: number;
+}
+
 export interface GuardianIncident {
   timestamp: string;
   kind: "malformed_tool_call";
@@ -14,7 +21,7 @@ export interface GuardianIncident {
   model: string;
   responseId?: string;
   action: "dropped";
-  removedToolCalls: ToolCall[];
+  removedToolCalls: RemovedToolCallSummary[];
 }
 
 export interface GuardResult {
@@ -77,6 +84,23 @@ export function buildIncidentRecord(
     model: message.model,
     ...(message.responseId ? { responseId: message.responseId } : {}),
     action: "dropped",
-    removedToolCalls,
+    removedToolCalls: removedToolCalls.map(summarizeRemovedToolCall),
   };
+}
+
+/**
+ * Incident records are kept for diagnostics, not as a copy of the transcript: argument
+ * *names* say which call went wrong, while the values can carry file contents, commands or
+ * credentials straight out of the session.
+ */
+export function summarizeRemovedToolCall(call: ToolCall): RemovedToolCallSummary {
+  const args = (call as { arguments?: unknown }).arguments;
+  const keys = args && typeof args === "object" ? Object.keys(args as Record<string, unknown>).sort() : [];
+  let bytes = 0;
+  try {
+    bytes = Buffer.byteLength(JSON.stringify(args ?? {}));
+  } catch {
+    bytes = -1; // not serializable; the size is unknown but nothing is leaked either
+  }
+  return { name: hasValue(call.name) ? call.name : "(unnamed)", argumentKeys: keys, argumentsBytes: bytes };
 }
