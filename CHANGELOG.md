@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.13]
+## [0.3.0]
 
 ### Breaking
 
@@ -50,6 +50,7 @@
 
 ### Fixed
 
+- **`opl-webaccess`**: PDF fetching converts HTTP response buffers into plain `Uint8Array` input before extraction, avoiding PDF.js rejecting Node `Buffer` values.
 - **`opl-ctxtrim`**: Google/Gemini requests were never trimmed. `functionDeclarations` and `toolSpecifications` inside `tools[]`, the `tool_config` snake_case variant, and `parametersJsonSchema`/`input_schema` declarations are now recognised, so a Gemini request loses the same tool descriptions an OpenAI request already did: 21,752 B to 5,726 B on an 11-tool payload (-73.7%; OpenAI shape -74.1%).
 - **`opl-footer`**: one bad input could blank the entire footer on every frame. A segment that throws now renders a `[?]` marker in its own cell while its siblings survive, transcript oddities (a message without a `usage` block, an unexpected `thinking_level_change` value) read as zero instead of throwing, and branch-derived counts plus the context estimate are memoised on (branch length, context window) rather than recomputed on every keypress. The context bar resolves its unfilled colour once per frame instead of once per cell.
 - **`opl-webaccess`**: `searchWeb` re-read and re-parsed its config per query, so a multi-query fan-out paid for each one; the loaded config is now passed down.

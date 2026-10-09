@@ -2,6 +2,50 @@ import assert from "node:assert/strict";
 import { test } from "bun:test";
 import { createServer } from "node:http";
 import { pinnedFetch, buildRequestOptions } from "../extensions/opl-webaccess/http.ts";
+import { extractPdfBuffer } from "../extensions/opl-webaccess/pdf.ts";
+import { fetchAllContent } from "../extensions/opl-webaccess/extract.ts";
+
+// A complete one-page PDF with byte-correct stream lengths and cross references.
+function pdfFixture() {
+  const stream = "BT /F1 12 Tf 72 720 Td (PDF works) Tj ET\n";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = objects.map((object, i) => {
+    const offset = Buffer.byteLength(pdf);
+    pdf += `${i + 1} 0 obj\n${object}\nendobj\n`;
+    return offset;
+  });
+  const xref = Buffer.byteLength(pdf);
+  pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf);
+}
+
+for (const kind of ["Buffer", "Uint8Array", "ArrayBuffer"]) {
+  test(`extracts PDF text from ${kind}`, async () => {
+    const bytes = pdfFixture();
+    const input = kind === "Buffer" ? bytes : kind === "Uint8Array" ? new Uint8Array(bytes) : new Uint8Array(bytes).buffer;
+    assert.equal(await extractPdfBuffer(input), "PDF works");
+  });
+}
+
+test("fetch_content extracts PDF text through the pinned HTTP transport", async () => {
+  const server = await serve(() => ({ headers: { "content-type": "application/pdf" }, body: pdfFixture() }));
+  try {
+    const url = `http://127.0.0.1:${server.address().port}/document.pdf`;
+    const [result] = await fetchAllContent([url], undefined, { allowLoopback: true });
+    assert.equal(result.error, null);
+    assert.equal(result.content, "PDF works");
+    assert.equal(result.url, url);
+  } finally {
+    await close(server);
+  }
+});
 
 /** Listen on loopback with an ephemeral port and answer with a fixed behaviour. */
 function serve(handler = () => null) {
