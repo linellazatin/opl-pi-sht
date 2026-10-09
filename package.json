@@ -50,7 +50,7 @@
     "test:opl-input": "bun test tests/opl-input-style.test.mjs tests/opl-input-pi-tui-markers.test.mjs && OPL_EXTENSION=opl-input bun test tests/extension-smoke.test.mjs",
     "test:opl-modes": "bun test tests/opl-modes-helpers.test.mjs tests/opl-modes-lifecycle.test.mjs tests/opl-modes-plan-budget.test.mjs && OPL_EXTENSION=opl-modes bun test tests/extension-smoke.test.mjs",
     "test:opl-questionnaire": "bun test tests/opl-questionnaire-helpers.test.mjs && OPL_EXTENSION=opl-questionnaire bun test tests/extension-smoke.test.mjs",
-    "test:opl-todo": "bun test tests/opl-todo-config.test.mjs tests/opl-todo-render.test.mjs && OPL_EXTENSION=opl-todo bun test tests/extension-smoke.test.mjs",
+    "test:opl-todo": "bun test tests/opl-todo-config.test.mjs tests/opl-todo-render.test.mjs tests/opl-todo-widget-height.test.mjs && OPL_EXTENSION=opl-todo bun test tests/extension-smoke.test.mjs",
     "test:opl-webaccess": "bun test tests/opl-webaccess-helpers.test.mjs tests/opl-webaccess-storage.test.mjs tests/opl-webaccess-search.test.mjs && OPL_EXTENSION=opl-webaccess bun test tests/extension-smoke.test.mjs",
     "test:opl-simplebench": "bun test tests/opl-simplebench.test.ts && OPL_EXTENSION=opl-simplebench bun test tests/extension-smoke.test.mjs",
     "test:opl-ctxtrim": "bun test tests/opl-ctxtrim.test.ts && OPL_EXTENSION=opl-ctxtrim bun test tests/extension-smoke.test.mjs",
