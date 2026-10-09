@@ -163,6 +163,7 @@ export function restore(
 ): boolean {
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i];
+    if (!entry) continue; // a hole in the persisted array is not a restore candidate
     if (entry.type !== "custom" || entry.customType !== ENTRY_TYPE) continue;
 
     const data = entry.data as AgentModeBlob | undefined;
@@ -182,6 +183,7 @@ export function restore(
   // Backward compat: restore from legacy entries written by the old extensions.
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i];
+    if (!entry) continue; // a hole in the persisted array is not a restore candidate
     if (entry.type !== "custom") continue;
 
     if (entry.customType === "plan-mode") {

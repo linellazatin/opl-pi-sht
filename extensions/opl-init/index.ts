@@ -134,7 +134,10 @@ const SAFE_GIT_ENV: Record<string, string> = {
 export function safeGitInvocation(args: string[]): string[] {
   const [subcommand, ...rest] = args;
   const diffFlags = subcommand && GIT_DIFF_COMMANDS.has(subcommand) ? SAFE_GIT_DIFF_FLAGS : [];
-  return [...SAFE_GIT_GLOBAL_ARGS, subcommand, ...diffFlags, ...rest];
+  // A missing subcommand must not reach execFileSync/spawn as an undefined argv slot.
+  return subcommand
+    ? [...SAFE_GIT_GLOBAL_ARGS, subcommand, ...diffFlags, ...rest]
+    : [...SAFE_GIT_GLOBAL_ARGS, ...rest];
 }
 
 export function gitGuardEnv(base: Record<string, string | undefined> = process.env): Record<string, string> {
@@ -295,6 +298,7 @@ function crawl(root: string): Crawl {
         break;
       }
       const entry = all[i];
+      if (entry === undefined) continue;
       result.tree.push(`${prefix}${entry}`);
       if (entry.endsWith("/") && depth < maxDepth) {
         walk(join(dir, entry.slice(0, -1)), depth + 1, `${prefix}  `, maxDepth);
@@ -378,7 +382,8 @@ function workspaceMembers(root: string, skipped: string[]): string[] {
         inPackages = false;
       } else if (inPackages) {
         const match = line.match(/^\s*-\s*["']?([^"'#]+)/);
-        if (match) globs.push(match[1].trim());
+        const pkg = match?.[1];
+        if (pkg) globs.push(pkg.trim());
       }
     }
   } catch {
@@ -388,10 +393,14 @@ function workspaceMembers(root: string, skipped: string[]): string[] {
   try {
     const toml = readFileSync(join(root, "Cargo.toml"), "utf8");
     const section = toml.match(/\[workspace\]([\s\S]*?)(?:\n\[|\s*$)/);
-    const membersBlock = section?.[1].match(/members\s*=\s*\[([^\]]*)\]/s);
+    const membersBlock = section?.[1]?.match(/members\s*=\s*\[([^\]]*)\]/s);
     if (membersBlock) {
-      for (const m of membersBlock[1].matchAll(/["']([^"']+)["']/g)) {
-        globs.push(m[1]);
+      const memberList = membersBlock[1];
+      if (memberList) {
+        for (const m of memberList.matchAll(/["']([^"']+)["']/g)) {
+          const name = m[1];
+          if (name) globs.push(name);
+        }
       }
     }
   } catch {

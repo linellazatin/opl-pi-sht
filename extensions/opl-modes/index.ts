@@ -275,7 +275,8 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     const filePath = getPlanFilePath();
     if (filePath && existsSync(filePath)) {
       const heading = readFileSync(filePath, "utf-8").match(/^# Plan:\s*(.+)$/m);
-      if (heading) return heading[1].trim();
+      const captured = heading?.[1];
+      if (captured) return captured.trim();
     }
     return titleFromFilename(file);
   }
@@ -1112,7 +1113,8 @@ export default function modeSwitcher(pi: ExtensionAPI) {
           return;
         }
         if (files.length === 1) {
-          await startExecute(files[0].name);
+          const only = files[0];
+          if (only) await startExecute(only.name);
           return;
         }
         const items: SelectItem[] = files.map(f => ({ value: f.name, label: f.title }));
@@ -1152,6 +1154,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
 
     const idx = order.indexOf(current);
     const next = idx === -1 ? order[0] : order[(idx + 1) % order.length];
+    if (!next) return; // order is non-empty above; this is what lets the branches below take a string
     if (next === current) return;
 
     if (next === "off") {

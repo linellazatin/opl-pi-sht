@@ -118,7 +118,10 @@ const SAFE_GIT_ENV: Record<string, string> = {
 export function safeGitInvocation(args: string[]): string[] {
   const [subcommand, ...rest] = args;
   const diffFlags = subcommand && GIT_DIFF_COMMANDS.has(subcommand) ? SAFE_GIT_DIFF_FLAGS : [];
-  return [...SAFE_GIT_GLOBAL_ARGS, subcommand, ...diffFlags, ...rest];
+  // A missing subcommand must not reach execFileSync/spawn as an undefined argv slot.
+  return subcommand
+    ? [...SAFE_GIT_GLOBAL_ARGS, subcommand, ...diffFlags, ...rest]
+    : [...SAFE_GIT_GLOBAL_ARGS, ...rest];
 }
 
 export function gitGuardEnv(base: Record<string, string | undefined> = process.env): Record<string, string> {

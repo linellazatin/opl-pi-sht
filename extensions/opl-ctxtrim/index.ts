@@ -41,7 +41,7 @@ export const CTX_DESCRIPTIONS: Record<string, string> = {
 // Shorten a nested JSON Schema parameter description to its first sentence or
 // line. Only `description` text is touched, never validation keywords.
 export function shortenParamDescription(text: string): string {
-  const firstLine = text.split("\n", 1)[0].trim();
+  const firstLine = (text.split("\n", 1)[0] ?? "").trim();
   const sentenceEnd = firstLine.search(/\.\s|\.$/);
   const clipped = sentenceEnd >= 0 ? firstLine.slice(0, sentenceEnd + 1) : firstLine;
   return clipped.length > 160 ? `${clipped.slice(0, 157).trimEnd()}...` : clipped;

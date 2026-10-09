@@ -130,6 +130,21 @@ test("diff flags are inserted after the subcommand, plumbing is left alone", () 
   assert.ok(initSafeArgs(["log", "--oneline"]).includes("--no-textconv"));
   assert.ok(!initSafeArgs(["ls-files", "-z"]).includes("--no-textconv"));
   assert.deepEqual(footerSafeArgs(["diff", "HEAD"]), initSafeArgs(["diff", "HEAD"]));
+
+  // An undefined entry would reach execFileSync/spawn as a hole in argv and throw at the
+  // syscall instead of failing as a git error the callers already handle.
+  for (const args of [[], [""]]) {
+    for (const [name, safe] of [["opl-init", initSafeArgs], ["opl-footer", footerSafeArgs]]) {
+      const out = safe(args);
+      assert.ok(
+        !out.includes(undefined),
+        `${name}: safeGitInvocation(${JSON.stringify(args)}) leaked an undefined argv slot: ${JSON.stringify(out)}`,
+      );
+      assert.ok(out.every((a) => typeof a === "string" && a !== ""), `${name}: argv slots must be real strings: ${JSON.stringify(out)}`);
+      assert.equal(out[0], "--no-pager", `${name}: the global guard still leads`);
+      assert.ok(!out.includes("--no-ext-diff"), `${name}: no diff flags without a diff subcommand`);
+    }
+  }
 });
 
 test("the guard environment is additive and refuses prompts and locks", () => {
