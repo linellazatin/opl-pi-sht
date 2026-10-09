@@ -239,7 +239,7 @@ pi.registerTool({
   ],
   parameters: Type.Object({
     model: Type.Optional(Type.String({ description: "Model name to test. If omitted, tests the current model." })),
-    no_artifact: Type.Optional(Type.Boolean({ description: "If true, do not write the detailed JSON audit artifact to the current working directory." })),
+    no_artifact: Type.Optional(Type.Boolean({ description: "If true, do not write the detailed JSON audit artifact to the session directory." })),
     thinking_max: Type.Optional(Type.Boolean({ description: "Request maximum reasoning on an OpenAI-compatible provider or a direct Bedrock model that advertises max thinking. Omit to use provider defaults." })),
     coding_lite: Type.Optional(Type.Boolean({ description: "Run only the six execution-backed coding tasks in disposable directories." })),
     test_all: Type.Optional(Type.Boolean({ description: "Run the existing baseline, coding-lite, and deterministic grounded research tests." })),
