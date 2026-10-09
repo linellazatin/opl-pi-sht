@@ -23,6 +23,23 @@ const state: {
 (globalThis as Record<string, unknown>).__planMode = { mode: "off" };
 (globalThis as Record<string, unknown>).__chatMode = { mode: "off" };
 
+/**
+ * Cross-extension seam. `opl-footer` publishes `__footerRequestRender` while a footer is
+ * mounted; `__agentMode`, `__planMode` and `__chatMode` are read by the footer's mode
+ * segment and by `opl-input`. Extensions install one directory at a time and load in any
+ * combination, so nothing here may assume the other side exists or is healthy: the value can
+ * be missing, be something else entirely, or close over a TUI that was already torn down.
+ */
+function requestFooterRender(): void {
+  const requestRender = (globalThis as Record<string, unknown>).__footerRequestRender;
+  if (typeof requestRender !== "function") return;
+  try {
+    (requestRender as () => void)();
+  } catch {
+    // A dead footer must not fail a mode transition.
+  }
+}
+
 /** Derive and sync all globalThis snapshots from unified state. */
 function syncGlobalThis(): void {
   const m = state.mode;
@@ -35,8 +52,23 @@ function syncGlobalThis(): void {
   // plan-family modes light up __planMode, so a custom mode cannot read as "Plan mode ON".
   (globalThis as Record<string, unknown>).__planMode = { mode: m === "plan" || m === "execute" ? m : "off" };
   (globalThis as Record<string, unknown>).__chatMode = { mode: m === "chat" ? "chat" : "off" };
-  const requestRender = (globalThis as Record<string, unknown>).__footerRequestRender;
-  if (typeof requestRender === "function") requestRender();
+  requestFooterRender();
+}
+
+/** Re-publish the seam after a fresh session starts in this process. */
+export function publishModeGlobals(): void {
+  syncGlobalThis();
+}
+
+/**
+ * Drop the seam when the session ends. A leftover value would let a footer in a later
+ * session render a mode that belongs to nobody, and the footer's own render trigger is
+ * removed with it (see `opl-footer`).
+ */
+export function clearModeGlobals(): void {
+  delete (globalThis as Record<string, unknown>).__agentMode;
+  delete (globalThis as Record<string, unknown>).__planMode;
+  delete (globalThis as Record<string, unknown>).__chatMode;
 }
 
 export function getMode(): AgentMode { return state.mode; }

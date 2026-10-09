@@ -138,6 +138,18 @@ Behavior:
 
 Caching note: activating a lazy tool mid-session preserves the cached prefix on models with native deferred tool loading (Anthropic 4.5+, OpenAI gpt-5.4+) and otherwise triggers one prompt-cache rewrite from that point. It is most effective for tools you use occasionally (delegation, browser automation, benchmarking).
 
+## Cross-extension seams
+
+Extensions install one directory at a time and load in any combination, so `globalThis` is
+the only channel between them. `opl-modes` publishes `__agentMode`, `__planMode` and
+`__chatMode`; `opl-footer` publishes `__footerRequestRender` while a footer is mounted.
+
+Nothing may assume the other side is present or healthy. The render trigger is checked for
+being a function and called inside a `try`: a footer whose TUI was already torn down must not
+fail a mode transition. `session_start` re-publishes the three mode globals and
+`session_shutdown` deletes them, so a later session in the same process never reads a mode
+that belongs to a dead one.
+
 ## Architecture
 
 `config.ts` registers built-in modes, merges configured overrides, compiles Bash patterns, and publishes the registry. `state.ts` persists and restores mode/plan state (including the persisted model restore point) and is the single publisher of `globalThis.__agentMode`. `index.ts` wires commands, picker, lifecycle hooks, tool replacement, Bash interception, and `plan_complete`; `utils.ts` handles plan files, the per-segment Bash gate, and shared helpers.

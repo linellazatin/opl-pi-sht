@@ -74,6 +74,9 @@ async function mount({ config = {}, throwOn = null, branchRef = { value: [] }, p
   return {
     projectionsBuilt: () => projectionsBuilt,
     themeLookups: () => themeLookups,
+    fire: async (name, event) => {
+      for (const handler of handlers.get(name) ?? []) await handler(event, ctx);
+    },
     render: () => component.render(120),
     dispose() {
       clearUserConfigCache();
@@ -239,6 +242,17 @@ test("the unfilled bar colour is resolved once per frame, not per cell", async (
     const lookups = h.themeLookups();
     assert.ok(stripAnsi(lines[1]).includes("%"), "the bar still renders");
     assert.ok(lookups < 10, `the bar cost ${lookups} theme lookups for 18 cells`);
+  } finally {
+    h.dispose();
+  }
+});
+
+test("session_shutdown releases the cross-extension render trigger", async () => {
+  const h = await mount({ config: singleRow(["text:alive"]) });
+  try {
+    assert.equal(typeof globalThis.__footerRequestRender, "function", "mounting publishes the seam");
+    await h.fire("session_shutdown", {});
+    assert.equal(globalThis.__footerRequestRender, undefined, "the closure over a dead TUI is dropped");
   } finally {
     h.dispose();
   }

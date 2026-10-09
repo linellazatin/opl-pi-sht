@@ -434,6 +434,9 @@ export default function footer(pi: ExtensionAPI) {
     cancelOpenRouterUsageRefresh();
     openRouterUsageGeneration++;
     openRouterUsageInFlight = null;
+    // The seam is a closure over this session's TUI. Leaving it installed hands `opl-modes`
+    // a dead component to render into on the next session, so it goes with the footer.
+    delete (globalThis as Record<string, unknown>).__footerRequestRender;
   });
 
   pi.on("message_end", async (event, ctx) => {

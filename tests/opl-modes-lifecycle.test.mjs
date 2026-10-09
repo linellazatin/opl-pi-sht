@@ -359,3 +359,16 @@ test("a plan over the entry ceiling is stored capped, pointing at the file", asy
     rmSync(planPath, { force: true });
   }
 });
+
+test("the footer seam is published on session start and cleared on shutdown", async () => {
+  const h = mount({ tools: BASE_TOOLS, active: ["read"], models: [MODEL_A] });
+  assert.equal(globalThis.__agentMode.mode, "off", "module load publishes an initial state");
+  await h.fire("session_shutdown", {});
+  assert.equal(globalThis.__agentMode, undefined, "a dead session leaves no mode behind");
+  assert.equal(globalThis.__planMode, undefined);
+  assert.equal(globalThis.__chatMode, undefined);
+
+  await h.fire("session_start", { reason: "startup" });
+  assert.equal(globalThis.__agentMode.mode, "off", "the next session republishes the seam");
+  await h.fire("session_shutdown", {});
+});

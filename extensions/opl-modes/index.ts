@@ -79,6 +79,8 @@ import {
   resetState,
   getRefineCount,
   incrementRefineCount,
+  publishModeGlobals,
+  clearModeGlobals,
 } from "./state.js";
 import { showSelectMenu } from "./menus.js";
 
@@ -552,6 +554,8 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   // ─── Event: session_start ──────────────────────────────────────────────────────
 
   pi.on("session_start", async (event, ctx) => {
+    // Re-publish the footer seam: a previous session in this process cleared it on shutdown.
+    publishModeGlobals();
     if (event.reason === "startup") {
       if (pi.getFlag("chat") === true && getMode() === "off") {
         enterChatMode(ctx);
@@ -564,6 +568,12 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     }
 
     await syncStateFromBranch(ctx, event.reason === "resume" || event.reason === "fork");
+  });
+
+  pi.on("session_shutdown", async () => {
+    // Hand the seam back: an orphaned mode global would keep rendering a mode that no
+    // longer belongs to any live session.
+    clearModeGlobals();
   });
 
   // ─── Event: before_agent_start ──────────────────────────────────────────
