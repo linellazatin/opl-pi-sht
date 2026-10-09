@@ -712,3 +712,18 @@ test("disabling malformed-call filtering leaves assistant messages and JSONL unt
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+test("a bash call whose command is not a string is blocked instead of coerced", async () => {
+  const config = parseGuardianConfig(undefined).config;
+  const handler = createToolCallHandler(config);
+  const ctx = { cwd: "/repo", hasUI: false, mode: "rpc", ui: { notify() {}, select: async () => "Yes" } };
+  for (const command of [["rm", "-rf", "/"], { command: "rm -rf /" }, 42, null]) {
+    const event = { type: "tool_call", toolCallId: "c1", toolName: "bash", input: { command } };
+    const result = await handler(event, ctx);
+    assert.equal(result?.block, true, JSON.stringify(command));
+    assert.match(result.reason, /not a string/, JSON.stringify(command));
+  }
+  // A normal string command still flows through the pattern matcher.
+  const allowed = await handler({ type: "tool_call", toolCallId: "c2", toolName: "bash", input: { command: "echo hi" } }, ctx);
+  assert.equal(allowed, undefined);
+});

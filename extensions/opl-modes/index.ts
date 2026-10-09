@@ -641,7 +641,13 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     if (event.toolName !== "bash") return {};
     if (!modeDef?.safePatterns && !modeDef?.destructivePatterns) return {};
 
-    const command = event.input.command as string;
+    if (typeof event.input.command !== "string") {
+      // Uninspectable commands are refused rather than coerced: String(["rm","-rf"]) would
+      // reach the pattern matchers as "rm,-rf" and slip past a segment-based safe list.
+      return { block: true, reason: `[mode-switcher] Blocked a bash tool call whose command was not a string [${mode} mode].` };
+    }
+
+    const command = event.input.command;
     const reason = bashBlockReason(command, modeDef.safePatterns, modeDef.destructivePatterns);
     if (reason) {
       return { block: true, reason: `[mode-switcher] Command blocked — ${reason} [${mode} mode]` };

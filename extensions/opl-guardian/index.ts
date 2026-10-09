@@ -125,7 +125,16 @@ export function createToolCallHandler(config: GuardianConfig) {
     if (isToolCallEventType("read", event)) toolPath = event.input.path;
     else if (isToolCallEventType("write", event)) toolPath = event.input.path;
     else if (isToolCallEventType("edit", event)) toolPath = event.input.path;
-    else if (isToolCallEventType("bash", event)) toolPath = event.input.command;
+    else if (isToolCallEventType("bash", event) && typeof event.input.command === "string") {
+      toolPath = event.input.command;
+    } else if (isToolCallEventType("bash", event)) {
+      // The host types `command` as a string. A provider that sends an array or object here
+      // hands over something uninspectable, and coercing it would let ["rm","-rf"] read as
+      // "rm,-rf" to the matchers. Fail closed, the way a blank id or name does.
+      const reason = "[opl-guardian] Blocked a bash tool call whose command was not a string.";
+      if (ctx.hasUI) ctx.ui.notify(red(reason), "warning");
+      return { block: true, reason };
+    }
 
     if (toolPath !== undefined) {
       const blocked = getProtectedPathBlock(event.toolName, toolPath, config.protectedPaths.paths, ctx.cwd);
@@ -139,6 +148,7 @@ export function createToolCallHandler(config: GuardianConfig) {
     }
 
     if (!isToolCallEventType("bash", event) ||
+      typeof event.input.command !== "string" ||
       !config.permissionGate.patterns.some((pattern) => pattern.test(event.input.command))) return undefined;
 
     if (!ctx.hasUI) {

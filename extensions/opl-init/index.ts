@@ -559,7 +559,9 @@ async function refineGuide(ctx: any, evidence: string, marker: string): Promise<
     const stream = ctx.modelRegistry.streamSimple(
       model,
       { systemPrompt: REFINE_SYSTEM_PROMPT, messages: [{ role: "user", content: evidence, timestamp: Date.now() }], tools: [] },
-      { reasoning: false, signal: AbortSignal.timeout(REFINE_TIMEOUT_MS) },
+      // ThinkingLevel has no "off": "minimal" is the cheapest level the adapters accept.
+      // `false` was silently dropped as "unset", so the refinement paid the provider default.
+      { reasoning: "minimal", signal: AbortSignal.timeout(REFINE_TIMEOUT_MS) },
     );
     const result = await stream.result();
     if (!result || result.stopReason === "error" || result.stopReason === "aborted") return null;

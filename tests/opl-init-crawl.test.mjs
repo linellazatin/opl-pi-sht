@@ -76,6 +76,7 @@ test("successful refine: fenced + smuggled-marker output is finalized and reload
     assert.equal(calledWith.model.id, "fake-model", "refine uses ctx.model");
     assert.match(calledWith.context.systemPrompt, /Return ONLY the final Markdown document/);
     assert.ok(calledWith.options?.signal instanceof AbortSignal, "refine call is bounded by a timeout signal");
+    assert.equal(calledWith.options?.reasoning, "minimal", "ThinkingLevel has no false or off; minimal is the cheapest");
     assert.match(notes[0], /refining/, "progress is shown before the model call, not only after");
     const guide = readFileSync(join(root, "AGENTS.md"), "utf8");
     assert.match(guide, /Crafted prose\./);

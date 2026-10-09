@@ -372,3 +372,27 @@ test("the footer seam is published on session start and cleared on shutdown", as
   assert.equal(globalThis.__agentMode.mode, "off", "the next session republishes the seam");
   await h.fire("session_shutdown", {});
 });
+
+test("a bash call whose command is not a string is blocked by the mode gate", async () => {
+  const h = mount({ tools: BASE_TOOLS, active: ["read"], models: [MODEL_A] });
+  h.ctx.ui.custom = async () => "save";
+  await h.run("plan", "seam-probe");
+  const blocked = await h.fire("tool_call", {
+    type: "tool_call",
+    toolCallId: "c1",
+    toolName: "bash",
+    input: { command: ["echo", "hi"] },
+  });
+  assert.ok(
+    blocked.some((result) => result?.block === true && /not a string/.test(result.reason ?? "")),
+    JSON.stringify(blocked),
+  );
+  const ok = await h.fire("tool_call", {
+    type: "tool_call",
+    toolCallId: "c2",
+    toolName: "bash",
+    input: { command: "echo hi" },
+  });
+  assert.ok(!ok.some((result) => result?.block === true && /not a string/.test(result.reason ?? "")));
+  await h.fire("session_shutdown", {});
+});

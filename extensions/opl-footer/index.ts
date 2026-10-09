@@ -21,6 +21,15 @@ const GIT_BRANCH_PATTERNS: RegExp[] = [
   /\bgit\s+stash\s+(pop|apply)/,
 ];
 
+/**
+ * Only a real string is inspected. A tool call over the wire can carry an array or object
+ * in `input.command`, and `String()` of it is either "[object Object]" (no match, stale
+ * counts) or a joined "git checkout main" that matches by accident.
+ */
+export function mentionsGitBranchChange(command: unknown): boolean {
+  return typeof command === "string" && GIT_BRANCH_PATTERNS.some((pattern) => pattern.test(command));
+}
+
 /** Row keys used to detect whether an optional segment is enabled. */
 const CODEX_USAGE_REFRESH_MS = 30_000;
 
@@ -515,19 +524,16 @@ export default function footer(pi: ExtensionAPI) {
     if (event.toolName === "write" || event.toolName === "edit") {
       invalidateGitStatus();
     }
-    if (event.toolName === "bash" && event.input?.command) {
-      const cmd = String(event.input.command);
-      if (GIT_BRANCH_PATTERNS.some(p => p.test(cmd))) {
-        invalidateGitStatus();
-        invalidateGitBranch();
-        setTimeout(() => tuiRef?.requestRender(), 100);
-      }
+    if (event.toolName === "bash" && mentionsGitBranchChange(event.input?.command)) {
+      invalidateGitStatus();
+      invalidateGitBranch();
+      setTimeout(() => tuiRef?.requestRender(), 100);
     }
   });
 
   // Also catch user escape commands (! prefix)
   pi.on("user_bash", async (event: UserBashEvent, _ctx: ExtensionContext) => {
-    if (GIT_BRANCH_PATTERNS.some(p => p.test(event.command))) {
+    if (mentionsGitBranchChange(event.command)) {
       invalidateGitStatus();
       invalidateGitBranch();
       tuiRef?.requestRender();
