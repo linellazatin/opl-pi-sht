@@ -1,14 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-// opl-ctxtrim rewrites the description prose of tool schemas on the outbound provider
-// request. The mechanism is general - any tool declaration in a supported shape is a
-// candidate - and CTX_DESCRIPTIONS below is the policy: only the names in that table are
-// ever touched, so the curated replacements for the third-party context-mode MCP bridge
-// (verbose ctx_* descriptions) are trimmed and everything else passes through byte-for-byte.
-// Only the serialized payload is edited in the documented `before_provider_request` hook, so
-// the installed context-mode package (and its tool execution) is never modified. Tool names,
-// schema structure, required fields, enums, defaults, bounds, and strict flags are
-// preserved; only human-readable `description` prose is shortened.
+// opl-ctxtrim trims only the known context-mode ctx_* tool descriptions listed in
+// CTX_DESCRIPTIONS. Provider handlers locate those same definitions in the different
+// request formats Pi emits; they do not widen the tool policy or trim conversation data.
+// Only the serialized payload is edited through before_provider_request. The installed
+// context-mode package, tool execution, names and schema validation rules stay unchanged.
 
 // Concise top-level descriptions for the eleven ctx_* tools shipped by
 // context-mode v1.0.169. Any ctx_* tool NOT listed here is left unchanged so a
@@ -110,6 +106,7 @@ function viewTool(tool: unknown): ToolView | null {
 
 // Trim a single tool view in place when it is a known ctx_* tool.
 function trimToolView(view: ToolView): boolean {
+  if (!Object.hasOwn(CTX_DESCRIPTIONS, view.name)) return false;
   const concise = CTX_DESCRIPTIONS[view.name];
   if (!concise) return false;
   if (typeof view.descriptionHolder.description === "string") {

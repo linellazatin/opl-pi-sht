@@ -1,6 +1,6 @@
 # opl-ctxtrim
 
-Rewrites the human-readable description prose of a curated set of tool schemas on the outbound provider request. The mechanism is general - any tool declaration in a supported provider shape is a candidate - and the table it ships is the third-party [context-mode](https://github.com/mksglu/context-mode) MCP bridge: eleven verbose `ctx_*` descriptions that ride along on **every** request. It edits only the serialized payload through Pi's documented `before_provider_request` hook, so the installed context-mode package and its tool execution are never modified. The name is historical: it started as a context-mode-only trimmer and now speaks every provider shape that carries tool declarations.
+Trims description prose for eleven known `ctx_*` tools from [context-mode](https://github.com/mksglu/context-mode) on Pi's outbound provider requests. Provider support handles different encodings of those same tool definitions; it does not expand trimming to other tools or general context. The extension edits the serialized request through `before_provider_request`, leaving the installed context-mode package and tool execution unchanged.
 
 ## Commands, tools, and configuration
 
@@ -8,30 +8,35 @@ No commands, tools, or configuration. Loading the extension is the entire interf
 
 ## What it does
 
-context-mode registers eleven `ctx_*` tools whose descriptions carry multi-paragraph "Think-in-Code" prose, `WHEN`/`WHEN NOT` sections, and worked examples. Those descriptions are serialized into the tool schema on **every** provider request. `opl-ctxtrim` replaces each known tool's top-level description with a concise equivalent and shortens nested JSON Schema parameter descriptions to their first sentence.
+The allowlist covers eleven context-mode `ctx_*` tools whose descriptions carry multi-paragraph "Think-in-Code" prose, `WHEN`/`WHEN NOT` sections, and worked examples. Those descriptions are serialized into the tool schema on **every** provider request. `opl-ctxtrim` replaces each known tool's top-level description with a concise equivalent and shortens nested JSON Schema parameter descriptions to their first sentence.
 
 Preserved exactly: tool names, execution routing, schema structure, `required`, `enum`, `default`, numeric bounds, and strict-mode flags. Only human-readable `description` prose changes.
 
 ### Scope
 
-The curated description table is the whole policy. A tool is trimmed only when its name is in `CTX_DESCRIPTIONS`:
+The curated description table is the whole policy. A tool is trimmed only when its exact name is an own entry in `CTX_DESCRIPTIONS`; inherited JavaScript property names do not match. Matching is by name, not server identity, so another tool using an allowlisted name receives the same substitution:
 
-- `ctx_*` tools that context-mode adds in a later release are **not** in the table and pass through untouched, so an
-  upgrade cannot silently rewrite what the model is told a tool does.
-- Every other tool in the request - built-in Pi tools, MCP servers you registered yourself, Superpowers entries - is
-  left byte-for-byte alone.
+- New or renamed `ctx_*` tools absent from the table pass through untouched until explicitly reviewed and added.
+- Tools whose names are absent from the table, including built-in Pi tools and other MCP tools, remain unchanged.
 - Unrecognized payload shapes fail open: the original payload is returned.
 
 Adding a tool to the table is a source change, not a configuration; there is no config file to edit.
 
-Supported provider payload shapes:
+### Provider tool shapes
 
-- OpenAI Responses / Anthropic / Google: `{ name, description, parameters }`
-- OpenAI Chat Completions / Mistral: `{ function: { name, description, parameters } }`
-- Amazon Bedrock Converse: `toolConfig.tools[].toolSpec`
-- Google/Gemini `generateContent`: `tools[].functionDeclarations[]` (also `toolSpecifications[]`), function calling under `toolConfig` or `tool_config`, and a declaration's schema in `parameters`, `input_schema` or `parametersJsonSchema`
+Pi serializes the same context-mode tool definitions differently for each provider. These handlers locate the declarations before applying the same eleven-name policy.
 
-A context-mode release that adds or renames a `ctx_*` tool is invisible to the table, and therefore invisible to the savings too. The test suite prints those tools as `uncovered ctx_* tools (review after upgrade)` so the gap is a review item rather than a silent loss. The installed server is v1.0.169; that number is a snapshot, not a guarantee.
+| Provider format | Tool name location | Parameter schema location |
+|---|---|---|
+| OpenAI Responses | `tools[].name` | `tools[].parameters` |
+| OpenAI Chat Completions / Mistral | `tools[].function.name` | `tools[].function.parameters` |
+| Anthropic | `tools[].name` | `tools[].input_schema` |
+| Google/Gemini | `tools[].functionDeclarations[].name` | Declaration's `parametersJsonSchema` or `parameters` |
+| Amazon Bedrock Converse | `toolConfig.tools[].toolSpec.name` | `toolSpec.inputSchema.json` |
+
+The locator also accepts `toolSpecifications[]`, `tool_config` wrappers and direct named declarations with `parameters`, `input_schema` or `parametersJsonSchema`. These are structural compatibility paths, not additional tool policies. Messages, system prompts, routing anchors, tool results and indexed content are not trimmed. Unknown shapes are returned unchanged.
+
+A context-mode release that adds or renames a `ctx_*` tool is invisible to the table, and therefore invisible to the savings too. The test suite prints those tools as `uncovered ctx_* tools (review after upgrade)` so the gap is a review item rather than a silent loss. The measured server snapshot was v1.0.169; that number is not a compatibility guarantee.
 
 ## Token savings
 
@@ -94,11 +99,11 @@ Removing or lazily exposing entire `ctx_*` tools could save more than descriptio
 
 ## Architecture
 
-```text
-index.ts   before_provider_request handler; CTX_DESCRIPTIONS map (the only
-           names ever rewritten); tool-array discovery across provider shapes
-           (tools[], functionDeclarations, toolSpecifications, toolConfig /
-           tool_config); description-only trimming of parameters recursively.
-```
+### index.ts
+- before_provider_request handler
+- CTX_DESCRIPTIONS map (the only names ever rewritten)
+- tool-array discovery across provider shapes 
+  - tools[], functionDeclarations, toolSpecifications, toolConfig / tool_config
+- description-only trimming of parameters recursively
 
 Exports `trimPayload`, `CTX_DESCRIPTIONS`, and `shortenParamDescription` for testing. The extension is self-contained and dependency-free.

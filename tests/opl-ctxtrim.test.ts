@@ -117,6 +117,20 @@ test("leaves non-ctx tools byte-for-byte identical", () => {
   assert.equal(JSON.stringify(out.tools[0]), JSON.stringify(other));
 });
 
+test("inherited policy names remain untouched alongside known context-mode tools", () => {
+  for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf"]) {
+    const other = responsesTool(name);
+    for (const includeKnown of [false, true]) {
+      const payload = { tools: includeKnown ? [other, responsesTool("ctx_search")] : [other] };
+      const out = trimPayload(payload);
+      assert.deepEqual(out.tools[0], other, `${name} must not match inherited properties`);
+      assert.equal(typeof out.tools[0]?.description, "string");
+      if (includeKnown) assert.equal(out.tools[1]?.description, CTX_DESCRIPTIONS.ctx_search);
+      else assert.equal(out, payload, "no owned policy entry matched");
+    }
+  }
+});
+
 test("leaves unknown future ctx_* tools untouched (fail safe)", () => {
   const future = { name: "ctx_teleport", description: LONG, parameters: { type: "object", properties: {} } };
   const payload = { tools: [future] };
