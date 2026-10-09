@@ -13,7 +13,7 @@
     "cleanupOnComplete": false
   },
   "plan": {
-    "_comment": "Byte ceilings for a plan file's two copies. maxInjectBytes bounds the plan body injected into the system prompt by plan-refine and execute modes: a longer plan is cut on a line boundary and the marker tells the model to read the plan file for the rest. maxEntryBytes bounds the copy stored in the `plan-mode` session entry that renders the plan card - custom entries never reach the model, but they live in the session file.",
+    "_comment": "UTF-8 byte ceilings include the truncation marker. maxInjectBytes bounds the plan body injected by plan-refine and execute modes; maxEntryBytes bounds the TUI-only session copy. Only complete lines are retained. If the source path cannot fit, the marker uses a generic reference or shortened notice; session entries retain the full path separately. Plan files remain unchanged. Both settings require positive integers; invalid values use the defaults.",
     "maxInjectBytes": 24000,
     "maxEntryBytes": 4096
   },

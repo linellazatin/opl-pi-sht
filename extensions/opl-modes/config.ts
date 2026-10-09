@@ -366,16 +366,23 @@ export function capPlan(plan: string, maxBytes: number, source?: string): Capped
   if (!Number.isFinite(maxBytes) || maxBytes <= 0 || bytes <= maxBytes) {
     return { text: plan, truncated: false, omittedBytes: 0 };
   }
-  // Leave room for the marker so the result still honours maxBytes.
-  const limit = Math.max(0, maxBytes - 200);
-  let head = Buffer.from(plan, "utf8").subarray(0, limit).toString("utf8");
-  if (head.endsWith("\uFFFD")) head = head.slice(0, -1); // never cut mid-codepoint
-  const newline = head.lastIndexOf("\n");
-  if (newline > head.length * 0.5) head = head.slice(0, newline); // prefer a line boundary
+  const budget = Math.floor(maxBytes);
+  const marker = (shown: number, location: string) =>
+    `\n\n[… plan truncated: showing ${shown} of ${bytes} bytes, ${bytes - shown} omitted - read ${location} for the rest …]`;
+  // Reserve the widest possible counts, including a UTF-8 source path.
+  const reserve = (location: string) => Buffer.byteLength(marker(0, location), "utf8") + String(bytes).length - 1;
+  let location = source ?? "the plan file";
+  if (reserve(location) > budget) location = "the plan file";
+  if (reserve(location) > budget) {
+    return { text: "[plan truncated]".slice(0, budget), truncated: true, omittedBytes: bytes };
+  }
+  const buffer = Buffer.from(plan, "utf8");
+  const limit = budget - reserve(location);
+  const newline = buffer.lastIndexOf(10, limit);
+  // Keep only complete lines. A single line that exceeds the budget stays in the file.
+  const head = newline < 0 ? "" : buffer.subarray(0, newline).toString("utf8");
   const shown = Buffer.byteLength(head, "utf8");
-  const omitted = bytes - shown;
-  const marker = `\n\n[… plan truncated: showing ${shown} of ${bytes} bytes, ${omitted} omitted — read ${source ?? "the plan file"} for the rest …]`;
-  return { text: head + marker, truncated: true, omittedBytes: omitted };
+  return { text: head + marker(shown, location), truncated: true, omittedBytes: bytes - shown };
 }
 
 export const USER_CONFIG = {

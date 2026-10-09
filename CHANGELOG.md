@@ -51,6 +51,7 @@
 
 ### Fixed
 
+- **`opl-modes`**: plan caps include the UTF-8 truncation marker and source path instead of reserving a fixed 200 bytes. Only complete lines are retained; oversized paths use a generic file reference, tiny budgets use a shortened notice, and session entries keep the full path separately.
 - **Installer**: retained or unsuccessfully pruned extensions stay recorded for later cleanup; failed pruning exits nonzero, invalid manifest names cannot traverse paths, skipped link destinations are not claimed, and manifest replacement uses a unique temporary file.
 - **Packaging**: npm ships only sample configs, excluding checkout live configs; the root lock restores missing TypeScript/esbuild platform entries without upgrading existing dependencies. Release validation uses `npm ci` and strict typechecking before the full suite.
 - **`opl-browser`**: selected pages are tracked by identity, so closing an earlier tab cannot switch the selected document; an externally closed selection requires explicit recovery. Each page action binds its target once, preventing a close during validation from retargeting it.

@@ -127,3 +127,55 @@ test("the shipped sample documents both ceilings at the code defaults", () => {
   assert.equal(sample.plan.maxEntryBytes, 4096);
   assert.ok((sample.plan._comment ?? "").length > 60, "the sample must explain what each ceiling does");
 });
+
+test("capPlan accounts for long Unicode source paths and numeric marker fields", () => {
+  const plan = bigPlan(10000);
+  const source = "/repo/" + "資料/".repeat(35) + "plan.md";
+  for (const limit of [512, 1001, 4096, 24000]) {
+    const capped = capPlan(plan, limit, source);
+    assert.ok(bytes(capped.text) <= limit, `${limit}: got ${bytes(capped.text)} bytes`);
+    assert.ok(capped.text.includes(source), "a source that fits must remain available");
+    const match = capped.text.match(/showing (\d+) of (\d+) bytes, (\d+) omitted/);
+    assert.ok(match);
+    const head = capped.text.slice(0, capped.text.indexOf("\n\n[…"));
+    assert.equal(Number(match[1]), bytes(head));
+    assert.equal(Number(match[2]), bytes(plan));
+    assert.equal(Number(match[3]), capped.omittedBytes);
+    assert.equal(capped.omittedBytes, bytes(plan) - bytes(head));
+  }
+});
+
+test("capPlan respects tiny ceilings even when the source alone exceeds them", () => {
+  const plan = bigPlan(300);
+  for (const limit of [1, 2, 3, 15, 16, 32, 100, 128, 256]) {
+    const capped = capPlan(plan, limit, "/" + "資料/".repeat(500));
+    assert.equal(capped.truncated, true);
+    assert.ok(bytes(capped.text) <= limit, `${limit}: got ${bytes(capped.text)} bytes`);
+    assert.ok(!capped.text.includes("\uFFFD"));
+    assert.ok(capped.omittedBytes > 0 && capped.omittedBytes <= bytes(plan));
+  }
+});
+
+test("capPlan keeps complete lines when a later line is too large", () => {
+  const plan = "é first line\n" + "🙂".repeat(2000) + "\nlast line";
+  const capped = capPlan(plan, 512, "plan.md");
+  const head = capped.text.slice(0, capped.text.indexOf("\n\n[…"));
+  assert.equal(head, "é first line");
+  assert.equal(capped.omittedBytes, bytes(plan) - bytes(head));
+});
+
+test("capPlan stays within every small UTF-8 budget without partial lines", () => {
+  const plans = ["🙂".repeat(500), "é\n".repeat(500), "first\n" + "資料".repeat(500)];
+  for (const plan of plans) for (const source of [undefined, "p.md", "資料/".repeat(150)]) {
+    for (let budget = 1; budget <= 512; budget++) {
+      const capped = capPlan(plan, budget, source);
+      assert.ok(bytes(capped.text) <= budget, `budget ${budget}`);
+      assert.equal(Buffer.from(capped.text).toString("utf8"), capped.text);
+      const markerIndex = capped.text.indexOf("\n\n[…");
+      const head = markerIndex < 0 ? "" : capped.text.slice(0, markerIndex);
+      assert.ok(plan.startsWith(head));
+      assert.ok(head === "" || plan[head.length] === "\n");
+      assert.equal(capped.omittedBytes, bytes(plan) - bytes(head));
+    }
+  }
+});

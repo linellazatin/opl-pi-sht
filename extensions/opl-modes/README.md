@@ -83,8 +83,8 @@ Create `~/.pi/agent/configs/opl-modes.json` or copy [`configs/opl-modes.json.sam
 | `ui.hideNotify` / `ui.hideWidget` | Suppress mode notifications or widgets. |
 | `shortcuts.cycleMode` | Keybinding for cycling enabled visible modes. |
 | `cleanup.cleanupOnComplete` | Delete the active plan after successful `plan_complete`. |
-| `plan.maxInjectBytes` | Bytes of plan text allowed into the system prompt for execute or refine (default `24000`). Truncation lands on a line boundary and the marker names the plan file; the file itself is never modified. Set `0` or negative for no ceiling. |
-| `plan.maxEntryBytes` | Bytes of plan text stored in the `plan-mode` session entry (default `4096`). The card shows the marker and the file path. |
+| `plan.maxInjectBytes` | Bytes of plan text allowed into the system prompt for execute or refine (default `24000`). The UTF-8 cap includes the marker and retains complete lines. If the source path cannot fit, the marker refers to the plan file; very small budgets use a shortened notice. The file itself is never modified. Configured ceilings must be positive integers; invalid values fall back to defaults. |
+| `plan.maxEntryBytes` | Bytes of plan text stored in the `plan-mode` session entry (default `4096`). The cap includes the marker; the card retains the full file path separately. |
 | `defaultNotifyTemplate` | Notification template for custom modes; `{Name}` is capitalized mode name. |
 | `modes.chat.tools` / `modes.plan.tools` | Replace the respective built-in read-only tool lists. |
 | `chatAllowedTools` / `planAllowedTools` | **Deprecated compatibility aliases** for the built-in tool lists. They are used only when the corresponding `modes.<name>.tools` is omitted; migrate to `modes.chat.tools` or `modes.plan.tools`. |
