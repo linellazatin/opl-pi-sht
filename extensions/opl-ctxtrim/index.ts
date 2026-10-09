@@ -1,11 +1,14 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-// opl-ctxtrim trims the verbose descriptions that the third-party context-mode
-// MCP bridge attaches to its ctx_* tools. It edits only the serialized provider
-// payload in the documented `before_provider_request` hook, so the installed
-// context-mode package (and its tool execution) is never modified. Tool names,
-// schema structure, required fields, enums, defaults, bounds, and strict flags
-// are preserved; only human-readable `description` prose is shortened.
+// opl-ctxtrim rewrites the description prose of tool schemas on the outbound provider
+// request. The mechanism is general - any tool declaration in a supported shape is a
+// candidate - and CTX_DESCRIPTIONS below is the policy: only the names in that table are
+// ever touched, so the curated replacements for the third-party context-mode MCP bridge
+// (verbose ctx_* descriptions) are trimmed and everything else passes through byte-for-byte.
+// Only the serialized payload is edited in the documented `before_provider_request` hook, so
+// the installed context-mode package (and its tool execution) is never modified. Tool names,
+// schema structure, required fields, enums, defaults, bounds, and strict flags are
+// preserved; only human-readable `description` prose is shortened.
 
 // Concise top-level descriptions for the eleven ctx_* tools shipped by
 // context-mode v1.0.169. Any ctx_* tool NOT listed here is left unchanged so a
