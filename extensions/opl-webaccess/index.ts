@@ -10,7 +10,7 @@ import {
   restoreFromSession,
 } from "./storage.js";
 import { truncate, errorMessage, paginateContent, continuationNotice } from "./utils.js";
-import { loadConfig, resolveCaps, resolveTimeoutMs } from "./config.js";
+import { loadConfig, resolveCaps, resolveTimeoutMs, resolveMaxResponseBytes } from "./config.js";
 import type { StoredData } from "./types.js";
 
 export default function (pi: ExtensionAPI) {
@@ -122,7 +122,7 @@ export default function (pi: ExtensionAPI) {
       let results;
       const dropped = urlList.length > caps.maxFetchUrls ? urlList.length - caps.maxFetchUrls : 0;
       try {
-        results = await fetchAllContent(urlList, signal, { allowPrivateNetwork, allowLoopback, timeoutMs: resolveTimeoutMs(config) }, caps.maxFetchUrls);
+        results = await fetchAllContent(urlList, signal, { allowPrivateNetwork, allowLoopback, timeoutMs: resolveTimeoutMs(config), maxResponseBytes: resolveMaxResponseBytes(config) }, caps.maxFetchUrls);
       } catch (err) {
         return {
           content: [{ type: "text", text: `Error: ${errorMessage(err)}` }],

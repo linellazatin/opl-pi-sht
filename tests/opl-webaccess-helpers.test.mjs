@@ -255,20 +255,25 @@ test("webaccess config carries allowLoopback to the fetch guard, default false",
 });
 
 test("fetchAllContent caps the number of URLs per call", async () => {
-  const realFetch = globalThis.fetch;
   let calls = 0;
-  globalThis.fetch = async () => {
-    calls++;
-    return new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
+  const opts = {
+    resolveHost: async () => ["93.184.216.34"],
+    transport: async () => {
+      calls++;
+      const body = Buffer.from("ok");
+      return {
+        status: 200,
+        ok: true,
+        headers: { get: () => "text/plain" },
+        body,
+        text: () => "ok",
+      };
+    },
   };
-  try {
-    const urls = Array.from({ length: MAX_FETCH_URLS + 5 }, (_, i) => `https://example.com/${i}`);
-    const results = await fetchAllContent(urls);
-    assert.equal(results.length, MAX_FETCH_URLS);
-    assert.equal(calls, MAX_FETCH_URLS);
-  } finally {
-    globalThis.fetch = realFetch;
-  }
+  const urls = Array.from({ length: MAX_FETCH_URLS + 5 }, (_, i) => `https://example.com/${i}`);
+  const results = await fetchAllContent(urls, undefined, opts);
+  assert.equal(results.length, MAX_FETCH_URLS);
+  assert.equal(calls, MAX_FETCH_URLS, "the cap is applied before the transport, not after");
 });
 
 // --- unspecified addresses: never toggleable (review M1) ---

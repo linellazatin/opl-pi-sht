@@ -36,6 +36,10 @@ export interface WebAccessConfig {
    *  default 30000). The agent's own abort signal is combined with it, so the
    *  shorter of the two wins. */
   timeoutMs?: number;
+  /** Ceiling on one fetched response body (bytes, default 10485760). The transport stops
+   *  reading and drops the socket past it, so an oversized page cannot cost memory before
+   *  content truncation gets a say. */
+  maxResponseBytes?: number;
 }
 
 export const DEFAULT_MAX_CONTENT_CHARS = 30_000;
@@ -43,6 +47,7 @@ export const DEFAULT_MAX_RETRIEVAL_CHARS = 30_000;
 export const DEFAULT_MAX_SEARCH_QUERIES = 10;
 export const DEFAULT_MAX_FETCH_URLS = 20;
 export const DEFAULT_TIMEOUT_MS = 30_000;
+export const DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
 /** Coerce an unknown value into a positive integer, else the fallback. */
 function positiveInt(value: unknown, fallback: number): number {
@@ -66,6 +71,11 @@ export function resolveCaps(
 /** Per-request deadline for provider calls and URL fetches (ms). */
 export function resolveTimeoutMs(cfg: Pick<WebAccessConfig, "timeoutMs">): number {
   return positiveInt(cfg.timeoutMs, DEFAULT_TIMEOUT_MS);
+}
+
+/** Per-response body ceiling for URL fetches (bytes). */
+export function resolveMaxResponseBytes(cfg: Pick<WebAccessConfig, "maxResponseBytes">): number {
+  return positiveInt(cfg.maxResponseBytes, DEFAULT_MAX_RESPONSE_BYTES);
 }
 
 /** Resolved per call so a custom `PI_CODING_AGENT_DIR` (pi's own agent dir) is honoured. */
@@ -124,6 +134,7 @@ function normalizeConfig(parsed: unknown): WebAccessConfig {
     allowPrivateNetwork: record.allowPrivateNetwork === true,
     allowLoopback: record.allowLoopback === true,
     timeoutMs: record.timeoutMs as number | undefined,
+    maxResponseBytes: record.maxResponseBytes as number | undefined,
   };
 }
 

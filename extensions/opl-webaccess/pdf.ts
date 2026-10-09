@@ -1,8 +1,9 @@
 import { errorMessage } from "./utils.js";
 
-export async function extractPdfBuffer(buffer: ArrayBuffer): Promise<string> {
+export async function extractPdfBuffer(buffer: ArrayBuffer | Uint8Array): Promise<string> {
   const { getDocumentProxy, extractText } = await import("unpdf");
-  const pdf = await getDocumentProxy(new Uint8Array(buffer));
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  const pdf = await getDocumentProxy(bytes);
   const { text } = await extractText(pdf, { mergePages: true });
   return text ?? "";
 }

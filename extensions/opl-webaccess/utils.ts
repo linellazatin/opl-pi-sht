@@ -1,4 +1,5 @@
 import { promises as dns } from "node:dns";
+import type { PinnedFetchOptions, PinnedResponse } from "./http.js";
 
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -64,8 +65,14 @@ export interface HttpUrlOptions {
   /** Deadline for one request (ms), combined with the caller's signal so the shorter
    *  of the two wins. Used by the fetch path; the guard itself ignores it. */
   timeoutMs?: number;
+  /** Ceiling on one response body (bytes). The transport stops reading and drops the socket
+   *  past it, so an oversized page cannot cost memory before truncation gets a say. */
+  maxResponseBytes?: number;
   /** Test seam for host resolution; production callers leave it unset and use node:dns. */
   resolveHost?: (host: string) => Promise<string[]>;
+  /** Test seam for the socket layer; production callers leave it unset and use pinnedFetch.
+   *  The guard still runs - only the connection is replaced. */
+  transport?: (target: SafeHttpTarget, opts: PinnedFetchOptions) => Promise<PinnedResponse>;
   /** Caller's abort signal. The lookup itself cannot be cancelled, so this only bounds how long
    *  the caller waits; without it a stalled getaddrinfo outlives the caller's own timeout. */
   signal?: AbortSignal;
