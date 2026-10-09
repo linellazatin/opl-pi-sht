@@ -285,16 +285,30 @@ function untilAborted<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> 
   return Promise.race([pending, aborted]);
 }
 
+/** A URL that passed the policy check, together with the addresses that decision used. */
+export interface SafeHttpTarget {
+  /** Normalized absolute URL. */
+  url: string;
+  /** Hostname with any IPv6 brackets stripped. */
+  host: string;
+  /** The classified answers. A literal-IP host contributes that literal. */
+  addresses: string[];
+}
+
 /**
  * Same policy as assertHttpUrl, plus a DNS round-trip: a hostname that answers with a
  * loopback, private, link-local, reserved, or metadata address is rejected before any
  * request is made. Literal-IP hosts skip the lookup. Text-only classification is not enough
  * on its own — `http://169.254.169.254.nip.io/` reads as a public hostname.
+ *
+ * The answers are returned so a caller can pin its socket to one of them: validating a name
+ * and then letting the transport resolve it again leaves a window where a short-TTL record
+ * answers a public address at check time and an internal one at connect time.
  */
-export async function assertSafeHttpUrl(url: string, opts: HttpUrlOptions = {}): Promise<string> {
+export async function resolveSafeHostUrl(url: string, opts: HttpUrlOptions = {}): Promise<SafeHttpTarget> {
   const normalized = assertHttpUrl(url, opts);
-  const host = new URL(normalized).hostname;
-  if (isIpLiteralHost(host)) return normalized; // already classified; no DNS round-trip
+  const host = new URL(normalized).hostname.replace(/^\[|\]$/g, "");
+  if (isIpLiteralHost(host)) return { url: normalized, host, addresses: [host] }; // already classified; no DNS round-trip
   // A stalled getaddrinfo must not outlive the caller's own budget, and with no caller signal
   // (a browser route handler, a frame re-check) the guard bounds itself instead of hanging.
   const dnsSignal = opts.signal ?? (opts.dnsTimeoutMs ? AbortSignal.timeout(opts.dnsTimeoutMs) : undefined);
@@ -309,6 +323,11 @@ export async function assertSafeHttpUrl(url: string, opts: HttpUrlOptions = {}):
       throw new Error(`Blocked network host "${host}" — it resolves to ${answer}, and private, link-local, and reserved addresses are not allowed (set allowPrivateNetwork to opt in to private ranges, or allowLoopback for localhost and 127.0.0.0/8; cloud-metadata and unspecified addresses such as 0.0.0.0 are always blocked)`);
     }
   }
-  return normalized;
+  return { url: normalized, host, addresses: answers };
+}
+
+/** `resolveSafeHostUrl` for callers that do not open a socket. */
+export async function assertSafeHttpUrl(url: string, opts: HttpUrlOptions = {}): Promise<string> {
+  return (await resolveSafeHostUrl(url, opts)).url;
 }
 // END SHARED HOST GUARD

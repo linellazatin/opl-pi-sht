@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { errorMessage, isAbortError, truncate, isPdfUrl, isPdfContentType, assertHttpUrl, assertSafeHttpUrl, paginateContent, continuationNotice } from "../extensions/opl-webaccess/utils.ts";
+import { errorMessage, isAbortError, truncate, isPdfUrl, isPdfContentType, assertHttpUrl, assertSafeHttpUrl, resolveSafeHostUrl, paginateContent, continuationNotice } from "../extensions/opl-webaccess/utils.ts";
 import { generateId, storeResult, getResult, clearStore } from "../extensions/opl-webaccess/storage.ts";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -396,4 +396,42 @@ test("nat64 and 6to4 forms that embed a public ipv4 still pass", async () => {
   for (const url of publicForms) {
     assert.equal(await assertSafeHttpUrl(url, { allowPrivateNetwork: false }), new URL(url).href, url);
   }
+});
+
+test("resolveSafeHostUrl reports the addresses the decision was made on", async () => {
+  const target = await resolveSafeHostUrl("http://example.com:8080/x", { resolveHost: async () => ["93.184.216.34"] });
+  assert.equal(target.url, "http://example.com:8080/x");
+  assert.equal(target.host, "example.com");
+  assert.deepEqual(target.addresses, ["93.184.216.34"], "the validated answer has to reach the socket");
+});
+
+test("a literal-IP host contributes the literal and skips the resolver", async () => {
+  let consulted = 0;
+  const never = async () => { consulted++; return ["1.2.3.4"]; };
+  const v4 = await resolveSafeHostUrl("http://93.184.216.34/x", { resolveHost: never });
+  assert.equal(v4.host, "93.184.216.34");
+  assert.deepEqual(v4.addresses, ["93.184.216.34"]);
+  const v6 = await resolveSafeHostUrl("http://[2002:5bf0:1::]/x", { resolveHost: never });
+  assert.equal(v6.host, "2002:5bf0:1::", "brackets are URL syntax, not part of the address");
+  assert.deepEqual(v6.addresses, ["2002:5bf0:1::"]);
+  assert.equal(consulted, 0, "a literal is already classified; no DNS round-trip");
+});
+
+test("the pin is per call - no validated answer is reused", async () => {
+  const answers = [["93.184.216.34"], ["127.0.0.1"]];
+  let calls = 0;
+  const rebinding = async () => answers[Math.min(calls++, answers.length - 1)];
+  const first = await resolveSafeHostUrl("http://rebind.example/", { resolveHost: rebinding });
+  assert.deepEqual(first.addresses, ["93.184.216.34"]);
+  await assert.rejects(
+    () => resolveSafeHostUrl("http://rebind.example/", { resolveHost: rebinding }),
+    /resolves to 127\.0\.0\.1/,
+    "the second call re-resolves instead of trusting the first answer",
+  );
+  assert.equal(calls, 2);
+});
+
+test("assertSafeHttpUrl still returns only the URL", async () => {
+  const url = await assertSafeHttpUrl("http://example.com/x", { resolveHost: async () => ["93.184.216.34"] });
+  assert.equal(url, "http://example.com/x");
 });
