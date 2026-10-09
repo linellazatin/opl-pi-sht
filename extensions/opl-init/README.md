@@ -17,6 +17,12 @@ Generates or refreshes a repository-specific `AGENTS.md` guide through `/init`.
 - Crawls to depth 3, ignores generated/dependency directories, caps directory listings at 40 entries and the rendered tree at 300 lines with explicit omission markers, and re-walks declared `pnpm-workspace.yaml`/Cargo members with their own depth-3 budget. Workspace globs escape every metacharacter except `*` and `?`, because real member patterns carry them (`packages/app(one`, `libs/c++/*`); an unescaped one threw `SyntaxError` and aborted the entire crawl. A glob that compiles to nothing is skipped, reported in `Crawl.skippedGlobs`, and named in a tree line so the skip is visible in the guide.
 - Fingerprints dirty tracked + untracked files (plus HEAD and a generator schema version), excluding the root `AGENTS.md` itself, so writing the guide never makes it immediately stale and re-editing an already-modified file is never read as "current". Content hashing is **budgeted** (`FP_LIMITS`: 2 MB per file, 32 MB total, 5,000 paths): past the per-file or total ceiling a file contributes `name|size|mtime` instead of its bytes, and past the path ceiling a path contributes its name plus `OVER_CAP`. Budget state is folded into the digest, so the fingerprint cannot oscillate. Without the ceilings a single 200 MB build artifact cost 143 ms and +200 MB of RSS on every `/init`.
 
+## User-owned operational notes
+
+`/init` preserves an existing `## Operational notes` section verbatim, including nested `###` subsections, whitespace and line endings. The section ends at the next level-1 or level-2 Markdown heading outside a fenced code block, or at the end of the document. The final `opl-init:fp` marker belongs to the extension, not the section. The preserved section is placed after the regenerated guide and before that marker, whether model refinement succeeds or falls back to the deterministic crawl. Other hand-edited sections are replaced; if the protected heading is absent, generation is unchanged.
+
+Use one section with that exact, case-sensitive title. Duplicate sections cancel the update, as does a detected file change during refinement; resolve duplicates or rerun `/init` after editing. This protects against `/init` updates only, not ordinary agent edits or other programs.
+
 ## Requirements
 
 Refinement needs pi 0.86.0 or newer (`ctx.modelRegistry.streamSimple`, `ctx.reload`). Run `pi update` first if `/init` reports a refine failure on a machine with configured auth.

@@ -148,6 +148,67 @@ test("settling run makes the guide current: /init writes nothing and reloads not
   }
 });
 
+for (const refined of [false, true]) {
+  for (const ending of ["\n", "\r\n"]) {
+    test(`preserves user operational notes with ${refined ? "refinement" : "fallback"} and ${JSON.stringify(ending)} line endings`, async () => {
+      const root = mkdtempSync(join(tmpdir(), "opl-init-owned-"));
+      try {
+        const owned = ["## Operational notes", "", "User rule: keep café intact.", "### Nested notes", "~~~~", "## Not a boundary", "~~~~", "```md", "## Operational notes", "```", ""].join(ending) + ending;
+        writeFileSync(join(root, "AGENTS.md"), `# Old guide${ending}${owned}${refined ? "#" : "##"} Commands${ending}Obsolete commands.${ending}<!-- opl-init:fp old -->${ending}`);
+        await runInit(idleCtx(root, refined ? {
+          model: { provider: "fake", id: "fake-model" },
+          modelRegistry: { streamSimple: () => ({ result: async () => ({ stopReason: "stop", content: [{ type: "text", text: "# New guide\n## Operational notes\nModel replacement.\n## Commands\nNew commands.\n" }] }) }) },
+        } : {}));
+        const guide = readFileSync(join(root, "AGENTS.md"), "utf8");
+        assert.ok(guide.includes(owned), "owned section must remain byte-for-byte intact");
+        assert.doesNotMatch(guide, /Obsolete commands|Model replacement|# Old guide/);
+        if (refined) assert.match(guide, /New commands\./);
+        assert.match(guide, /<!-- opl-init:fp \S+ -->\n$/);
+        assert.equal(guide.match(/opl-init:fp/g).length, 1);
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    });
+  }
+}
+
+for (const suffix of ["", "\n<!-- opl-init:fp old -->\n"]) {
+  test(`preserves an operational notes section at EOF with suffix ${JSON.stringify(suffix)}`, async () => {
+    const root = mkdtempSync(join(tmpdir(), "opl-init-owned-eof-"));
+    try {
+      const owned = "## Operational notes\nUser-owned final text.";
+      writeFileSync(join(root, "AGENTS.md"), `# Old\n${owned}${suffix}`);
+      await runInit(idleCtx(root));
+      const guide = readFileSync(join(root, "AGENTS.md"), "utf8");
+      assert.ok(guide.includes(`${owned}\n<!-- opl-init:fp `));
+      assert.equal(guide.match(/opl-init:fp/g).length, 1);
+      assert.doesNotMatch(guide, /opl-init:fp old/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+}
+
+for (const reason of ["duplicate", "changed during refinement"]) {
+  test(`refuses to overwrite a guide ${reason}`, async () => {
+    const root = mkdtempSync(join(tmpdir(), "opl-init-owned-abort-"));
+    try {
+      const original = "# Old\n## Operational notes\nFirst rule.\n" + (reason === "duplicate" ? "## Operational notes\nSecond rule.\n" : "");
+      const changed = original + "Concurrent user edit.\n";
+      writeFileSync(join(root, "AGENTS.md"), original);
+      let reloads = 0;
+      const notes = [];
+      await runInit(idleCtx(root, {
+        reload: async () => { reloads++; }, ui: { notify: (m) => notes.push(m) },
+        model: { provider: "fake", id: "fake-model" },
+        modelRegistry: { streamSimple: () => ({ result: async () => {
+          if (reason !== "duplicate") writeFileSync(join(root, "AGENTS.md"), changed);
+          return { stopReason: "stop", content: [{ type: "text", text: "# New guide" }] };
+        } }) },
+      }));
+      assert.equal(readFileSync(join(root, "AGENTS.md"), "utf8"), reason === "duplicate" ? original : changed);
+      assert.equal(reloads, 0);
+      assert.ok(notes.some(n => /duplicate|changed/i.test(n)));
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+}
+
 test("crawls workspace members beyond the root depth budget and caps directories", () => {
   const root = mkdtempSync(join(tmpdir(), "opl-init-crawl-"));
   try {

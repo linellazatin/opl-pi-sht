@@ -584,6 +584,48 @@ async function refineGuide(ctx: any, evidence: string, marker: string): Promise<
   }
 }
 
+// Offsets retain the user's original line endings and whitespace. Only ATX
+// headings outside fenced code blocks delimit the owned section.
+function operationalSections(text: string): { start: number; end: number }[] {
+  const sections: { start: number; end: number }[] = [];
+  let active: { start: number; end: number } | undefined;
+  let fence: { char: string; length: number } | undefined;
+  for (const match of text.matchAll(/[^\n]*(?:\n|$)/g)) {
+    const line = match[0].replace(/\r?\n$/, "");
+    const offset = match.index;
+    const fenced = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      if (fenced?.[1]?.[0] === fence.char && fenced[1].length >= fence.length && !fenced[2]?.trim()) fence = undefined;
+      continue;
+    }
+    if (fenced?.[1] && (fenced[1][0] !== "`" || !fenced[2]?.includes("`"))) {
+      fence = { char: fenced[1][0]!, length: fenced[1].length };
+      continue;
+    }
+    const heading = line.match(/^ {0,3}(#{1,2})(?:[ \t]+(.*)|[ \t]*)$/);
+    if (!heading) continue;
+    if (active) { active.end = offset; active = undefined; }
+    if (heading[1] === "##" && heading[2]?.replace(/[ \t]+#+[ \t]*$/, "").trim() === "Operational notes") {
+      active = { start: offset, end: text.length };
+      sections.push(active);
+    }
+  }
+  return sections;
+}
+
+function guideWithoutFinalMarker(text: string): string {
+  return text.replace(/(^|\n)<!-- opl-init:fp \S+ -->[ \t]*(?:\r?\n)?$/, "$1");
+}
+
+function mergeOperationalNotes(generated: string, owned: string, marker: string): string {
+  let body = guideWithoutFinalMarker(generated);
+  // Discard generated versions: the existing user section is authoritative.
+  for (const section of operationalSections(body).reverse()) {
+    body = body.slice(0, section.start) + body.slice(section.end);
+  }
+  return `${body.trimEnd()}\n\n${owned}${owned.endsWith("\n") ? "" : "\n"}${marker}\n`;
+}
+
 // Named exports for fixture tests (tests/opl-init-*.test.mjs).
 export { crawl, fingerprint, fingerprintGit, FP_LIMITS, evidencePacket, finalizeRefinedGuide, refineGuide };
 
@@ -619,14 +661,34 @@ export default function (pi: ExtensionAPI) {
       }
 
       const marker = `<!-- opl-init:fp ${currentFp} -->`;
-      // Regenerating replaces the whole file, including hand-edited prose; the
-      // repository's version control is the recovery path.
+      let original: string | null;
+      let owned: string | undefined;
+      try {
+        original = existsSync(agentsPath) ? readFileSync(agentsPath, "utf8") : null;
+        const body = guideWithoutFinalMarker(original ?? "");
+        const sections = operationalSections(body);
+        if (sections.length > 1) {
+          ctx.ui.notify("AGENTS.md has duplicate Operational notes sections; /init will not modify it.", "error");
+          return;
+        }
+        const section = sections[0];
+        if (section) owned = body.slice(section.start, section.end);
+      } catch (error: any) {
+        ctx.ui.notify(`Could not read AGENTS.md: ${error?.message || error}`, "error");
+        return;
+      }
       const crawlResult = crawl(root);
       const baseline = buildGuide(root, crawlResult, marker);
       const refined = await refineGuide(ctx, evidencePacket(root, baseline, crawlResult), marker);
 
       try {
-        writeFileSync(agentsPath, refined ?? baseline, "utf8");
+        const latest = existsSync(agentsPath) ? readFileSync(agentsPath, "utf8") : null;
+        if (latest !== original) {
+          ctx.ui.notify("AGENTS.md changed during /init; update cancelled. Run /init again.", "error");
+          return;
+        }
+        const generated = refined ?? baseline;
+        writeFileSync(agentsPath, owned === undefined ? generated : mergeOperationalNotes(generated, owned, marker), "utf8");
       } catch (error: any) {
         ctx.ui.notify(`Could not write AGENTS.md: ${error?.message || error}`, "error");
         return;
