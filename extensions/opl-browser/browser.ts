@@ -1,6 +1,6 @@
 import { chromium, type Browser, type BrowserContext, type Page, type Route, type ConsoleMessage } from "playwright";
 import { extractMarkdown } from "./extract.js";
-import { assertSafeHttpUrl, decideSubresource, safeScreenshotPath, type HttpUrlOptions } from "./validate.js";
+import { assertSafeHttpUrl, decideSubresource, discardEmptyFile, safeScreenshotPath, type HttpUrlOptions } from "./validate.js";
 import type { BrowserConfig } from "./config.js";
 
 // ponytail: single module-level Chromium instance reused across tool calls.
@@ -260,11 +260,14 @@ function serialize<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
-export function runAction(p: BrowserParams, cfg: BrowserConfig): Promise<BrowserActionResult> {
-  return serialize(() => runActionInternal(p, cfg));
+/** `cwd` is the session directory from `ExtensionContext`, never `process.cwd()`: a screenshot
+ *  name that arrives from the model has to be contained against the project the user is in, and
+ *  the harness working directory is not that directory. */
+export function runAction(p: BrowserParams, cfg: BrowserConfig, cwd: string): Promise<BrowserActionResult> {
+  return serialize(() => runActionInternal(p, cfg, cwd));
 }
 
-async function runActionInternal(p: BrowserParams, cfg: BrowserConfig): Promise<BrowserActionResult> {
+async function runActionInternal(p: BrowserParams, cfg: BrowserConfig, cwd: string): Promise<BrowserActionResult> {
   if (p.action === "close") {
     await closeBrowserInternal();
     return { text: "Browser closed." };
@@ -313,8 +316,14 @@ async function runActionInternal(p: BrowserParams, cfg: BrowserConfig): Promise<
       return { text: markdown || "(empty extraction)" };
     }
     case "screenshot": {
-      const file = safeScreenshotPath(p.path ?? `opl-browser-${Date.now()}.png`);
-      await target().screenshot({ path: file, fullPage: p.fullPage ?? false });
+      const file = safeScreenshotPath(p.path ?? `opl-browser-${Date.now()}.png`, cwd);
+      try {
+        await target().screenshot({ path: file, fullPage: p.fullPage ?? false });
+      } catch (err) {
+        // The reservation above created an empty file; a capture that threw must not leave it.
+        discardEmptyFile(file);
+        throw err;
+      }
       return { text: `Screenshot saved to ${file}`, file };
     }
     case "click": {

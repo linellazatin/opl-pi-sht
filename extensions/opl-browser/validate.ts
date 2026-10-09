@@ -1,7 +1,7 @@
 // Pure URL/path guards for the browser tool. No Playwright import so tests load it directly.
 
-import { existsSync } from "node:fs";
-import { resolve, sep } from "node:path";
+import { closeSync, mkdirSync, openSync, realpathSync, statSync, unlinkSync } from "node:fs";
+import { dirname, resolve, sep } from "node:path";
 import { promises as dns } from "node:dns";
 
 export interface HttpUrlOptions {
@@ -276,19 +276,74 @@ export async function decideSubresource(url: string, opts: HttpUrlOptions = {}):
   }
 }
 
-/** Require a screenshot path to stay within the project directory and refuse to overwrite
- *  existing files (guard against overwriting project files or writing outside the repo). */
-export function safeScreenshotPath(file: string, cwd: string = process.cwd()): string {
+/** Resolve the deepest existing ancestor of `abs` through symlinks, or null if none exists.
+ *  A path that does not exist yet is contained by the directory that would hold it. */
+function realAncestor(abs: string): string | null {
+  let cur = abs;
+  for (;;) {
+    try {
+      return realpathSync(cur);
+    } catch {
+      const parent = dirname(cur);
+      if (parent === cur) return null;
+      cur = parent;
+    }
+  }
+}
+
+/**
+ * Resolve a screenshot target inside the session directory, and *reserve* it.
+ *
+ * Three things are checked, in this order: the path stays under `cwd` lexically; it stays under
+ * the real session directory once every symlink in the existing part of the path is followed (a
+ * `shots -> ~/.pi` entry inside the project would otherwise carry the write out of it); and the
+ * name is an image. Then the file is created with `wx`, so "refuse to overwrite" and "hand this
+ * path to Playwright" are one atomic operation instead of a check-then-write race, and a symlink
+ * standing at the target is refused like any other existing path rather than followed onto the
+ * file it points at.
+ *
+ * Returns the absolute path - the caller writes there instead of letting Playwright resolve a
+ * relative name against whatever directory the harness happened to start in.
+ */
+export function safeScreenshotPath(file: string, cwd: string): string {
   const root = resolve(cwd);
-  const abs = resolve(cwd, file);
+  const abs = resolve(root, file);
   if (abs !== root && !abs.startsWith(root + sep)) {
     throw new Error(`screenshot path must stay within the project directory: ${file}`);
   }
-  if (!/\.(png|jpe?g)$/i.test(file)) {
+  if (!/\.(png|jpe?g)$/i.test(abs)) {
     throw new Error(`screenshot path must end in .png or .jpg: ${file}`);
   }
-  if (existsSync(abs)) {
-    throw new Error(`screenshot path already exists (refusing to overwrite): ${file}`);
+  let realRoot = root;
+  try {
+    realRoot = realpathSync(root);
+  } catch {
+    // The session directory itself is missing; there is no real root to contain anything.
   }
-  return file;
+  const real = realAncestor(abs);
+  if (real && real !== realRoot && !real.startsWith(realRoot + sep)) {
+    throw new Error(`screenshot path resolves outside the project directory: ${file}`);
+  }
+  mkdirSync(dirname(abs), { recursive: true });
+  let fd: number;
+  try {
+    fd = openSync(abs, "wx");
+  } catch (err) {
+    if ((err as { code?: string }).code === "EEXIST") {
+      throw new Error(`screenshot path already exists (refusing to overwrite): ${file}`);
+    }
+    throw err;
+  }
+  closeSync(fd);
+  return abs;
+}
+
+/** Drop a reservation that never got written (a failed capture must not leave an empty file
+ *  behind), and leave anything with content - including an earlier screenshot - alone. */
+export function discardEmptyFile(abs: string): void {
+  try {
+    if (statSync(abs).size === 0) unlinkSync(abs);
+  } catch {
+    // Already gone, or never created: nothing to clean up.
+  }
 }

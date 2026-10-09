@@ -109,8 +109,10 @@ test("browser guards hard-block cloud metadata even with private opt-in", () => 
 test("safeScreenshotPath requires an image extension and refuses to overwrite", () => {
   const dir = mkdtempSync(join(tmpdir(), "opl-browser-shots-"));
   try {
-    assert.equal(safeScreenshotPath("shot.png", dir), "shot.png");
-    assert.equal(safeScreenshotPath("shots/x.png", dir), "shots/x.png");
+    // The target is returned resolved, so Playwright writes into the session directory and not
+    // wherever the harness happened to start; the reservation is created empty on success.
+    assert.equal(safeScreenshotPath("shot.png", dir), join(dir, "shot.png"));
+    assert.equal(safeScreenshotPath("shots/y.png", dir), join(dir, "shots", "y.png"));
     assert.throws(() => safeScreenshotPath("../x.png", dir), /project directory/);
     assert.throws(() => safeScreenshotPath("/tmp/x.png", dir), /project directory/);
     assert.throws(() => safeScreenshotPath("notes.txt", dir), /\.png or \.jpg/);

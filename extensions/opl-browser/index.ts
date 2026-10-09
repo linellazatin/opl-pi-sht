@@ -56,7 +56,7 @@ export default function (pi: ExtensionAPI) {
       responseId: Type.Optional(Type.String({ description: "get: id from a previous large result" })),
       offset: Type.Optional(Type.Number({ description: "get: character offset to continue a truncated retrieval" })),
     }),
-    async execute(_toolCallId, params) {
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const p = params as BrowserParams & { responseId?: string; offset?: number };
 
       if (p.action === "get") {
@@ -77,7 +77,7 @@ export default function (pi: ExtensionAPI) {
 
       let result;
       try {
-        result = await runAction(p, cfg);
+        result = await runAction(p, cfg, ctx.cwd);
       } catch (e) {
         return err(`browser ${p.action}: ${e instanceof Error ? e.message : String(e)}`);
       }
