@@ -73,10 +73,33 @@ async function ensure(cfg: BrowserConfig): Promise<BrowserContext> {
   return context;
 }
 
-function page(): Page {
+/** Which page an action acts on. A stale or out-of-range selection is an error, never a silent
+ *  retarget: `context.pages()` is creation order, so the index a previous `pages` call showed is
+ *  the page the model means - unless something closed it, which is exactly when guessing the last
+ *  page would navigate or screenshot the wrong document. */
+export function resolvePageIndex(active: number, count: number, requested?: number): number {
+  if (count === 0) throw new Error("no open pages");
+  const i = requested ?? active;
+  if (!Number.isInteger(i) || i < 0 || i >= count) {
+    throw new Error(`no page at index ${i} (${count} page${count === 1 ? "" : "s"} open; use \`pages\` to list them)`);
+  }
+  return i;
+}
+
+/** The selection after closing `closed` from `count` pages: keep the same page when the closed one
+ *  was before it (indices shift down), otherwise fall to the nearest surviving page. */
+export function indexAfterClose(active: number, closed: number, count: number): number {
+  const remaining = count - 1;
+  if (remaining <= 0) return 0;
+  if (closed < active) return active - 1;
+  if (closed === active) return Math.min(active, remaining - 1);
+  return active;
+}
+
+/** The page for the current action: an explicit `index` argument wins, otherwise the selection. */
+function pageAt(requested?: number): Page {
   const pages = context!.pages();
-  if (!pages.length) throw new Error("no open pages");
-  return pages[activeIndex] ?? pages[pages.length - 1];
+  return pages[resolvePageIndex(activeIndex, pages.length, requested)]!;
 }
 
 /** Budget for one DNS round-trip. Playwright has no timeout of its own on a route handler, so a
@@ -160,7 +183,7 @@ async function gotoAllowed(target: Page, url: string, cfg: BrowserConfig): Promi
   await assertFrameTargetsSafe(target, guard);
 }
 
-/** Anything `page()` can hand back: its live frames plus a way to clear them. */
+/** Anything `pageAt()` can hand back: its live frames plus a way to clear them. */
 export interface FrameSafeTarget {
   frames(): Array<{ url(): string }>;
   goto(url: string, options?: { timeout?: number }): Promise<unknown>;
@@ -229,7 +252,7 @@ export interface BrowserParams {
 
 let last: Promise<unknown> = Promise.resolve();
 /** Serialize state-mutating browser work: a single shared context cannot service
- *  concurrent tool calls safely (activeIndex, page(), ensure() all race). Each new
+ *  concurrent tool calls safely (activeIndex, pageAt(), ensure() all race). Each new
  *  action is queued behind the previous one, and failures never break the chain. */
 function serialize<T>(task: () => Promise<T>): Promise<T> {
   const run = last.then(task, task);
@@ -248,9 +271,10 @@ async function runActionInternal(p: BrowserParams, cfg: BrowserConfig): Promise<
   }
 
   const ctx = await ensure(cfg);
+  const target = () => pageAt(p.index);
   // A page can only have been landed on a blocked host through a path the route handler never
   // saw (redirect chain, history, script). Re-check before touching or reading it.
-  if (PAGE_BOUND_ACTIONS.has(p.action)) await assertFrameTargetsSafe(page(), guardOf(cfg));
+  if (PAGE_BOUND_ACTIONS.has(p.action)) await assertFrameTargetsSafe(target(), guardOf(cfg));
 
   switch (p.action) {
     case "navigate": {
@@ -258,24 +282,24 @@ async function runActionInternal(p: BrowserParams, cfg: BrowserConfig): Promise<
       if (url === "back" || url === "forward") {
         // Playwright returns null (no throw) when history is exhausted; report it
         // clearly instead of silently returning the unchanged page.
-        const moved = url === "back" ? await page().goBack() : await page().goForward();
+        const moved = url === "back" ? await target().goBack() : await target().goForward();
         if (!moved) return { text: `(no history to go ${url})` };
-        return { text: `${page().url()} — ${await page().title()}` };
+        return { text: `${target().url()} — ${await target().title()}` };
       }
-      if (url === "reload") await page().reload();
-      else if (url) await gotoAllowed(page(), url, cfg);
+      if (url === "reload") await target().reload();
+      else if (url) await gotoAllowed(target(), url, cfg);
       else throw new Error("navigate requires url (or back|forward|reload)");
-      return { text: `${page().url()} — ${await page().title()}` };
+      return { text: `${target().url()} — ${await target().title()}` };
     }
     case "snapshot": {
-      const tree = await page().locator("body").ariaSnapshot();
+      const tree = await target().locator("body").ariaSnapshot();
       return { text: tree || "(empty snapshot)" };
     }
     case "extract": {
       const selector = p.selector;
       let html: string;
       if (selector) {
-        const loc = page().locator(selector);
+        const loc = target().locator(selector);
         const count = await loc.count();
         if (count === 0) return { text: `(no elements match "${selector}")` };
         if (count > 1) {
@@ -283,61 +307,61 @@ async function runActionInternal(p: BrowserParams, cfg: BrowserConfig): Promise<
         }
         html = await loc.evaluate((el: Element) => el.outerHTML);
       } else {
-        html = await page().content();
+        html = await target().content();
       }
       const { markdown } = extractMarkdown(html, { raw: Boolean(selector) });
       return { text: markdown || "(empty extraction)" };
     }
     case "screenshot": {
       const file = safeScreenshotPath(p.path ?? `opl-browser-${Date.now()}.png`);
-      await page().screenshot({ path: file, fullPage: p.fullPage ?? false });
+      await target().screenshot({ path: file, fullPage: p.fullPage ?? false });
       return { text: `Screenshot saved to ${file}`, file };
     }
     case "click": {
       if (!p.selector) throw new Error("click requires selector");
-      await page().click(p.selector);
+      await target().click(p.selector);
       return { text: `Clicked ${p.selector}` };
     }
     case "fill": {
       if (!p.selector || p.text == null) throw new Error("fill requires selector and text");
-      await page().fill(p.selector, p.text);
+      await target().fill(p.selector, p.text);
       return { text: `Filled ${p.selector}` };
     }
     case "hover": {
       if (!p.selector) throw new Error("hover requires selector");
-      await page().hover(p.selector);
+      await target().hover(p.selector);
       return { text: `Hovered ${p.selector}` };
     }
     case "press": {
       if (!p.key) throw new Error("press requires key");
-      await page().keyboard.press(p.key);
+      await target().keyboard.press(p.key);
       return { text: `Pressed ${p.key}` };
     }
     case "select": {
       if (!p.selector || !p.values?.length) throw new Error("select requires selector and values");
-      const picked = await page().selectOption(p.selector, p.values);
+      const picked = await target().selectOption(p.selector, p.values);
       return { text: `Selected ${picked.join(", ")} in ${p.selector}` };
     }
     case "evaluate": {
       if (!p.script) throw new Error("evaluate requires script");
-      const value = await page().evaluate(p.script);
+      const value = await target().evaluate(p.script);
       if (value === undefined) return { text: "(undefined result)" };
       return { text: typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? "(undefined result)") };
     }
     case "console": {
-      const msgs = consoleBuf.get(page()) ?? [];
+      const msgs = consoleBuf.get(target()) ?? [];
       const suffix = msgs.length >= MAX_LOG_ENTRIES ? `\n… (showing last ${MAX_LOG_ENTRIES} entries)` : "";
       return { text: msgs.length ? msgs.join("\n") + suffix : "(no console messages)" };
     }
     case "network": {
-      const reqs = networkBuf.get(page()) ?? [];
+      const reqs = networkBuf.get(target()) ?? [];
       const suffix = reqs.length >= MAX_LOG_ENTRIES ? `\n… (showing last ${MAX_LOG_ENTRIES} requests)` : "";
       return { text: reqs.length ? reqs.join("\n") + suffix : "(no network requests)" };
     }
     case "wait_for": {
       const timeout = p.timeoutMs ?? cfg.navigationTimeoutMs;
-      if (p.selector) await page().waitForSelector(p.selector, { timeout });
-      else if (p.text) await page().getByText(p.text).first().waitFor({ timeout });
+      if (p.selector) await target().waitForSelector(p.selector, { timeout });
+      else if (p.text) await target().getByText(p.text).first().waitFor({ timeout });
       else throw new Error("wait_for requires selector or text");
       return { text: `Condition met` };
     }
@@ -348,28 +372,29 @@ async function runActionInternal(p: BrowserParams, cfg: BrowserConfig): Promise<
     case "new_page": {
       const pg = await ctx.newPage();
       track(pg, cfg);
-      activeIndex = ctx.pages().length - 1;
+      // Select the page that was actually created; `pages()` order is creation order but a popup
+      // from another page can land in the same tick, so ask instead of assuming it is last.
+      const created = ctx.pages().indexOf(pg);
+      activeIndex = created < 0 ? ctx.pages().length - 1 : created;
       if (p.url) await gotoAllowed(pg, p.url, cfg);
       return { text: `Opened page [${activeIndex}] ${pg.url()}` };
     }
     case "select_page": {
-      const i = p.index ?? 0;
-      if (i < 0 || i >= ctx.pages().length) throw new Error(`no page at index ${i}`);
+      const i = resolvePageIndex(activeIndex, ctx.pages().length, p.index ?? 0);
       activeIndex = i;
-      await assertFrameTargetsSafe(page(), guardOf(cfg));
-      return { text: `Selected page [${i}] ${page().url()}` };
+      await assertFrameTargetsSafe(pageAt(), guardOf(cfg));
+      return { text: `Selected page [${i}] ${pageAt().url()}` };
     }
     case "close_page": {
-      const i = p.index ?? activeIndex;
       const pages = ctx.pages();
-      if (i < 0 || i >= pages.length) throw new Error(`no page at index ${i}`);
+      const i = resolvePageIndex(activeIndex, pages.length, p.index);
       await pages[i].close();
-      activeIndex = Math.max(0, ctx.pages().length - 1);
-      return { text: `Closed page [${i}]` };
+      activeIndex = indexAfterClose(activeIndex, i, pages.length);
+      return { text: `Closed page [${i}]; selection is now [${activeIndex}]${ctx.pages().length ? "" : " (no pages left)"}` };
     }
     case "resize": {
       if (p.width == null || p.height == null) throw new Error("resize requires width and height");
-      await page().setViewportSize({ width: p.width, height: p.height });
+      await target().setViewportSize({ width: p.width, height: p.height });
       return { text: `Resized to ${p.width}x${p.height}` };
     }
     default:
