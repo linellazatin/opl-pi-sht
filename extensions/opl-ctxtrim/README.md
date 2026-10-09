@@ -45,9 +45,16 @@ The test suite queries the installed context-mode **v1.0.169** server (11 `ctx_*
 | Current `opl-ctxtrim` output | 9,152 | **18,867 fewer (67.3%)** |
 | Hypothetical empty descriptions, schemas retained | 4,683 | 23,336 fewer (83.3%) |
 
-The suite also builds the same tool set into the other supported shapes: an OpenAI array goes 21,912 → 5,666 bytes (-74.1%) and a Gemini `functionDeclarations` array goes 21,752 → 5,726 (-73.7%), so a Gemini request is trimmed like the others instead of passing through whole. The final row is a ceiling, not a recommended configuration. Current replacements retain compact tool guidance and parameter descriptions; empty descriptions would remove another 4,469 bytes but make tool selection and argument construction less reliable. The remaining 4,683 bytes are mostly required schema structure, parameter names, types, enums, bounds, and `required` fields.
+Every figure above is one shape. The suite serializes the same eleven curated tools into the other shapes it supports and measures each separately, because the byte counts are not interchangeable:
 
-Run `npm run test:opl-ctxtrim` to regenerate the first two rows. It also reports a rough 3-4 bytes-per-token estimate of 4,717-6,289 tokens per request. Treat that as a byte heuristic, not billing data.
+| Shape | Original | Trimmed | Saved |
+|---|---:|---:|---:|
+| OpenAI Chat/Responses array | 21,912 | 5,666 | 16,246 (74.1%) |
+| Google/Gemini `functionDeclarations` | 21,752 | 5,726 | 16,026 (73.7%) |
+
+So a Gemini request is trimmed like the others instead of passing through whole. All of it is conditional on the curated tools being present: a session without context-mode sends no `ctx_*` declaration, matches nothing in the table, and the payload leaves the extension byte-identical - no saving, no risk. The final row is a ceiling, not a recommended configuration. Current replacements retain compact tool guidance and parameter descriptions; empty descriptions would remove another 4,469 bytes but make tool selection and argument construction less reliable. The remaining 4,683 bytes are mostly required schema structure, parameter names, types, enums, bounds, and `required` fields.
+
+Run `npm run test:opl-ctxtrim` to regenerate the tables. Dividing the 18,867-byte Responses saving by the usual 3-4 bytes per token gives roughly 4,700-6,300 tokens per request. Treat that as a byte heuristic, not billing data; it belongs to the Responses shape, and the other two shapes save 16,246 and 16,026 bytes.
 
 ### Observed provider accounting
 
