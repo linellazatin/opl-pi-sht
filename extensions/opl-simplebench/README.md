@@ -32,7 +32,7 @@ simplebench({ model: "global.openai.gpt-5.6-terra", coding_lite: true })
 simplebench({ model: "global.openai.gpt-5.6-terra", test_all: true })
 ```
 
-`--no-artifact` and `no_artifact: true` suppress the JSON file. Default runs use the provider's sampling and reasoning defaults and write one JSON report per model to Pi's current working directory. `--thinking-max` and `thinking_max: true` request `reasoning_effort: "max"` for OpenAI-compatible providers, or Pi's model-aware Bedrock max-thinking path for direct Bedrock models that advertise `reasoning: true` and `thinkingLevelMap.max`. Other providers reject that mode rather than silently using defaults.
+`--no-artifact` and `no_artifact: true` suppress the JSON file. Default runs use the provider's sampling and reasoning defaults and write one JSON report per model to the current Pi session directory (`ExtensionContext.cwd`). Without an active session context, artifacts fall back to the harness working directory. `--thinking-max` and `thinking_max: true` request `reasoning_effort: "max"` for OpenAI-compatible providers, or Pi's model-aware Bedrock max-thinking path for direct Bedrock models that advertise `reasoning: true` and `thinkingLevelMap.max`. Other providers reject that mode rather than silently using defaults.
 
 ## Extension features
 
@@ -172,7 +172,7 @@ The stats endpoint is metadata-only and does not change inference routing. Its s
 
 ## Artifacts and privacy
 
-Baseline and coding-lite artifacts are written into the **session directory** (`ExtensionContext.cwd`), which the tool passes down explicitly; a run with no Pi session has none, so only then does it fall back to the harness working directory. `--test-all` writes a bundle:
+Baseline and coding-lite artifacts use the current Pi session directory (`ExtensionContext.cwd`), passed down explicitly; without a Pi session, they fall back to the harness working directory. `--test-all` writes a bundle:
 
 ```text
 simplebench--test-all-<sanitized-model>-<thinking>-<UTC-timestamp>/

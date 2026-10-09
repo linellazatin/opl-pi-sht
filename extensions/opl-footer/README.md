@@ -109,7 +109,7 @@ and a stale one would hand a dead component to the next session.
 | `cache_write` | Cache write tokens (hidden if zero) | — |
 | `context_total` | Total context window size | — |
 | `session_stats` | Prompt, API-call, and tool-call counts | Hidden until the first prompt |
-| `compactions` | Manual and automatic compaction count | Nerd Font zip-box icon or 📦 fallback; hidden at zero; resets when the session starts |
+| `compactions` | Manual and automatic compaction count from the active session branch, including resumed-session history | Nerd Font zip-box icon or 📦 fallback; hidden at zero |
 | `perf_stats` | LLM/tool timing, TTFT, output rate, and cache-hit percentage | Hidden until the first prompt |
 | `status` | `Working`, `Waiting`, or `Ready` | `accent`, `warning`, and `success` theme colors respectively; optional and hidden by default |
 | `codex_usage` | `5h 76% ↻2h18m · W 37% ↻3d7h` | Exact remaining ChatGPT Codex subscription quota; OAuth-only, optional and hidden by default; a retained snapshot is marked `(stale)` after refresh failure |
