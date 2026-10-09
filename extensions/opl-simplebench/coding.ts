@@ -178,8 +178,10 @@ async function runSingleShotCodingTask(chatFn: ChatFn, model: string, task: Codi
     ]);
     const raw = response.content.trim();
     const fenced = raw.match(/```(?:[a-z]*)\n([\s\S]*?)```/);
-    const code = fenced ? fenced[1].trim() : raw;
-    const target = resolveCodingPath(root, task.allowedFiles[0]);
+    const code = fenced ? (fenced[1] ?? "").trim() : raw;
+    const firstAllowed = task.allowedFiles[0];
+    if (!firstAllowed) throw new Error(`coding task ${task.id} declares no allowed file`);
+    const target = resolveCodingPath(root, firstAllowed);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, code + "\n");
     const publicResult = runCodingVerifier(task, root, "public");

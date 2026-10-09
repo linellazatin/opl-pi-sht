@@ -142,7 +142,9 @@ pi.registerCommand("simplebench", {
           ctx.ui.notify(`Cooling down ${resolved.pauseMs / 1000}s before iteration ${i + 1}/${resolved.runs.length}...`, "info");
           await new Promise(resolve => setTimeout(resolve, resolved.pauseMs));
         }
-        const { entry, options } = resolved.runs[i];
+        const run = resolved.runs[i];
+        if (!run) continue;
+        const { entry, options } = run;
         const model = options.model || sequenceModel;
         ctx.ui.notify(`Iteration ${i + 1}/${resolved.runs.length} (${entry}) on ${model}...`, "info");
         try {

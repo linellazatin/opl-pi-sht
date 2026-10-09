@@ -115,14 +115,15 @@ export function parsePrometheusMetrics(text: string): Record<string, number> {
     if (!match) continue;
     const value = Number(match[2]);
     // llama.cpp namespaces every metric as `llamacpp:<name>`; key on the bare name.
-    if (Number.isFinite(value)) out[match[1].replace(/^llamacpp:/, "")] = value;
+    const name = match[1];
+    if (name && Number.isFinite(value)) out[name.replace(/^llamacpp:/, "")] = value;
   }
   return out;
 }
 
 export function diffPrometheusMetrics(before: Record<string, number>, after: Record<string, number>): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const key of Object.keys(after)) out[key] = after[key] - (before[key] ?? 0);
+  for (const key of Object.keys(after)) out[key] = (after[key] ?? 0) - (before[key] ?? 0);
   return out;
 }
 

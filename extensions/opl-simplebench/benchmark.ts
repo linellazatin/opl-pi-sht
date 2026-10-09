@@ -630,8 +630,7 @@ type ProgressFn = (msg: string) => void;
 async function testReasoningExtended(chatFn: ChatFn, model: string, onProgress?: ProgressFn): Promise<{ score: string; scores: string[]; answers: string[]; results: ReasoningTestResult[] }> {
   const results: ReasoningTestResult[] = [];
   const total = REASONING_TESTS.length;
-  for (let i = 0; i < total; i++) {
-    const test = REASONING_TESTS[i];
+  for (const [i, test] of REASONING_TESTS.entries()) {
     onProgress?.(`[1/3] Reasoning ${i + 1}/${total}: ${test.name} (${test.category})...`);
     try {
       const requestedAt = new Date().toISOString();
@@ -706,8 +705,7 @@ async function testToolUsageExtended(chatFn: ChatFn, model: string, useToolResul
 
 async function testCodingLite(chatFn: ChatFn, model: string, onProgress?: (message: string) => void): Promise<{ results: Awaited<ReturnType<typeof runCodingTask>>[]; passed: number; total: number }> {
   const results = [] as Awaited<ReturnType<typeof runCodingTask>>[];
-  for (let index = 0; index < CODING_LITE_TASKS.length; index += 1) {
-    const task = CODING_LITE_TASKS[index];
+  for (const [index, task] of CODING_LITE_TASKS.entries()) {
     const prefix = `[${index + 1}/${CODING_LITE_TASKS.length}] coding-lite: [${task.id}]`;
     onProgress?.(`${prefix} starting...`);
     const result = await runCodingTask(chatFn, model, task, {

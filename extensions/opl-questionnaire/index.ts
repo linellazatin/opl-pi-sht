@@ -304,8 +304,10 @@ export default function questionnaire(pi: ExtensionAPI) {
 						const tabs: string[] = ["← "];
 						for (let i = 0; i < questions.length; i++) {
 							const isActive = i === currentTab;
-							const isAnswered = answers.has(questions[i].id);
-							const lbl = questions[i].label;
+							const question = questions[i];
+							if (!question) continue;
+							const isAnswered = answers.has(question.id);
+							const lbl = question.label;
 							const box = isAnswered ? "■" : "□";
 							const color = isAnswered ? "success" : "muted";
 							const text = ` ${box} ${lbl} `;
@@ -327,6 +329,7 @@ export default function questionnaire(pi: ExtensionAPI) {
 					function renderOptions() {
 						for (let i = 0; i < opts.length; i++) {
 							const opt = opts[i];
+							if (!opt) continue; // a hole in the option list renders nothing rather than throwing mid-frame
 							const selected = i === optionIndex;
 							const isOther = opt.isOther === true;
 							const prefix = selected ? theme.fg("accent", "> ") : "  ";

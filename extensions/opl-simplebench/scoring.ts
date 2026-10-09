@@ -6,7 +6,7 @@ const NUMERIC_ANSWER = /^\d+$/;
 
 function lastNumericToken(line: string): string | null {
   const tokens = line.match(/\d+/g);
-  return tokens && tokens.length ? tokens[tokens.length - 1] : null;
+  return tokens?.[tokens.length - 1] ?? null;
 }
 
 export function extractAnswer(response: string, expected?: string): { answer: string; method: string } {
@@ -16,7 +16,9 @@ export function extractAnswer(response: string, expected?: string): { answer: st
   // bare-number remnants that thinking templates leak after the real final line.
   if (expected && NUMERIC_ANSWER.test(expected)) {
     for (let i = lines.length - 1; i >= 0; i -= 1) {
-      const token = lastNumericToken(lines[i]);
+      const line = lines[i];
+      if (line === undefined) continue;
+      const token = lastNumericToken(line);
       if (token === expected) {
         return { answer: token, method: i === lines.length - 1 ? "final-line" : "expected-last-numeric" };
       }
