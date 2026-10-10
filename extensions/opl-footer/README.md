@@ -4,7 +4,7 @@ A customizable three-row footer for the Pi coding agent. It shows model, path, G
 
 ## Commands, flags, and shortcuts
 
-`/configure-opl` provides six row/side tabs to toggle or reorder standard segments and their trailing separators, applying changes immediately. Press `r` for reorder view, then `,`/`.` to move the selected segment. The `status` segment shows `Working` during agent execution, `Waiting` while Pi tools run, and `Ready` when the agent settles. Colors, icons, literal text, and other options remain JSON-only. Nerd Font detection can be overridden with `FOOTER_NERD_FONTS=1` or `FOOTER_NERD_FONTS=0`.
+`/configurator` opens the `opl-configurator` shell, whose Footer tab (hotkey `f`) provides six row/side tabs to toggle or reorder standard segments and their trailing separators, applying changes immediately. Press `r` for reorder view, then `,`/`.` to move the selected segment. The `status` segment shows `Working` during agent execution, `Waiting` while Pi tools run, and `Ready` when the agent settles. Colors, icons, literal text, and other options remain JSON-only. Nerd Font detection can be overridden with `FOOTER_NERD_FONTS=1` or `FOOTER_NERD_FONTS=0`.
 
 ## Extension features
 
@@ -33,7 +33,7 @@ The third row is populated after the first completed turn. Its session and perfo
 - **Token and cost tracking**: total, cache, input/output, and accumulated cost segments
 - **Codex subscription quota**: optional exact 5-hour and weekly ChatGPT Codex usage percentages with reset countdowns and stale-snapshot fallback
 - **OpenRouter key-limit usage**: optional per-key paid-usage amount, limit, and percentage with stale-snapshot fallback
-- **Session statistics**: prompt, API-call, and model tool-call counts
+- **Session statistics**: prompt, API-call, model tool-call, and compaction counts
 - **Performance statistics**: cumulative LLM/tool duration, most recent user-prompt-to-completion turnaround time, average time to first token, output rate, and cache-hit percentage
 - **Thinking, mode, and status indicators**: thinking-level colors plus caveman, plan, chat, unified mode, and `Working`/`Waiting`/`Ready` status segments
 - **Nerd Font support**: automatic detection with plain-icon fallbacks
@@ -45,6 +45,10 @@ Create `~/.pi/agent/configs/opl-footer.json` or copy the tracked example from [`
 
 The config is cached for five seconds. Changes normally appear automatically; use `/reload` or restart Pi if needed.
 
+### Layout cost
+
+A row whose segments are all disabled renders nothing: the line and its divider are dropped, so a one-row layout costs two lines (a leading blank plus the row) and a three-row layout still costs six. A segment that throws during render shows `[?]` in its own cell instead of blanking the whole footer, and an unexpected session entry (a message without a `usage` block, for example) reads as zero rather than taking the rows with it. Branch-derived counters and the context estimate are cached by session, leaf, branch length, context window and whether usage needs estimating. Tree navigation and compaction invalidate the cache; equal-length branches refresh their values and canonical usage removes the estimate marker. Unchanged renders reuse the cached facts.
+
 ### Git probing
 
 The `git` segment reads branch (500 ms cache) and dirty counts (1 s cache) so an idle footer never spawns more than a couple of `git` processes per second. Two guards keep that floor honest:
@@ -52,16 +56,19 @@ The `git` segment reads branch (500 ms cache) and dirty counts (1 s cache) so an
 - The probes are skipped entirely when no configured row contains `git`, so a layout without the segment pays nothing for it.
 - In a directory that is not a repository, the first failed probe arms a 30 second back-off instead of re-running `git` every second forever. A mid-session `git init` or `git clone` clears it immediately (matched on tool results), as does any `write`/`edit` invalidation; a probe that fails inside a real repository (for example a locked index) is confirmed with `git rev-parse --is-inside-work-tree` and keeps the normal one-second cadence. A probe that finishes after an invalidation is dropped outright, so the failure that happened *before* a `git init` cannot push the fresh repository back into a 30 second back-off.
 
+Probes are also hardened against the repository itself. A worktree can declare programs - `[diff "x"] textconv`, `core.fsmonitor`, `core.hooksPath`, or a system or user config naming a helper - that git executes while answering what looks like a read-only query, so every call goes through a guard: `--no-pager`, `-c core.fsmonitor=false`, `-c core.hooksPath=`, `-c protocol.ext.allow=never`, `-c credential.helper=`, `GIT_CONFIG_NOSYSTEM`, `GIT_ATTR_NOSYSTEM`, `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0`, plus `--no-ext-diff --no-textconv` on diff-family subcommands. The probes only ever ask for branch names and porcelain status, and the guard block is duplicated from `opl-init` because installs are per-directory; `tests/net-guard-parity.test.mjs` fails if the two copies drift.
 ```json
 {
   "row1LeftSegments": ["pi", "separator", "model", "separator", "path", "git"],
   "row1RightSegments": ["context_pct"],
-  "row2LeftSegments": ["thinking", "separator", "mode_switcher"],
+  "row2LeftSegments": ["thinking", "separator", "caveman", "separator", "mode_switcher"],
   "row2RightSegments": ["token_total", "separator", "cost"],
   "row3LeftSegments": ["session_stats"],
   "row3RightSegments": ["perf_stats"]
 }
 ```
+
+That is the shipped default layout (`DEFAULT_CONFIG` in `config.ts`); `codex_usage` and `openrouter_usage` start disabled and are added by editing the arrays or using `/configurator`.
 
 See the tracked [`configs/opl-footer.json.sample`](../../configs/opl-footer.json.sample) for a complete example. Segment IDs, color fields, context-bar options, thinking-level colors, and icon overrides are documented below. Colors accept Pi theme tokens, six-digit hex, or the three-digit `#abc` shorthand (expanded to `#aabbcc`); the context bar gradient resolves both forms to RGB. An unknown token or malformed hex renders that text uncolored instead of failing the footer render, so a typo in `colors` or in `opl-modes`' `appearance.modeColor` costs you a color, not the footer.
 
@@ -69,13 +76,30 @@ See the tracked [`configs/opl-footer.json.sample`](../../configs/opl-footer.json
 
 `index.ts` installs the footer and lifecycle tracking. `segments/` renders configurable values; `theme.ts`, `types.ts`, and `config.ts` provide styling and JSON configuration; session and performance statistics are collected in process memory and reconstructed from session history where possible.
 
+## Cross-extension seams
+
+While a footer is mounted, `opl-footer` publishes `__footerRequestRender` so another
+extension (`opl-modes`) can ask for a re-render outside a turn, and it reads `__agentMode`,
+`__planMode`, `__chatMode` and `__caveman` for the `mode_switcher`, `plan_mode`, `chat_mode`
+and `caveman` segments. Both sides are optional at install time, so the reads are validated rather than trusted:
+only a `{ mode: <non-empty string> }` is honoured, a malformed or missing value renders
+`Mode: Normal`, and a `modeColor` that is not a string is ignored.
+`session_shutdown` deletes the published trigger, because it closes over this session's TUI
+and a stale one would hand a dead component to the next session.
+
+For configuration, `opl-footer` publishes one entry on `globalThis.__oplConfiguratorTabs`
+(id `opl-footer`, hotkey `f`, label `Footer`) whose factory returns the same
+settings/reorder screen. The `/configurator` shell in `opl-configurator` owns the command
+and reads that array lazily; the entry is registered once at load and the factory is called
+fresh on every `/configurator` invocation.
+
 ## Available Segments
 
 | Segment | Description | Notes |
 |---------|-------------|-------|
 | `pi` | π symbol in accent blue | `pi` icon can be modified in config file |
 | `model` | Model name in pink + `(provider)` in dim | No icon; provider omitted if unavailable |
-| `path` | Current working directory | `segmentOptions.path.mode`: `"full"` (default) · `"abbreviated"` · `"basename"` |
+| `path` | Session directory (`ExtensionContext.cwd`), not the directory the harness was launched from | `segmentOptions.path.mode`: `"full"` (default) · `"abbreviated"` · `"basename"` |
 | `git` | Git branch and dirty indicators | `showBranch`, `showStaged`, `showUnstaged`, `showUntracked` (all bool) |
 | `context_pct` | Gradient bar + `X.X%` + max tokens | Bar fully configurable via `segmentOptions.contextBar` (see below). % and max tokens use `contextLabel` colour. Max tokens formatted with K/M suffix (e.g. `128k`, `2M`). Usage comes from `ctx.getContextUsage()`; when Pi reports it as unknown right after compaction, the segment estimates the rebuilt projection with Pi’s `estimateTokens()` and marks the bar and values with `≈` until a fresh assistant response provides exact usage. If no projection is available, it renders `(--%)` rather than a stale value. Set `DEBUG_PCT` in `context.ts` to a number (0–100) to pin the bar at a fixed value for visual testing. |
 | `cost` | `$<amount>` (4 decimals, e.g. `$0.0123`) | `$` dim, amount in `cost` colour (`muted` by default). Four decimals keep cheap local or short sessions distinguishable instead of pinning at `$0.00`. Shows dim `(no pricing)` when the session total is zero on a non-local model (provider has no pricing configured), and `(local model)` for local models |
@@ -91,6 +115,7 @@ See the tracked [`configs/opl-footer.json.sample`](../../configs/opl-footer.json
 | `cache_write` | Cache write tokens (hidden if zero) | — |
 | `context_total` | Total context window size | — |
 | `session_stats` | Prompt, API-call, and tool-call counts | Hidden until the first prompt |
+| `compactions` | Manual and automatic compaction count from the active session branch, including resumed-session history | Nerd Font zip-box icon or 📦 fallback; hidden at zero |
 | `perf_stats` | LLM/tool timing, TTFT, output rate, and cache-hit percentage | Hidden until the first prompt |
 | `status` | `Working`, `Waiting`, or `Ready` | `accent`, `warning`, and `success` theme colors respectively; optional and hidden by default |
 | `codex_usage` | `5h 76% ↻2h18m · W 37% ↻3d7h` | Exact remaining ChatGPT Codex subscription quota; OAuth-only, optional and hidden by default; a retained snapshot is marked `(stale)` after refresh failure |
@@ -100,13 +125,13 @@ See the tracked [`configs/opl-footer.json.sample`](../../configs/opl-footer.json
 
 ## Codex Subscription Usage
 
-Add `codex_usage` to any row through `/configure-opl` or `opl-footer.json`. While the active model is the OAuth-authenticated `openai-codex` provider, the footer asks Pi's model registry to resolve the same short-lived OAuth access token that Pi uses for the selected model, then sends `GET https://chatgpt.com/backend-api/wham/usage` directly from the local Pi process. The request carries `Authorization: Bearer <Pi OAuth token>`, `Accept: application/json`, a fixed `User-Agent: opl-footer-codex-usage`, and the token's `chatgpt_account_id` JWT claim as `chatgpt-account-id` when present. It refreshes after session start, model selection, each completed assistant response, each tool completion, and settled agent runs. Refreshes are non-blocking, with a 30-second floor and a 15-second request timeout; events within that floor coalesce into one trailing refresh, including events received during an in-flight request. Pending refreshes are cancelled on session reset, shutdown, or switching away from Codex, and recheck whether the segment is enabled before fetching. It classifies the returned windows by duration rather than response order. This is ChatGPT subscription quota, not OpenAI Platform API-key usage or billing.
+Add `codex_usage` to any row through `/configurator` or `opl-footer.json`. While the active model is the OAuth-authenticated `openai-codex` provider, the footer asks Pi's model registry to resolve the same short-lived OAuth access token that Pi uses for the selected model, then sends `GET https://chatgpt.com/backend-api/wham/usage` directly from the local Pi process. The request carries `Authorization: Bearer <Pi OAuth token>`, `Accept: application/json`, a fixed `User-Agent: opl-footer-codex-usage`, and the token's `chatgpt_account_id` JWT claim as `chatgpt-account-id` when present. It refreshes after session start, model selection, each completed assistant response, each tool completion, and settled agent runs. Refreshes are non-blocking, with a 30-second floor and a 15-second request timeout; events within that floor coalesce into one trailing refresh, including events received during an in-flight request. Pending refreshes are cancelled on session reset, shutdown, or switching away from Codex, and recheck whether the segment is enabled before fetching. It classifies the returned windows by duration rather than response order. This is ChatGPT subscription quota, not OpenAI Platform API-key usage or billing.
 
 No OAuth token, account ID, or response body is written to disk, logged, added to the Pi session, or sent anywhere other than `chatgpt.com` for that request. **The footer retains only the parsed 5-hour/weekly percentage and reset time in process memory for the active session.** The endpoint is an internal ChatGPT backend API and can change without notice. A failed refresh keeps the most recent exact snapshot and marks it `(stale)`; if no request has ever succeeded, the segment stays hidden. Disabling the segment prevents future requests and discards any result from a request already in flight.
 
 ## OpenRouter Usage
 
-Add `openrouter_usage` to any row through `/configure-opl` or `opl-footer.json`. While the selected model provider is `openrouter`, the footer resolves the same API key Pi uses for inference and sends `GET https://openrouter.ai/api/v1/key` from the local Pi process. It renders the configured per-key limit as `$<limit - limit_remaining> / $<limit> (<percent>%)`; an absent, malformed, or unlimited key cap leaves the segment hidden. The numerator deliberately uses OpenRouter's authoritative `limit_remaining`, rather than `usage` or `byok_usage`, because those ledgers may not both count against the key limit.
+Add `openrouter_usage` to any row through `/configurator` or `opl-footer.json`. While the selected model provider is `openrouter`, the footer resolves the same API key Pi uses for inference and sends `GET https://openrouter.ai/api/v1/key` from the local Pi process. It renders the configured per-key limit as `$<limit - limit_remaining> / $<limit> (<percent>%)`; an absent, malformed, or unlimited key cap leaves the segment hidden. The numerator deliberately uses OpenRouter's authoritative `limit_remaining`, rather than `usage` or `byok_usage`, because those ledgers may not both count against the key limit.
 
 It refreshes after session start, model selection, each completed assistant response, each tool completion, and settled agent runs. Refreshes are non-blocking, with a 30-second floor and a 15-second request timeout; events within that floor coalesce into one trailing refresh, including events received during an in-flight request. Pending refreshes are cancelled on session reset, shutdown, or switching away from OpenRouter, and recheck whether the segment is enabled before fetching. No API key or response body is written to disk, logged, added to the Pi session, or sent anywhere other than `openrouter.ai`. A failed refresh keeps the most recent exact snapshot and marks it `(stale)`; if no request has ever succeeded, the segment stays hidden. Disabling the segment prevents future requests and discards any result from a request already in flight.
 

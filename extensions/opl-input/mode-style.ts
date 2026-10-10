@@ -19,8 +19,12 @@ export interface ResolvedModeStyle {
 	prefix: string;
 }
 
+/** The baseline every unknown mode falls back to, kept as a constant so the fallback is a value
+ *  rather than an index into a record that TypeScript must treat as possibly missing. */
+const OFF_DEFAULT: Required<ModeAppearance> = { prefix: "❯", prefixColor: "accent", borderColor: "border" };
+
 const MODE_DEFAULTS: Record<string, Required<ModeAppearance>> = {
-	off: { prefix: "❯", prefixColor: "accent", borderColor: "border" },
+	off: OFF_DEFAULT,
 	chat: { prefix: "»", prefixColor: "borderAccent", borderColor: "borderAccent" },
 	plan: { prefix: "⏸", prefixColor: "customMessageLabel", borderColor: "customMessageLabel" },
 	execute: { prefix: "⏸", prefixColor: "customMessageLabel", borderColor: "customMessageLabel" },
@@ -28,7 +32,7 @@ const MODE_DEFAULTS: Record<string, Required<ModeAppearance>> = {
 
 /** Precedence: bash > active mode appearance > hardcoded mode fallback. */
 export function resolveModeStyle(state: ModeState): ResolvedModeStyle {
-	const fallback = MODE_DEFAULTS[state.mode] ?? MODE_DEFAULTS.off;
+	const fallback = MODE_DEFAULTS[state.mode] ?? OFF_DEFAULT;
 	if (state.bash) return { borderColor: "bashMode", prefixColor: "bashMode", prefix: fallback.prefix };
 	return {
 		borderColor: state.appearance?.borderColor ?? fallback.borderColor,

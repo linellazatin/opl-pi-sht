@@ -5,7 +5,8 @@ import type { ColorScheme, ColorValue, SemanticColor } from "./types.js";
 // their absence signals "use rainbow" in thinking.ts.
 const DEFAULT_COLORS: ColorScheme = {
   pi: "accent",
-  model: "#c07898",
+  // model: "#c07898",
+  model: "accent",
   path: "dim",
   git: "success",
   gitDirty: "warning",
@@ -128,5 +129,7 @@ export function resolveColorToRgb(
   }
   const match = probed.match(/\x1b\[38;2;(\d+);(\d+);(\d+)m/);
   if (!match) return null;
-  return { r: parseInt(match[1]), g: parseInt(match[2]), b: parseInt(match[3]) };
+  const [r, g, b] = [match[1], match[2], match[3]];
+  if (r === undefined || g === undefined || b === undefined) return null;
+  return { r: parseInt(r, 10), g: parseInt(g, 10), b: parseInt(b, 10) };
 }

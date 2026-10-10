@@ -54,6 +54,7 @@ export type StatusLineSegmentId =
   | "chat_mode"
   | "mode_switcher"
   | "session_stats"
+  | "compactions"
   | "perf_stats"
   | "status"
   | "codex_usage"
@@ -127,6 +128,8 @@ export interface SegmentContext {
   contextWindow: number;
   usingSubscription: boolean;
   sessionStartTime: number;
+  /** Session directory (`ExtensionContext.cwd`): the base the Path segment renders. */
+  cwd: string;
   git: GitStatus;
   options: StatusLineSegmentOptions;
   width: number;
@@ -134,6 +137,7 @@ export interface SegmentContext {
   colors: ColorScheme;
   icons: IconSet;
   sessionStats: SessionStats;
+  compactions: number;
   agentStatus: AgentStatus;
   codexUsage: CodexUsageSnapshot | null;
   openRouterUsage: OpenRouterUsageSnapshot | null;

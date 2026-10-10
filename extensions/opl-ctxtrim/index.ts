@@ -1,11 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-// opl-ctxtrim trims the verbose descriptions that the third-party context-mode
-// MCP bridge attaches to its ctx_* tools. It edits only the serialized provider
-// payload in the documented `before_provider_request` hook, so the installed
-// context-mode package (and its tool execution) is never modified. Tool names,
-// schema structure, required fields, enums, defaults, bounds, and strict flags
-// are preserved; only human-readable `description` prose is shortened.
+// opl-ctxtrim trims only the known context-mode ctx_* tool descriptions listed in
+// CTX_DESCRIPTIONS. Provider handlers locate those same definitions in the different
+// request formats Pi emits; they do not widen the tool policy or trim conversation data.
+// Only the serialized payload is edited through before_provider_request. The installed
+// context-mode package, tool execution, names and schema validation rules stay unchanged.
 
 // Concise top-level descriptions for the eleven ctx_* tools shipped by
 // context-mode v1.0.169. Any ctx_* tool NOT listed here is left unchanged so a
@@ -38,7 +37,7 @@ export const CTX_DESCRIPTIONS: Record<string, string> = {
 // Shorten a nested JSON Schema parameter description to its first sentence or
 // line. Only `description` text is touched, never validation keywords.
 export function shortenParamDescription(text: string): string {
-  const firstLine = text.split("\n", 1)[0].trim();
+  const firstLine = (text.split("\n", 1)[0] ?? "").trim();
   const sentenceEnd = firstLine.search(/\.\s|\.$/);
   const clipped = sentenceEnd >= 0 ? firstLine.slice(0, sentenceEnd + 1) : firstLine;
   return clipped.length > 160 ? `${clipped.slice(0, 157).trimEnd()}...` : clipped;
@@ -61,7 +60,7 @@ function shortenSchemaDescriptions(node: unknown): void {
   }
 }
 
-// A tool entry across the three supported provider shapes exposes a name, a
+// A tool entry across the supported provider shapes exposes a name, a
 // holder object carrying `description`, and (optionally) a parameters schema.
 interface ToolView {
   name: string;
@@ -92,12 +91,13 @@ function viewTool(tool: unknown): ToolView | null {
     }
   }
 
-  // OpenAI Responses / Anthropic / Google: { name, description, parameters|input_schema }
+  // OpenAI Responses / Anthropic / Google declarations:
+  // { name, description, parameters | input_schema | parametersJsonSchema }
   if (typeof record.name === "string") {
     return {
       name: record.name,
       descriptionHolder: record,
-      parameters: record.parameters ?? record.input_schema,
+      parameters: record.parameters ?? record.input_schema ?? record.parametersJsonSchema,
     };
   }
 
@@ -106,6 +106,7 @@ function viewTool(tool: unknown): ToolView | null {
 
 // Trim a single tool view in place when it is a known ctx_* tool.
 function trimToolView(view: ToolView): boolean {
+  if (!Object.hasOwn(CTX_DESCRIPTIONS, view.name)) return false;
   const concise = CTX_DESCRIPTIONS[view.name];
   if (!concise) return false;
   if (typeof view.descriptionHolder.description === "string") {
@@ -117,12 +118,31 @@ function trimToolView(view: ToolView): boolean {
   return true;
 }
 
+// Keys that hold a declaration array directly, per provider dialect.
+const DECLARATION_KEYS = ["functionDeclarations", "toolSpecifications"];
+// Keys that wrap tool settings; Google uses camelCase, some gateways snake_case.
+const TOOL_CONFIG_KEYS = ["toolConfig", "tool_config"];
+
+function arraysInto(target: unknown[][], value: unknown, keys: string[]): void {
+  if (!value || typeof value !== "object") return;
+  const record = value as Record<string, unknown>;
+  if (Array.isArray(record.tools)) target.push(record.tools);
+  for (const key of keys) {
+    if (Array.isArray(record[key])) target.push(record[key] as unknown[]);
+  }
+}
+
 // Locate the tool arrays inside a provider payload across supported shapes.
 function toolArrays(payload: Record<string, unknown>): unknown[][] {
   const arrays: unknown[][] = [];
-  if (Array.isArray(payload.tools)) arrays.push(payload.tools);
-  const toolConfig = payload.toolConfig as Record<string, unknown> | undefined;
-  if (toolConfig && Array.isArray(toolConfig.tools)) arrays.push(toolConfig.tools);
+  if (Array.isArray(payload.tools)) {
+    arrays.push(payload.tools);
+    // Google (Generative AI and Vertex) nests declarations one level deeper:
+    // tools: [{ functionDeclarations: [{ name, description, parametersJsonSchema }] }]
+    // and pi-ai emits exactly this shape (pi-ai dist/api/google-shared.js:338).
+    for (const entry of payload.tools) arraysInto(arrays, entry, DECLARATION_KEYS);
+  }
+  for (const key of TOOL_CONFIG_KEYS) arraysInto(arrays, payload[key], DECLARATION_KEYS);
   return arrays;
 }
 

@@ -31,6 +31,7 @@ type Crawl = {
   extCounts: Map<string, number>;
   manifests: { path: string; content: string }[];
   workspaceMembers: string[];
+  skippedGlobs: string[];
   seen: Set<string>;
 };
 
@@ -42,41 +43,147 @@ const FP_MARKER = /<!-- opl-init:fp (\S+) -->/;
 // (vs HEAD, so staged changes count) and every untracked file. Only the root
 // AGENTS.md is excluded, so writing the guide does not make it stale;
 // subdirectory AGENTS.md files are repository facts.
+// /init computes the fingerprint synchronously on the command path, and a workspace can
+// hold a dataset, model weights or a recording. Content-hashing everything cost 135 ms and
+// 245 MB RSS for a single 200 MB file, so large files are represented by their metadata and
+// the whole pass runs under a path and byte budget.
+// Known blind spot, accepted deliberately: a rewrite that keeps size and mtime identical, or
+// any change past the caps, is invisible until a change the fingerprint can see happens.
+const FP_LIMITS = {
+  maxFileBytes: 2 * 1024 * 1024,
+  maxTotalBytes: 32 * 1024 * 1024,
+  maxPaths: 5000,
+};
+
+type FpLimits = typeof FP_LIMITS;
+type FpBudget = { bytes: number; paths: number; capped: boolean };
+
 // Returns null for non-git directories (caller falls back to fingerprintFallback).
-function fingerprintGit(root: string): string | null {
+function fingerprintGit(root: string, limits: FpLimits = FP_LIMITS): string | null {
   const head = gitOutput(root, ["rev-parse", "HEAD"]);
   if (head === null) return null;
   const hash = createHash("sha256").update(`schema:${GUIDE_SCHEMA_VERSION}\0head:${head}\0`);
+  const budget: FpBudget = { bytes: 0, paths: 0, capped: false };
   // --relative keeps diff paths cwd-relative and cwd-scoped, matching
   // ls-files --others and the crawl; without it a subdirectory session would
   // resolve every dirty path to a nonexistent file and hash "DELETED".
   for (const path of (gitOutput(root, ["diff", "HEAD", "--name-only", "-z", "--relative"]) ?? "").split("\0")) {
-    if (!path || path === "AGENTS.md") continue;
-    hash.update(`${path}\0`).update(hashFile(join(root, path))).update("\0");
+    hashFingerprintPath(hash, root, path, budget, limits);
   }
   for (const path of (gitOutput(root, ["ls-files", "--others", "--exclude-standard", "-z"]) ?? "").split("\0")) {
-    if (!path || path === "AGENTS.md") continue;
-    hash.update(`${path}\0`).update(hashFile(join(root, path))).update("\0");
+    hashFingerprintPath(hash, root, path, budget, limits);
   }
+  // Fold the budget state in so crossing a cap changes the digest once and then stays
+  // stable: an oscillating digest would make every /init run regenerate the guide.
+  hash.update(`budget:${budget.paths}:${budget.bytes}:${budget.capped ? 1 : 0}\0`);
   return hash.digest("hex").slice(0, 16);
 }
 
+function hashFingerprintPath(
+  hash: ReturnType<typeof createHash>,
+  root: string,
+  path: string,
+  budget: FpBudget,
+  limits: FpLimits,
+): void {
+  if (!path || path === "AGENTS.md") return;
+  // The name is always hashed even past a cap, so adding or removing a file is still
+  // visible; only content stops being read.
+  hash.update(`${path}\0`).update(budget.paths >= limits.maxPaths ? "OVER_CAP\0" : hashFile(join(root, path), budget, limits)).update("\0");
+  budget.paths++;
+  if (budget.paths >= limits.maxPaths) budget.capped = true;
+}
+
+// BEGIN SHARED GIT GUARD
+// A repository is attacker-chosen data: its local config, `.gitattributes` and system
+// config can name programs that git runs while answering what looks like a read-only query.
+// Measured on git 2.54: `git diff HEAD` executes a declared `[diff "x"] textconv` driver,
+// while `--name-only`, `status --porcelain`, `ls-files` and `rev-parse` do not. Every call
+// still goes through this guard so a future content-diff call cannot reintroduce the
+// execution path. Duplicated per extension because install.sh installs one directory at a
+// time; tests/net-guard-parity.test.mjs fails if the copies drift.
+const SAFE_GIT_GLOBAL_ARGS = [
+  "--no-pager",
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.hooksPath=",
+  "-c",
+  "protocol.ext.allow=never",
+  "-c",
+  "credential.helper=",
+];
+
+/** Refuse external content handlers. Diff-family subcommands only: plumbing rejects them. */
+const SAFE_GIT_DIFF_FLAGS = ["--no-ext-diff", "--no-textconv"];
+const GIT_DIFF_COMMANDS = new Set(["diff", "log", "show", "stash", "range-diff", "format-patch"]);
+
+const SAFE_GIT_ENV: Record<string, string> = {
+  // /etc/gitconfig and the user's own config can name helpers; a repo probe must not read them.
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_ATTR_NOSYSTEM: "1",
+  GIT_PAGER: "cat",
+  // A credential prompt would hang the caller instead of failing fast.
+  GIT_TERMINAL_PROMPT: "0",
+  GIT_ASKPASS: "",
+  SSH_ASKPASS: "",
+  // Read-only plumbing must not create or wait on index.lock.
+  GIT_OPTIONAL_LOCKS: "0",
+};
+
+export function safeGitInvocation(args: string[]): string[] {
+  const [subcommand, ...rest] = args;
+  const diffFlags = subcommand && GIT_DIFF_COMMANDS.has(subcommand) ? SAFE_GIT_DIFF_FLAGS : [];
+  // A missing subcommand must not reach execFileSync/spawn as an undefined argv slot.
+  return subcommand
+    ? [...SAFE_GIT_GLOBAL_ARGS, subcommand, ...diffFlags, ...rest]
+    : [...SAFE_GIT_GLOBAL_ARGS, ...rest];
+}
+
+export function gitGuardEnv(base: Record<string, string | undefined> = process.env): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(base)) {
+    if (typeof value === "string") env[key] = value;
+  }
+  return { ...env, ...SAFE_GIT_ENV };
+}
+// END SHARED GIT GUARD
+
 function gitOutput(root: string, args: string[]): string | null {
+  // Name-only/porcelain plumbing only; the guard above refuses patch content.
   try {
-    return execFileSync("git", args, {
+    return execFileSync("git", safeGitInvocation(args), {
       cwd: root,
+      env: gitGuardEnv(),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
-      maxBuffer: 64 * 1024 * 1024,
+      // Name-only and porcelain output is path lists: 4 MB is on the order of 100k paths.
+      // A repo that needs more makes execFileSync throw, which reads as "not a git
+      // directory" and falls through to the stat-only fingerprintFallback.
+      maxBuffer: 4 * 1024 * 1024,
     });
   } catch {
     return null;
   }
 }
 
-function hashFile(path: string): string {
+function hashFile(path: string, budget: FpBudget, limits: FpLimits): string {
+  let stats;
   try {
-    return createHash("sha256").update(readFileSync(path)).digest("hex");
+    stats = statSync(path);
+  } catch {
+    return "DELETED";
+  }
+  // Above either threshold the entry is represented by metadata instead of bytes: a
+  // change to size or mtime is still detected, and the pass stays bounded.
+  if (!stats.isFile() || stats.size > limits.maxFileBytes || budget.bytes + stats.size > limits.maxTotalBytes) {
+    budget.capped = true;
+    return `meta:${stats.size}:${Math.round(stats.mtimeMs)}`;
+  }
+  try {
+    const body = readFileSync(path);
+    budget.bytes += body.length;
+    return createHash("sha256").update(body).digest("hex");
   } catch {
     return "DELETED";
   }
@@ -126,6 +233,7 @@ function crawl(root: string): Crawl {
     extCounts: new Map(),
     manifests: [],
     workspaceMembers: [],
+    skippedGlobs: [],
     seen: new Set(),
   };
 
@@ -190,6 +298,7 @@ function crawl(root: string): Crawl {
         break;
       }
       const entry = all[i];
+      if (entry === undefined) continue;
       result.tree.push(`${prefix}${entry}`);
       if (entry.endsWith("/") && depth < maxDepth) {
         walk(join(dir, entry.slice(0, -1)), depth + 1, `${prefix}  `, maxDepth);
@@ -202,7 +311,7 @@ function crawl(root: string): Crawl {
   // Manifest-first monorepo expansion: enumerate declared workspace members
   // with a fresh depth budget so packages/foo/src is not penalized by its
   // grouping prefix.
-  for (const member of workspaceMembers(root)) {
+  for (const member of workspaceMembers(root, result.skippedGlobs)) {
     if (result.tree.length >= MAX_TREE_LINES) break;
     const abs = join(root, member);
     let stats;
@@ -225,23 +334,42 @@ function crawl(root: string): Crawl {
   if (result.tree.length >= MAX_TREE_LINES) {
     result.tree.push(`(tree truncated at ${MAX_TREE_LINES} entries)`);
   }
+  if (result.skippedGlobs.length > 0) {
+    result.tree.push(
+      `(skipped workspace glob(s) that could not be compiled: ${result.skippedGlobs.join(", ")})`,
+    );
+  }
   return result;
 }
 
 // ponytail: naive glob matcher supporting only what workspace files use in
-// practice: `**` across segments, `*` within a segment, optional trailing "/".
-function globToRegExp(pattern: string): RegExp {
+// practice: `**` across segments, `*` within a segment, `?` for one character,
+// optional trailing "/". Everything else is escaped, so a directory name that is
+// itself regex syntax (`libs/c++/*`) matches literally instead of throwing.
+// Returns null for a pattern that cannot be compiled: workspace files are
+// user-authored, and one bad line must not abort /init.
+function globToRegExp(pattern: string): RegExp | null {
   const cleaned = pattern.replace(/\/$/, "");
-  const source = cleaned
-    .split("/**/")
-    .map((seg) => seg.replace(/[*]/g, "[^/]*"))
-    .join("(?:/.*)?");
-  return new RegExp(`^${source}$`);
+  if (cleaned === "") return null;
+  try {
+    const source = cleaned
+      .split("/**/")
+      .map((segment) =>
+        segment
+          .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+          .replace(/\*/g, "[^/]*")
+          .replace(/\?/g, "[^/]"),
+      )
+      .join("(?:/.*)?");
+    return new RegExp(`^${source}$`);
+  } catch {
+    return null;
+  }
 }
 
 // ponytail: line-based subset parsing of pnpm-workspace.yaml and Cargo.toml
 // [workspace] members. Full YAML/TOML parsing not warranted for glob lists.
-function workspaceMembers(root: string): string[] {
+function workspaceMembers(root: string, skipped: string[]): string[] {
   const globs: string[] = [];
 
   try {
@@ -254,7 +382,8 @@ function workspaceMembers(root: string): string[] {
         inPackages = false;
       } else if (inPackages) {
         const match = line.match(/^\s*-\s*["']?([^"'#]+)/);
-        if (match) globs.push(match[1].trim());
+        const pkg = match?.[1];
+        if (pkg) globs.push(pkg.trim());
       }
     }
   } catch {
@@ -264,10 +393,14 @@ function workspaceMembers(root: string): string[] {
   try {
     const toml = readFileSync(join(root, "Cargo.toml"), "utf8");
     const section = toml.match(/\[workspace\]([\s\S]*?)(?:\n\[|\s*$)/);
-    const membersBlock = section?.[1].match(/members\s*=\s*\[([^\]]*)\]/s);
+    const membersBlock = section?.[1]?.match(/members\s*=\s*\[([^\]]*)\]/s);
     if (membersBlock) {
-      for (const m of membersBlock[1].matchAll(/["']([^"']+)["']/g)) {
-        globs.push(m[1]);
+      const memberList = membersBlock[1];
+      if (memberList) {
+        for (const m of memberList.matchAll(/["']([^"']+)["']/g)) {
+          const name = m[1];
+          if (name) globs.push(name);
+        }
       }
     }
   } catch {
@@ -277,6 +410,10 @@ function workspaceMembers(root: string): string[] {
   const members = new Set<string>();
   for (const glob of globs) {
     const re = globToRegExp(glob);
+    if (!re) {
+      if (!skipped.includes(glob)) skipped.push(glob);
+      continue;
+    }
     // Match against shallow candidate paths from the tree we already walked,
     // plus one extra readdir of likely parent dirs. Simple approach: test every
     // tree dir line's relative path.
@@ -431,7 +568,9 @@ async function refineGuide(ctx: any, evidence: string, marker: string): Promise<
     const stream = ctx.modelRegistry.streamSimple(
       model,
       { systemPrompt: REFINE_SYSTEM_PROMPT, messages: [{ role: "user", content: evidence, timestamp: Date.now() }], tools: [] },
-      { reasoning: false, signal: AbortSignal.timeout(REFINE_TIMEOUT_MS) },
+      // ThinkingLevel has no "off": "minimal" is the cheapest level the adapters accept.
+      // `false` was silently dropped as "unset", so the refinement paid the provider default.
+      { reasoning: "minimal", signal: AbortSignal.timeout(REFINE_TIMEOUT_MS) },
     );
     const result = await stream.result();
     if (!result || result.stopReason === "error" || result.stopReason === "aborted") return null;
@@ -445,8 +584,50 @@ async function refineGuide(ctx: any, evidence: string, marker: string): Promise<
   }
 }
 
+// Offsets retain the user's original line endings and whitespace. Only ATX
+// headings outside fenced code blocks delimit the owned section.
+function operationalSections(text: string): { start: number; end: number }[] {
+  const sections: { start: number; end: number }[] = [];
+  let active: { start: number; end: number } | undefined;
+  let fence: { char: string; length: number } | undefined;
+  for (const match of text.matchAll(/[^\n]*(?:\n|$)/g)) {
+    const line = match[0].replace(/\r?\n$/, "");
+    const offset = match.index;
+    const fenced = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      if (fenced?.[1]?.[0] === fence.char && fenced[1].length >= fence.length && !fenced[2]?.trim()) fence = undefined;
+      continue;
+    }
+    if (fenced?.[1] && (fenced[1][0] !== "`" || !fenced[2]?.includes("`"))) {
+      fence = { char: fenced[1][0]!, length: fenced[1].length };
+      continue;
+    }
+    const heading = line.match(/^ {0,3}(#{1,2})(?:[ \t]+(.*)|[ \t]*)$/);
+    if (!heading) continue;
+    if (active) { active.end = offset; active = undefined; }
+    if (heading[1] === "##" && heading[2]?.replace(/[ \t]+#+[ \t]*$/, "").trim() === "Operational notes") {
+      active = { start: offset, end: text.length };
+      sections.push(active);
+    }
+  }
+  return sections;
+}
+
+function guideWithoutFinalMarker(text: string): string {
+  return text.replace(/(^|\n)<!-- opl-init:fp \S+ -->[ \t]*(?:\r?\n)?$/, "$1");
+}
+
+function mergeOperationalNotes(generated: string, owned: string, marker: string): string {
+  let body = guideWithoutFinalMarker(generated);
+  // Discard generated versions: the existing user section is authoritative.
+  for (const section of operationalSections(body).reverse()) {
+    body = body.slice(0, section.start) + body.slice(section.end);
+  }
+  return `${body.trimEnd()}\n\n${owned}${owned.endsWith("\n") ? "" : "\n"}${marker}\n`;
+}
+
 // Named exports for fixture tests (tests/opl-init-*.test.mjs).
-export { crawl, fingerprint, evidencePacket, finalizeRefinedGuide, refineGuide };
+export { crawl, fingerprint, fingerprintGit, FP_LIMITS, evidencePacket, finalizeRefinedGuide, refineGuide };
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("init", {
@@ -480,14 +661,34 @@ export default function (pi: ExtensionAPI) {
       }
 
       const marker = `<!-- opl-init:fp ${currentFp} -->`;
-      // Regenerating replaces the whole file, including hand-edited prose; the
-      // repository's version control is the recovery path.
+      let original: string | null;
+      let owned: string | undefined;
+      try {
+        original = existsSync(agentsPath) ? readFileSync(agentsPath, "utf8") : null;
+        const body = guideWithoutFinalMarker(original ?? "");
+        const sections = operationalSections(body);
+        if (sections.length > 1) {
+          ctx.ui.notify("AGENTS.md has duplicate Operational notes sections; /init will not modify it.", "error");
+          return;
+        }
+        const section = sections[0];
+        if (section) owned = body.slice(section.start, section.end);
+      } catch (error: any) {
+        ctx.ui.notify(`Could not read AGENTS.md: ${error?.message || error}`, "error");
+        return;
+      }
       const crawlResult = crawl(root);
       const baseline = buildGuide(root, crawlResult, marker);
       const refined = await refineGuide(ctx, evidencePacket(root, baseline, crawlResult), marker);
 
       try {
-        writeFileSync(agentsPath, refined ?? baseline, "utf8");
+        const latest = existsSync(agentsPath) ? readFileSync(agentsPath, "utf8") : null;
+        if (latest !== original) {
+          ctx.ui.notify("AGENTS.md changed during /init; update cancelled. Run /init again.", "error");
+          return;
+        }
+        const generated = refined ?? baseline;
+        writeFileSync(agentsPath, owned === undefined ? generated : mergeOperationalNotes(generated, owned, marker), "utf8");
       } catch (error: any) {
         ctx.ui.notify(`Could not write AGENTS.md: ${error?.message || error}`, "error");
         return;

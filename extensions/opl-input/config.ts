@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const DEFAULT_CONFIG = {
 	BOX_PAD_X: 1,
@@ -29,11 +29,65 @@ interface ChatInputUserConfig {
 	};
 }
 
-const CONFIG_PATH = join(homedir(), ".pi", "agent", "configs", "opl-input.json");
+/** Resolved per call so a custom `PI_AGENT_DIR` (pi's own agent dir) is honoured. */
+export function configPath(): string {
+	return join(getAgentDir(), "configs", "opl-input.json");
+}
+
+/** Subset of fields the configurator tab is allowed to edit. */
+export interface EditableInputConfig {
+	boxedView?: boolean;
+	companion?: {
+		enabled?: boolean;
+		type?: string;
+	};
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Read the live config as a loose record ({} on absence or malformed), preserving unknown keys. */
+export function readInputConfig(): Record<string, unknown> {
+	try {
+		const parsed = JSON.parse(readFileSync(configPath(), "utf8"));
+		return isPlainObject(parsed) ? parsed : {};
+	} catch {
+		return {};
+	}
+}
+
+/** Merge only the editable fields into the live file. Returns false when nothing changed. */
+export function saveInputConfig(patch: EditableInputConfig): boolean {
+	const current = readInputConfig();
+	const next: Record<string, unknown> = { ...current };
+
+	if (typeof patch.boxedView === "boolean") next.boxedView = patch.boxedView;
+
+	if (patch.companion) {
+		const enabled = patch.companion.enabled;
+		const type = patch.companion.type;
+		const hasEnabled = typeof enabled === "boolean";
+		const hasType = typeof type === "string" && type.length > 0;
+		if (hasEnabled || hasType) {
+			const companion = isPlainObject(next.companion) ? { ...next.companion } : {};
+			if (hasEnabled) companion.enabled = enabled;
+			if (hasType) companion.type = type;
+			next.companion = companion;
+		}
+	}
+
+	if (JSON.stringify(next) === JSON.stringify(current)) return false;
+
+	const file = configPath();
+	mkdirSync(dirname(file), { recursive: true });
+	writeFileSync(file, JSON.stringify(next, null, 2) + "\n", "utf8");
+	return true;
+}
 
 function loadUserConfig(): ChatInputUserConfig {
 	try {
-		const raw = readFileSync(CONFIG_PATH, "utf8");
+		const raw = readFileSync(configPath(), "utf8");
 		return JSON.parse(raw) as ChatInputUserConfig;
 	} catch {
 		return {};

@@ -2,18 +2,36 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 
-USAGE="Usage: $0 [--link] [--only EXTENSION...]
+# Pi's own resolver is PI_CODING_AGENT_DIR else ~/.pi/agent (dist/config.js getAgentDir()).
+# PI_AGENT_DIR is accepted as a legacy alias for scripts written against older releases.
+AGENT_DIR="${PI_CODING_AGENT_DIR:-${PI_AGENT_DIR:-$HOME/.pi/agent}}"
+case "$AGENT_DIR" in
+    "~/"*) AGENT_DIR="$HOME/${AGENT_DIR#\~/}" ;;
+esac
+AGENT_DIR_SOURCE="PI_CODING_AGENT_DIR"
+[[ -n "${PI_CODING_AGENT_DIR:-}" ]] || AGENT_DIR_SOURCE="${PI_AGENT_DIR:+PI_AGENT_DIR (legacy alias)}"
+[[ -n "${AGENT_DIR_SOURCE}" ]] || AGENT_DIR_SOURCE="default (~/.pi/agent)"
 
-  --link, -l  Create symlinks from $REPO_DIR to $AGENT_DIR/extensions and $AGENT_DIR/configs
-              (non-destructive; does not overwrite existing files)
-  --only, -o  Install only the listed extensions. opl-footer, opl-input, and opl-modes
-              are a bundle: selecting any one installs all three.
-  --help      Show this help message and exit
-  (no flag)   Install all extensions and configs (copy mode)"
+USAGE="Usage: $0 [--link] [--only EXTENSION...] [--force-configs] [--no-prune]
+
+  --link, -l        Create symlinks from $REPO_DIR to \$AGENT_DIR/extensions and \$AGENT_DIR/configs
+                    (non-destructive; does not overwrite existing files)
+  --only, -o        Install only the listed extensions. opl-configurator, opl-footer,
+                    opl-input, and opl-modes are a bundle: selecting any one installs all four.
+  --force-configs   Overwrite config files that already exist in \$AGENT_DIR/configs.
+  --no-prune        Keep extension directories recorded by a previous install of this
+                    collection even when this release no longer ships them.
+  --help            Show this help message and exit
+  (no flag)         Install all extensions and configs (copy mode)
+
+Configs come from configs/<extension>.json when the repo carries one, otherwise from
+configs/<extension>.json.sample (the shipped default). An existing file in
+\$AGENT_DIR/configs is never overwritten unless --force-configs is given."
 
 MODE="copy"
+FORCE_CONFIGS=0
+PRUNE=1
 ONLY=()
 
 while [[ $# -gt 0 ]]; do
@@ -24,6 +42,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --link|-l)
             MODE="symlink"
+            shift
+            ;;
+        --force-configs)
+            FORCE_CONFIGS=1
+            shift
+            ;;
+        --no-prune)
+            PRUNE=0
             shift
             ;;
         --only|-o)
@@ -46,8 +72,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-ALL_EXTENSIONS=(opl-browser opl-ctxtrim opl-footer opl-guardian opl-init opl-input opl-modes opl-questionnaire opl-simplebench opl-todo opl-webaccess)
-BUNDLE=(opl-footer opl-input opl-modes)
+ALL_EXTENSIONS=(opl-browser opl-configurator opl-ctxtrim opl-footer opl-guardian opl-init opl-input opl-modes opl-questionnaire opl-simplebench opl-todo opl-webaccess)
+BUNDLE=(opl-configurator opl-footer opl-input opl-modes)
+# Extensions that ship no config file.
+CONFIGLESS=(opl-configurator opl-ctxtrim)
 
 contains() {
     local needle="$1"
@@ -62,7 +90,6 @@ contains() {
 if [[ ${#ONLY[@]} -eq 0 ]]; then
     SELECTED=("${ALL_EXTENSIONS[@]}")
 else
-    SELECTED=()
     for extension in "${ONLY[@]}"; do
         if ! contains "$extension" "${ALL_EXTENSIONS[@]}"; then
             echo "Unknown extension: $extension" >&2
@@ -71,6 +98,7 @@ else
         fi
     done
 
+    SELECTED=()
     for extension in "${ONLY[@]}"; do
         if contains "$extension" "${BUNDLE[@]}"; then
             SELECTED=("${BUNDLE[@]}")
@@ -84,21 +112,31 @@ else
     done
 fi
 
-# Configs mirror extension names. UI bundle extensions each have a config.
-SELECTED_CONFIGS=()
-for extension in "${SELECTED[@]}"; do
-    config="$REPO_DIR/configs/$extension.json"
-    [[ -f "$config" ]] && SELECTED_CONFIGS+=("$config")
-done
+MANIFEST="$AGENT_DIR/extensions/.opl-pi-sht.installed"
+
+# Resolve the config file to install for an extension: live config, then shipped sample.
+config_source() {
+    local extension="$1"
+    local live="$REPO_DIR/configs/$extension.json"
+    local sample="$REPO_DIR/configs/$extension.json.sample"
+    if [[ -f "$live" ]]; then
+        echo "$live"
+    elif [[ -f "$sample" ]]; then
+        echo "$sample"
+    else
+        echo ""
+    fi
+}
 
 echo "=== OPL Pi SHT Install ==="
 echo "Mode: $MODE"
-echo "Repo:  $REPO_DIR"
-echo "Target: $AGENT_DIR"
+echo "Repo:   $REPO_DIR"
+echo "Target: $AGENT_DIR  ($AGENT_DIR_SOURCE)"
 echo "Extensions: ${SELECTED[*]}"
 echo ""
 
 mkdir -p "$AGENT_DIR/extensions" "$AGENT_DIR/configs"
+INSTALLED=()
 
 if [[ "$MODE" == "symlink" ]]; then
     echo "[SYMLINK MODE] Creating symlinks..."
@@ -111,19 +149,25 @@ if [[ "$MODE" == "symlink" ]]; then
             echo "  → $dest (exists, skipping)"
         else
             ln -s "$dir" "$dest"
+            INSTALLED+=("$extension")
             echo "  → $dest (symlinked)"
         fi
     done
 
-    for file in "${SELECTED_CONFIGS[@]-}"; do
-        [[ -n "$file" ]] || continue
-        base=$(basename "$file")
+    for extension in "${SELECTED[@]}"; do
+        contains "$extension" "${CONFIGLESS[@]}" && continue
+        source_file=$(config_source "$extension")
+        base="$extension.json"
         dest="$AGENT_DIR/configs/$base"
+        if [[ -z "$source_file" ]]; then
+            echo "  ! no config for $extension in $REPO_DIR/configs (skipped)" >&2
+            continue
+        fi
         if [[ -e "$dest" || -L "$dest" ]]; then
             echo "  → $dest (exists, skipping)"
         else
-            ln -s "$file" "$dest"
-            echo "  → $dest (symlinked)"
+            ln -s "$source_file" "$dest"
+            echo "  → $dest (symlinked $(basename "$source_file"))"
         fi
     done
 
@@ -143,20 +187,86 @@ else
             cp -R "$dir" "$dest"
             echo "  → $dest (copied)"
         fi
+        INSTALLED+=("$extension")
     done
 
-    for file in "${SELECTED_CONFIGS[@]-}"; do
-        [[ -n "$file" ]] || continue
-        base=$(basename "$file")
+    for extension in "${SELECTED[@]}"; do
+        contains "$extension" "${CONFIGLESS[@]}" && continue
+        source_file=$(config_source "$extension")
+        base="$extension.json"
         dest="$AGENT_DIR/configs/$base"
-        cp "$file" "$dest"
+        if [[ -z "$source_file" ]]; then
+            echo "  ! no config for $extension in $REPO_DIR/configs (skipped)" >&2
+            continue
+        fi
+        if [[ -e "$dest" && "$FORCE_CONFIGS" -eq 0 ]]; then
+            echo "  → $dest (exists, keeping it)"
+            continue
+        fi
+        cp "$source_file" "$dest"
         chmod 600 "$dest"
-        echo "  → $dest (copied)"
+        if [[ "$source_file" == *.sample ]]; then
+            echo "  → $dest (copied, shipped default)"
+        else
+            echo "  → $dest (copied)"
+        fi
     done
 
     echo ""
     echo "Files copied."
 fi
 
+# Keep ownership until a recorded directory is actually gone. Never adopt a skipped link.
+previous=()
+if [[ -f "$MANIFEST" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        if [[ ! "$line" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]; then
+            echo "  ! invalid extension name in install manifest (ignored)" >&2
+            continue
+        fi
+        contains "$line" "${previous[@]-}" || previous+=("$line")
+    done < "$MANIFEST"
+fi
+
+merged=()
+for name in "${INSTALLED[@]-}"; do
+    [[ -z "$name" ]] || merged+=("$name")
+done
+PRUNE_FAILED=0
+for name in "${previous[@]-}"; do
+    [[ -z "$name" ]] && continue
+    stale="$AGENT_DIR/extensions/$name"
+    [[ -e "$stale" || -L "$stale" ]] || continue
+    if [[ "$PRUNE" -eq 1 ]] && ! contains "$name" "${ALL_EXTENSIONS[@]}"; then
+        if [[ -L "$stale" || -d "$stale" ]] && rm -rf "$stale"; then
+            echo "  - pruned $stale (not shipped by this release)"
+            stale_config="$AGENT_DIR/configs/$name.json"
+            if [[ -e "$stale_config" || -L "$stale_config" ]]; then
+                echo "  ! $stale_config belongs to a pruned extension; remove it if it was not added by hand" >&2
+            fi
+            continue
+        fi
+        echo "  ! could not prune $stale; ownership retained for retry" >&2
+        PRUNE_FAILED=1
+    fi
+    contains "$name" "${merged[@]-}" || merged+=("$name")
+done
+
+TMP_MANIFEST=$(mktemp "$MANIFEST.XXXXXX")
+trap 'rm -f "$TMP_MANIFEST"' EXIT
+{
+    echo "# Installed by install.sh - one extension directory per line."
+    for name in "${merged[@]-}"; do
+        [[ -z "$name" ]] || echo "$name"
+    done
+} > "$TMP_MANIFEST"
+mv "$TMP_MANIFEST" "$MANIFEST"
+trap - EXIT
+
 echo ""
+if [[ "$PRUNE_FAILED" -ne 0 ]]; then
+    echo "Installed extensions and configs, but cleanup failed; rerun to retry." >&2
+    exit 1
+fi
 echo "Done. Extensions and configs are now available in $AGENT_DIR."

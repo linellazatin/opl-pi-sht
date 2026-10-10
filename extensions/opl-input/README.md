@@ -4,7 +4,7 @@ Replaces Pi's default chat editor with a mode-aware custom editor. Native editor
 
 ## Commands, flags, and shortcuts
 
-No commands, flags, or shortcuts. It replaces the standard editor at session start.
+No commands, flags, or shortcuts of its own. It replaces the standard editor at session start. Its settings are editable through the `/configurator` shell (Input tab, hotkey `i`); a save writes `opl-input.json` and reports that the change takes effect after `/reload`.
 
 ## Extension features
 
@@ -67,7 +67,7 @@ The companion requires at least 40 terminal columns and reserves three top-paddi
 
 Every color option accepts either:
 
-- **A Pi theme token** — one of the 45 tokens defined by Pi's `Theme`:
+- **A Pi theme token** — a color name from Pi's theme schema (56 names at pi 0.87.0 and 1.1.0, 7 of them `*Bg` fills). The ones that matter here:
   - Core: `accent`, `border`, `borderAccent`, `borderMuted`, `success`, `error`, `warning`, `muted`, `dim`, `text`
   - Messages/content: `thinkingText`, `searchMatchText`, `userMessageText`, `customMessageText`, `customMessageLabel`
   - Tools: `toolTitle`, `toolOutput`, `toolDiffAdded`, `toolDiffRemoved`, `toolDiffContext`
@@ -75,7 +75,7 @@ Every color option accepts either:
   - Syntax: `syntaxComment`, `syntaxKeyword`, `syntaxFunction`, `syntaxVariable`, `syntaxString`, `syntaxNumber`, `syntaxType`, `syntaxOperator`, `syntaxPunctuation`
   - Thinking borders: `thinkingOff`, `thinkingMinimal`, `thinkingLow`, `thinkingMedium`, `thinkingHigh`, `thinkingXhigh`, `thinkingMax`
   - Special: `bashMode`
-- **A hex color** — `"#c07898"`, or the three-digit shorthand `"#abc"` (expanded to `#aabbcc`; rendered as ANSI truecolor, downgraded automatically on 256-color terminals).
+- **A hex color** — `"#c07898"`, or the three-digit shorthand `"#abc"` (expanded to `#aabbcc`). Hex values are emitted as ANSI truecolor (`38;2;r;g;b`); there is no 256-color downgrade in this extension, so on a 256-only terminal a hex color may render approximately or not at all, while a theme token renders correctly.
 
 Invalid theme tokens fall back to the theme's `border` token; invalid hex renders uncolored rather than crashing.
 - A mode `prefix` is clamped to one terminal cell (continuation lines reserve a single space), so a wide or multi-character `appearance.prefix` such as `👀` is truncated to one cell rather than pushing the box border past the editor width.
@@ -83,3 +83,17 @@ Invalid theme tokens fall back to the theme's `border` token; invalid hex render
 ## Architecture
 
 `index.ts` installs the editor integration and disposes companion render timers on editor replacement or session shutdown; `mode-style.ts` resolves Bash > published mode appearance > compiled fallback; `config.ts` loads editor and companion settings; and `utils.ts` handles color and rendering helpers. `opl-modes` is the sole publisher of active mode appearance through `globalThis.__agentMode`.
+
+Two couplings are worth knowing before editing this extension:
+
+- **pi-tui's text output.** Re-framing the editor means recognising its horizontal borders and
+  its scroll indicator, and pi-tui exposes neither as an API: they are the literal strings `─`
+  and `─── ↑ 3 more `. Those markers are collected in one place (`isSolidBorder`,
+  `scrollIndicatorText`, `isBorderLike` in `index.ts`) and
+  `tests/opl-input-pi-tui-markers.test.mjs` asserts the installed pi-tui still emits them. They
+  were byte-identical in pi-tui 0.87.0, 0.99.1 and 1.1.0; a failure there means the format
+  changed and the re-framing needs updating, not that the test is wrong.
+- **The bundle's idle heartbeat.** This component owns the only render timer, so the footer's
+  time-based cells advance because of it. Disabling `opl-input` freezes that clock; with
+  `companion.enabled: false` the tick slows to one repaint per `IDLE_REPAINT_MS` rather than
+  stopping.

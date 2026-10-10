@@ -78,9 +78,66 @@ function parseGitStatusOutput(output: string): { staged: number; unstaged: numbe
   return { staged, unstaged, untracked };
 }
 
+// BEGIN SHARED GIT GUARD
+// A repository is attacker-chosen data: its local config, `.gitattributes` and system
+// config can name programs that git runs while answering what looks like a read-only query.
+// Measured on git 2.54: `git diff HEAD` executes a declared `[diff "x"] textconv` driver,
+// while `--name-only`, `status --porcelain`, `ls-files` and `rev-parse` do not. Every call
+// still goes through this guard so a future content-diff call cannot reintroduce the
+// execution path. Duplicated per extension because install.sh installs one directory at a
+// time; tests/net-guard-parity.test.mjs fails if the copies drift.
+const SAFE_GIT_GLOBAL_ARGS = [
+  "--no-pager",
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.hooksPath=",
+  "-c",
+  "protocol.ext.allow=never",
+  "-c",
+  "credential.helper=",
+];
+
+/** Refuse external content handlers. Diff-family subcommands only: plumbing rejects them. */
+const SAFE_GIT_DIFF_FLAGS = ["--no-ext-diff", "--no-textconv"];
+const GIT_DIFF_COMMANDS = new Set(["diff", "log", "show", "stash", "range-diff", "format-patch"]);
+
+const SAFE_GIT_ENV: Record<string, string> = {
+  // /etc/gitconfig and the user's own config can name helpers; a repo probe must not read them.
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_ATTR_NOSYSTEM: "1",
+  GIT_PAGER: "cat",
+  // A credential prompt would hang the caller instead of failing fast.
+  GIT_TERMINAL_PROMPT: "0",
+  GIT_ASKPASS: "",
+  SSH_ASKPASS: "",
+  // Read-only plumbing must not create or wait on index.lock.
+  GIT_OPTIONAL_LOCKS: "0",
+};
+
+export function safeGitInvocation(args: string[]): string[] {
+  const [subcommand, ...rest] = args;
+  const diffFlags = subcommand && GIT_DIFF_COMMANDS.has(subcommand) ? SAFE_GIT_DIFF_FLAGS : [];
+  // A missing subcommand must not reach execFileSync/spawn as an undefined argv slot.
+  return subcommand
+    ? [...SAFE_GIT_GLOBAL_ARGS, subcommand, ...diffFlags, ...rest]
+    : [...SAFE_GIT_GLOBAL_ARGS, ...rest];
+}
+
+export function gitGuardEnv(base: Record<string, string | undefined> = process.env): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(base)) {
+    if (typeof value === "string") env[key] = value;
+  }
+  return { ...env, ...SAFE_GIT_ENV };
+}
+// END SHARED GIT GUARD
+
 function runGit(args: string[], timeoutMs = 200): Promise<string | null> {
+  // Porcelain/name-only only; the guard above refuses patch content.
   return new Promise((resolve) => {
-    const proc = spawn("git", args, {
+    const proc = spawn("git", safeGitInvocation(args), {
+      env: gitGuardEnv(),
       stdio: ["ignore", "pipe", "pipe"],
     });
 

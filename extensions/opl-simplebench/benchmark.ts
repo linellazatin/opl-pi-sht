@@ -1,5 +1,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { section, ok, fail, warn, info, msHuman, truncate, sanitizeForReport } from "./util/format";
 import { getOllamaBaseUrl, detectProvider } from "./util/providers";
 import { debugLog } from "./util/debug";
@@ -58,6 +60,92 @@ export function isValidInstructionOutput(output: string): boolean {
 
 export function openAiThinkingOptions(thinkingMax: boolean): Record<string, string> {
   return thinkingMax ? { reasoning_effort: "max" } : {};
+}
+
+const execFileAsync = promisify(execFile);
+
+/** Credentials for the Bedrock Converse API. */
+export interface AwsCredentials {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken?: string;
+}
+
+export interface AwsCliCommand { file: string; args: string[] }
+export type AwsCliRunner = (command: AwsCliCommand) => Promise<{ stdout: string }>;
+
+/**
+ * A profile name reaches the AWS CLI as one argv element, never as part of a
+ * shell string. Anything that is not a plain profile name is refused before a
+ * process is spawned: metacharacters would only matter if the value were
+ * interpolated into a shell command, and a leading dash the CLI would read as
+ * another option.
+ */
+const AWS_PROFILE_RE = /^[A-Za-z0-9][A-Za-z0-9_.:@+-]{0,127}$/;
+
+export function isValidAwsProfileName(profile: string): boolean {
+  return AWS_PROFILE_RE.test(profile);
+}
+
+export function awsCredentialsCommand(profile: string): AwsCliCommand {
+  return { file: "aws", args: ["configure", "export-credentials", "--profile", profile] };
+}
+
+const defaultAwsCliRunner: AwsCliRunner = async (command) => {
+  const { stdout } = await execFileAsync(command.file, command.args, { timeout: 15_000, encoding: "utf8" });
+  return { stdout };
+};
+
+function parseAwsCredentials(stdout: string): AwsCredentials | null {
+  try {
+    const parsed = JSON.parse(stdout);
+    if (parsed?.AccessKeyId && parsed?.SecretAccessKey) {
+      return { accessKeyId: parsed.AccessKeyId, secretAccessKey: parsed.SecretAccessKey, sessionToken: parsed.SessionToken };
+    }
+  } catch { /* not JSON: missing CLI, unresolvable profile, or a stray warning line */ }
+  return null;
+}
+
+let _awsCredsCache: AwsCredentials | null | undefined;
+
+/**
+ * Resolve AWS credentials: environment first, then the AWS CLI
+ * (`aws configure export-credentials`), which handles static keys, assume-role
+ * chains (source_profile + role_arn), and SSO. The CLI runs from argv and off
+ * the event loop, so a slow credential chain cannot stall the TUI. Injecting
+ * `env` or `runner` bypasses the per-process cache, which keeps tests from
+ * poisoning the real path.
+ * # ponytail: requires AWS CLI v2; cached per process
+ */
+export async function resolveAwsCredentials(
+  source: { env?: Record<string, string | undefined>; runner?: AwsCliRunner } = {},
+): Promise<AwsCredentials | null> {
+  const env = source.env ?? process.env;
+  const runner = source.runner ?? defaultAwsCliRunner;
+  const cached = source.env === undefined && source.runner === undefined;
+  if (cached && _awsCredsCache !== undefined) return _awsCredsCache;
+
+  const lookup = async (): Promise<AwsCredentials | null> => {
+    if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) {
+      return { accessKeyId: env.AWS_ACCESS_KEY_ID, secretAccessKey: env.AWS_SECRET_ACCESS_KEY, sessionToken: env.AWS_SESSION_TOKEN };
+    }
+    const profile = env.AWS_PROFILE || "default";
+    if (!isValidAwsProfileName(profile)) return null;
+    try {
+      return parseAwsCredentials((await runner(awsCredentialsCommand(profile))).stdout);
+    } catch {
+      return null; /* aws CLI missing or profile unresolvable */
+    }
+  };
+
+  const creds = await lookup();
+  if (cached) _awsCredsCache = creds;
+  return creds;
+}
+
+/** Drop the per-process credential cache (tests, credential rotation). */
+export function resetAwsCredentialsCacheForTest(): void {
+  _awsCredsCache = undefined;
 }
 
 export function createBenchmark() {
@@ -174,34 +262,6 @@ function makeOpenAiChatFn(baseUrl: string, apiKey?: string, thinkingMax = false)
   };
 }
 
-/**
- * Resolve AWS credentials: env vars first, then the AWS CLI
- * (`aws configure export-credentials`), which handles static keys,
- * assume-role chains (source_profile + role_arn), and SSO.
- * # ponytail: requires AWS CLI v2; cached per process
- */
-let _awsCredsCache: { accessKeyId: string; secretAccessKey: string; sessionToken?: string } | null | undefined;
-function resolveAwsCredentials(): { accessKeyId: string; secretAccessKey: string; sessionToken?: string } | null {
-  if (_awsCredsCache !== undefined) return _awsCredsCache;
-  if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
-    _awsCredsCache = { accessKeyId: process.env.AWS_ACCESS_KEY_ID, secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY, sessionToken: process.env.AWS_SESSION_TOKEN };
-    return _awsCredsCache;
-  }
-  try {
-    const prof = process.env.AWS_PROFILE || "default";
-    const out = require("node:child_process")
-      .execSync(`aws configure export-credentials --profile ${prof}`, { timeout: 15000 })
-      .toString();
-    const c = JSON.parse(out);
-    if (c.AccessKeyId && c.SecretAccessKey) {
-      _awsCredsCache = { accessKeyId: c.AccessKeyId, secretAccessKey: c.SecretAccessKey, sessionToken: c.SessionToken };
-      return _awsCredsCache;
-    }
-  } catch { /* aws CLI missing or profile unresolvable */ }
-  _awsCredsCache = null;
-  return null;
-}
-
 /** Minimal SigV4 signer for a POST to the Bedrock Converse API. */
 function sigv4Headers(
   creds: { accessKeyId: string; secretAccessKey: string; sessionToken?: string },
@@ -241,7 +301,7 @@ function sigv4Headers(
  */
 function makeBedrockChatFn(providerInfo: { region?: string }): ChatFn {
   return async (model, messages, options) => {
-    const creds = resolveAwsCredentials();
+    const creds = await resolveAwsCredentials();
     if (!creds) throw new Error("AWS credentials not found — set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or ~/.aws/credentials");
     const region = providerInfo.region || process.env.AWS_REGION || "us-east-1";
     const host = `bedrock-runtime.${region}.amazonaws.com`;
@@ -570,8 +630,7 @@ type ProgressFn = (msg: string) => void;
 async function testReasoningExtended(chatFn: ChatFn, model: string, onProgress?: ProgressFn): Promise<{ score: string; scores: string[]; answers: string[]; results: ReasoningTestResult[] }> {
   const results: ReasoningTestResult[] = [];
   const total = REASONING_TESTS.length;
-  for (let i = 0; i < total; i++) {
-    const test = REASONING_TESTS[i];
+  for (const [i, test] of REASONING_TESTS.entries()) {
     onProgress?.(`[1/3] Reasoning ${i + 1}/${total}: ${test.name} (${test.category})...`);
     try {
       const requestedAt = new Date().toISOString();
@@ -646,8 +705,7 @@ async function testToolUsageExtended(chatFn: ChatFn, model: string, useToolResul
 
 async function testCodingLite(chatFn: ChatFn, model: string, onProgress?: (message: string) => void): Promise<{ results: Awaited<ReturnType<typeof runCodingTask>>[]; passed: number; total: number }> {
   const results = [] as Awaited<ReturnType<typeof runCodingTask>>[];
-  for (let index = 0; index < CODING_LITE_TASKS.length; index += 1) {
-    const task = CODING_LITE_TASKS[index];
+  for (const [index, task] of CODING_LITE_TASKS.entries()) {
     const prefix = `[${index + 1}/${CODING_LITE_TASKS.length}] coding-lite: [${task.id}]`;
     onProgress?.(`${prefix} starting...`);
     const result = await runCodingTask(chatFn, model, task, {
@@ -696,6 +754,9 @@ function getCurrentModel(ctx: any): string | undefined {
 
 async function testModelExtended(model: string, ctx?: any, options: SimplebenchOptions = { allModels: false, writeArtifact: true }): Promise<string> {
   const lines: string[] = [];
+  // The artifact lands in the session directory when Pi invoked the tool. A bare
+  // programmatic run has no session, so the harness directory is all there is.
+  const artifactDir = ctx?.cwd ?? process.cwd();
   const totalStart = Date.now();
   const providerInfo = ctx ? detectProvider(ctx) : { kind: "ollama" as const, name: "ollama" };
   const resolvedModel = resolveBenchmarkModel(ctx, model);
@@ -784,7 +845,7 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
       let artifactPath: string | null = null;
       const serverStats = await captureServerStats();
       if (options.writeArtifact) {
-        try { artifactPath = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", suite, ...(options.tag ? { tag: options.tag } : {}), model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: codingTestRecords(codingSummary), summary: { coding: { passed: codingSummary.passed, total: codingSummary.total, efficiency: { strong: codingSummary.results.filter(r => r.efficiency === "STRONG").length, moderate: codingSummary.results.filter(r => r.efficiency === "MODERATE").length, weak: codingSummary.results.filter(r => r.efficiency === "WEAK").length, fail: codingSummary.results.filter(r => r.efficiency === "FAIL").length } }, ...(serverStats ? { serverStats } : {}) } }); }
+        try { artifactPath = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", suite, ...(options.tag ? { tag: options.tag } : {}), model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: codingTestRecords(codingSummary), summary: { coding: { passed: codingSummary.passed, total: codingSummary.total, efficiency: { strong: codingSummary.results.filter(r => r.efficiency === "STRONG").length, moderate: codingSummary.results.filter(r => r.efficiency === "MODERATE").length, weak: codingSummary.results.filter(r => r.efficiency === "WEAK").length, fail: codingSummary.results.filter(r => r.efficiency === "FAIL").length } }, ...(serverStats ? { serverStats } : {}) } }, artifactDir); }
         catch (e: any) { lines.push(warn(`Artifact could not be written: ${e?.message || e}`)); }
       }
       const effCounts = { strong: codingSummary.results.filter(r => r.efficiency === "STRONG").length, moderate: codingSummary.results.filter(r => r.efficiency === "MODERATE").length, weak: codingSummary.results.filter(r => r.efficiency === "WEAK").length };
@@ -855,7 +916,7 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   if (options.writeArtifact) {
     try {
       const artifact = { schemaVersion: 1 as const, benchmark: { name: "opl-simplebench" as const, suite, ...(options.tag ? { tag: options.tag } : {}), model, provider: providerInfo.name, providerKind: providerInfo.kind, thinking: { ...thinking, modelMetadataSource: resolvedModel.source }, startedAt: new Date(totalStart).toISOString(), finishedAt: new Date().toISOString(), wallTimeMs: totalMs, artifactEnabled: true }, tests: artifactTests, summary: { reasoning: { score: reasoning.score, passed: reasoning.results.filter(r => r.pass).length, total: reasoning.results.length }, instructions: instructions.score, tools: tools.score, ...(codingSummary ? { coding: { passed: codingSummary.passed, total: codingSummary.total, efficiency: { strong: codingSummary.results.filter(r => r.efficiency === "STRONG").length, moderate: codingSummary.results.filter(r => r.efficiency === "MODERATE").length, weak: codingSummary.results.filter(r => r.efficiency === "WEAK").length, fail: codingSummary.results.filter(r => r.efficiency === "FAIL").length } } } : {}), ...(researchGrounded ? { researchGrounded: researchGrounded.score } : {}), ...(researchArtifact ? { researchLive: researchArtifact.score } : {}), metrics: aggregate, ...(serverStats ? { serverStats } : {}) } };
-      artifactPath = researchGrounded ? writeArtifactBundle(artifact, researchGrounded.files) : writeArtifact(artifact);
+      artifactPath = researchGrounded ? writeArtifactBundle(artifact, researchGrounded.files, artifactDir) : writeArtifact(artifact, artifactDir);
     } catch (e: any) { lines.push(warn(`Artifact could not be written: ${e?.message || e}`)); }
   }
   

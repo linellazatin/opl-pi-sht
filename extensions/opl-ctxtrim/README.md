@@ -1,6 +1,6 @@
 # opl-ctxtrim
 
-Trims the verbose `ctx_*` tool descriptions that the third-party [context-mode](https://github.com/mksglu/context-mode) MCP bridge injects into every provider request. It edits only the serialized outbound payload through Pi's documented `before_provider_request` hook, so the installed context-mode package and its tool execution are never modified.
+Trims description prose for eleven known `ctx_*` tools from [context-mode](https://github.com/mksglu/context-mode) on Pi's outbound provider requests. Provider support handles different encodings of those same tool definitions; it does not expand trimming to other tools or general context. The extension edits the serialized request through `before_provider_request`, leaving the installed context-mode package and tool execution unchanged.
 
 ## Commands, tools, and configuration
 
@@ -8,23 +8,41 @@ No commands, tools, or configuration. Loading the extension is the entire interf
 
 ## What it does
 
-context-mode registers eleven `ctx_*` tools whose descriptions carry multi-paragraph "Think-in-Code" prose, `WHEN`/`WHEN NOT` sections, and worked examples. Those descriptions are serialized into the tool schema on **every** provider request. `opl-ctxtrim` replaces each known tool's top-level description with a concise equivalent and shortens nested JSON Schema parameter descriptions to their first sentence.
+The allowlist covers eleven context-mode `ctx_*` tools whose descriptions carry multi-paragraph "Think-in-Code" prose, `WHEN`/`WHEN NOT` sections, and worked examples. Those descriptions are serialized into the tool schema on **every** provider request. `opl-ctxtrim` replaces each known tool's top-level description with a concise equivalent and shortens nested JSON Schema parameter descriptions to their first sentence.
 
 Preserved exactly: tool names, execution routing, schema structure, `required`, `enum`, `default`, numeric bounds, and strict-mode flags. Only human-readable `description` prose changes.
 
-Supported provider payload shapes:
+### Scope
 
-- OpenAI Responses / Anthropic / Google: `{ name, description, parameters }`
-- OpenAI Chat Completions / Mistral: `{ function: { name, description, parameters } }`
-- Amazon Bedrock Converse: `toolConfig.tools[].toolSpec`
+The curated description table is the whole policy. A tool is trimmed only when its exact name is an own entry in `CTX_DESCRIPTIONS`; inherited JavaScript property names do not match. Matching is by name, not server identity, so another tool using an allowlisted name receives the same substitution:
 
-Any unrecognized payload shape, any non-`ctx_*` tool, and any `ctx_*` tool not in the built-in description map are returned unchanged (fail open). This means a future context-mode release that adds or renames a tool is left untouched at runtime until the extension is updated; the test suite flags such tools for review.
+- New or renamed `ctx_*` tools absent from the table pass through untouched until explicitly reviewed and added.
+- Tools whose names are absent from the table, including built-in Pi tools and other MCP tools, remain unchanged.
+- Unrecognized payload shapes fail open: the original payload is returned.
+
+Adding a tool to the table is a source change, not a configuration; there is no config file to edit.
+
+### Provider tool shapes
+
+Pi serializes the same context-mode tool definitions differently for each provider. These handlers locate the declarations before applying the same eleven-name policy.
+
+| Provider format | Tool name location | Parameter schema location |
+|---|---|---|
+| OpenAI Responses | `tools[].name` | `tools[].parameters` |
+| OpenAI Chat Completions / Mistral | `tools[].function.name` | `tools[].function.parameters` |
+| Anthropic | `tools[].name` | `tools[].input_schema` |
+| Google/Gemini | `tools[].functionDeclarations[].name` | Declaration's `parametersJsonSchema` or `parameters` |
+| Amazon Bedrock Converse | `toolConfig.tools[].toolSpec.name` | `toolSpec.inputSchema.json` |
+
+The locator also accepts `toolSpecifications[]`, `tool_config` wrappers and direct named declarations with `parameters`, `input_schema` or `parametersJsonSchema`. These are structural compatibility paths, not additional tool policies. Messages, system prompts, routing anchors, tool results and indexed content are not trimmed. Unknown shapes are returned unchanged.
+
+A context-mode release that adds or renames a `ctx_*` tool is invisible to the table, and therefore invisible to the savings too. The test suite prints those tools as `uncovered ctx_* tools (review after upgrade)` so the gap is a review item rather than a silent loss. The measured server snapshot was v1.0.169; that number is not a compatibility guarantee.
 
 ## Token savings
 
 ### Reproducible schema measurement
 
-The test suite queries the installed context-mode **v1.0.169** server (11 `ctx_*` tools), serializes its real `tools/list` result as an OpenAI Responses tool array, and compares bytes before and after trimming:
+The test suite queries the installed context-mode server (v1.0.169 at the time of writing, 11 `ctx_*` tools), serializes its real `tools/list` result as an OpenAI Responses tool array, and compares bytes before and after trimming:
 
 | Schema state | Bytes | Change from original |
 |---|---:|---:|
@@ -32,9 +50,20 @@ The test suite queries the installed context-mode **v1.0.169** server (11 `ctx_*
 | Current `opl-ctxtrim` output | 9,152 | **18,867 fewer (67.3%)** |
 | Hypothetical empty descriptions, schemas retained | 4,683 | 23,336 fewer (83.3%) |
 
-The final row is a ceiling, not a recommended configuration. Current replacements retain compact tool guidance and parameter descriptions; empty descriptions would remove another 4,469 bytes but make tool selection and argument construction less reliable. The remaining 4,683 bytes are mostly required schema structure, parameter names, types, enums, bounds, and `required` fields.
+Those three rows are one payload in one shape. The suite also measures the other supported shapes, using the same eleven curated tool names with synthetic verbose descriptions so the comparison across shapes is like-for-like rather than dependent on whatever context-mode happens to ship:
 
-Run `npm run test:opl-ctxtrim` to regenerate the first two rows. It also reports a rough 3-4 bytes-per-token estimate of 4,717-6,289 tokens per request. Treat that as a byte heuristic, not billing data.
+| Shape | Original | Trimmed | Saved |
+|---|---:|---:|---:|
+| OpenAI Chat/Responses array | 21,912 | 5,666 | 16,246 (74.1%) |
+| Google/Gemini `functionDeclarations` | 21,752 | 5,726 | 16,026 (73.7%) |
+
+The 21,912-byte and 21,752-byte originals are synthetic fixtures and are smaller than the 28,019-byte real payload above; do not read them as three views of one number.
+
+So a Gemini request is trimmed like the others instead of passing through whole. All of it is conditional on the curated tools being present: a session without context-mode sends no `ctx_*` declaration, matches nothing in the table, and the payload leaves the extension byte-identical - no saving, no risk.
+
+The empty-description row in the first table is a ceiling, not a recommended configuration: current replacements retain compact tool guidance and parameter descriptions, and emptying them would remove another 4,469 bytes while making tool selection and argument construction less reliable. The remaining 4,683 bytes are mostly required schema structure, parameter names, types, enums, bounds, and `required` fields.
+
+Run `npm run test:opl-ctxtrim` to regenerate the tables. Dividing the 18,867-byte Responses saving by the usual 3-4 bytes per token gives roughly 4,700-6,300 tokens per request. Treat that as a byte heuristic, not billing data; it belongs to the Responses shape, and the other two shapes save 16,246 and 16,026 bytes.
 
 ### Observed provider accounting
 
@@ -70,9 +99,11 @@ Removing or lazily exposing entire `ctx_*` tools could save more than descriptio
 
 ## Architecture
 
-```text
-index.ts   before_provider_request handler; CTX_DESCRIPTIONS map;
-           provider-shape detection; description-only trimming.
-```
+### index.ts
+- before_provider_request handler
+- CTX_DESCRIPTIONS map (the only names ever rewritten)
+- tool-array discovery across provider shapes 
+  - tools[], functionDeclarations, toolSpecifications, toolConfig / tool_config
+- description-only trimming of parameters recursively
 
 Exports `trimPayload`, `CTX_DESCRIPTIONS`, and `shortenParamDescription` for testing. The extension is self-contained and dependency-free.

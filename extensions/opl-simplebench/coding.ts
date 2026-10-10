@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import { scrubbedEnv } from "./util/exec-env";
 import { buildToolResultMessages, type ChatFn, type ChatMessage } from "./util/config";
 import { mergeRequestMetrics, metricsFromChat } from "./metrics";
 import type { RequestMetrics } from "./types";
@@ -29,7 +30,7 @@ export interface CodingTaskResult {
   outputTokens: number | null;
   error: string | null;
   metrics: RequestMetrics;
-  /** STRONG = solved in 1 turn; MODERATE = 2–3 turns; WEAK = 4–5 turns; FAIL = not solved. */
+  /** Efficiency grade: STRONG = 1-2 turns, MODERATE = 3-4, WEAK = the 5-turn budget, FAIL = not solved. */
   efficiency: "STRONG" | "MODERATE" | "WEAK" | "FAIL";
 }
 
@@ -105,7 +106,9 @@ export function createCodingTaskDir(task: CodingTaskFixture): string {
 }
 
 export function runCodingVerifier(task: CodingTaskFixture, root: string, mode: "public" | "hidden") {
-  const result = spawnSync(process.execPath, ["--eval", task.verify(root, mode === "hidden")], { cwd: root, encoding: "utf8", timeout: 10_000 });
+  // The verifier evaluates model-authored code, so it runs with an allowlisted
+  // environment (see util/exec-env.ts). Anything it spawns inherits that.
+  const result = spawnSync(process.execPath, ["--eval", task.verify(root, mode === "hidden")], { cwd: root, encoding: "utf8", timeout: 10_000, env: scrubbedEnv() });
   const rawOutput = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
   return { passed: result.status === 0, output: result.status === 0 ? rawOutput : truncateVerifierError(rawOutput) };
 }
@@ -175,8 +178,10 @@ async function runSingleShotCodingTask(chatFn: ChatFn, model: string, task: Codi
     ]);
     const raw = response.content.trim();
     const fenced = raw.match(/```(?:[a-z]*)\n([\s\S]*?)```/);
-    const code = fenced ? fenced[1].trim() : raw;
-    const target = resolveCodingPath(root, task.allowedFiles[0]);
+    const code = fenced ? (fenced[1] ?? "").trim() : raw;
+    const firstAllowed = task.allowedFiles[0];
+    if (!firstAllowed) throw new Error(`coding task ${task.id} declares no allowed file`);
+    const target = resolveCodingPath(root, firstAllowed);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, code + "\n");
     const publicResult = runCodingVerifier(task, root, "public");

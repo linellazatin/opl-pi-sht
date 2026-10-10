@@ -8,10 +8,16 @@ import {
   type SessionBeforeSwitchEvent,
   type ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
-import { appendFile, chmod, mkdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { appendFile, chmod, mkdir, rename, stat } from "node:fs/promises";
+import { dirname } from "node:path";
 
-import { loadGuardianConfig, type GuardianConfig } from "./config.js";
+import {
+  DEFAULT_LOGGING,
+  incidentLogPath,
+  loadGuardianConfig,
+  type GuardianConfig,
+  type GuardianLogging,
+} from "./config.js";
 import {
   buildIncidentRecord,
   guardAssistantMessage,
@@ -19,7 +25,6 @@ import {
 } from "./guardian.js";
 import { getProtectedPathBlock, hasPendingUserWork } from "./policies.js";
 
-const LOG_PATH = join("err", "guardian.jsonl");
 const RED = "\u001b[31m";
 const RESET_FOREGROUND = "\u001b[39m";
 
@@ -27,30 +32,49 @@ function red(text: string): string {
   return `${RED}${text}${RESET_FOREGROUND}`;
 }
 
-export async function appendIncident(cwd: string, incident: GuardianIncident): Promise<void> {
-  const directory = join(cwd, "err");
-  const path = join(cwd, LOG_PATH);
-  await mkdir(directory, { recursive: true });
+/**
+ * Append one forensic record. The path never depends on the session cwd, so opening an
+ * untrusted repository cannot leave an untracked log full of provider payloads inside it.
+ * Once an append would pass `logging.maxBytes` the current file moves to `<file>.1`: one
+ * generation of history is kept, anything older is dropped.
+ */
+export async function appendIncident(
+  incident: GuardianIncident,
+  logging: GuardianLogging = DEFAULT_LOGGING,
+): Promise<void> {
+  const path = incidentLogPath(logging);
+  if (path === null) return;
+
+  const line = `${JSON.stringify(incident)}\n`;
+  await mkdir(dirname(path), { recursive: true });
 
   let existed = true;
+  let size = 0;
   try {
-    await stat(path);
+    size = (await stat(path)).size;
   } catch {
     existed = false;
   }
+  if (existed && size + Buffer.byteLength(line) > logging.maxBytes) {
+    await rename(path, `${path}.1`).catch(() => {});
+    existed = false;
+  }
 
-  await appendFile(path, `${JSON.stringify(incident)}\n`, "utf8");
+  await appendFile(path, line, "utf8");
   if (!existed && process.platform !== "win32") {
     await chmod(path, 0o600).catch(() => {});
   }
 }
 
-function diagnostic(removed: number, logError?: unknown): string {
+function diagnostic(removed: number, incidentFile: string | null, logError?: unknown): string {
+  if (incidentFile === null) {
+    return `[opl-guardian] Dropped ${removed} malformed provider tool call(s); incident logging is off (logging.incidentFile: false).`;
+  }
   if (logError) {
     const detail = logError instanceof Error ? logError.message : String(logError);
-    return `[opl-guardian] Dropped malformed provider tool call(s), but could not write err/guardian.jsonl: ${detail}.`;
+    return `[opl-guardian] Dropped malformed provider tool call(s), but could not write ${incidentFile}: ${detail}.`;
   }
-  return `[opl-guardian] Dropped ${removed} malformed provider tool call(s). Details: err/guardian.jsonl.`;
+  return `[opl-guardian] Dropped ${removed} malformed provider tool call(s). Details: ${incidentFile}.`;
 }
 
 function appendDiagnostic(message: AssistantMessage, text: string, invalidOnly: boolean): AssistantMessage {
@@ -67,20 +91,20 @@ function appendDiagnostic(message: AssistantMessage, text: string, invalidOnly: 
 
 export async function guardMessageEnd(
   message: AssistantMessage,
-  context: { cwd: string; sessionId: string },
+  context: { cwd: string; sessionId: string; logging?: GuardianLogging },
 ): Promise<{ message: AssistantMessage; diagnostic: string } | undefined> {
   const guarded = guardAssistantMessage(message);
   if (!guarded) return undefined;
 
   let logError: unknown;
   try {
-    await appendIncident(context.cwd, buildIncidentRecord(message, context, guarded.removedToolCalls));
+    await appendIncident(buildIncidentRecord(message, context, guarded.removedToolCalls), context.logging ?? DEFAULT_LOGGING);
   } catch (error) {
     logError = error;
   }
 
   const invalidOnly = !guarded.message.content.some((block) => block.type === "toolCall");
-  const notice = diagnostic(guarded.removedToolCalls.length, logError);
+  const notice = diagnostic(guarded.removedToolCalls.length, incidentLogPath(context.logging ?? DEFAULT_LOGGING), logError);
   return {
     message: appendDiagnostic(guarded.message, notice, invalidOnly),
     diagnostic: notice,
@@ -101,7 +125,16 @@ export function createToolCallHandler(config: GuardianConfig) {
     if (isToolCallEventType("read", event)) toolPath = event.input.path;
     else if (isToolCallEventType("write", event)) toolPath = event.input.path;
     else if (isToolCallEventType("edit", event)) toolPath = event.input.path;
-    else if (isToolCallEventType("bash", event)) toolPath = event.input.command;
+    else if (isToolCallEventType("bash", event) && typeof event.input.command === "string") {
+      toolPath = event.input.command;
+    } else if (isToolCallEventType("bash", event)) {
+      // The host types `command` as a string. A provider that sends an array or object here
+      // hands over something uninspectable, and coercing it would let ["rm","-rf"] read as
+      // "rm,-rf" to the matchers. Fail closed, the way a blank id or name does.
+      const reason = "[opl-guardian] Blocked a bash tool call whose command was not a string.";
+      if (ctx.hasUI) ctx.ui.notify(red(reason), "warning");
+      return { block: true, reason };
+    }
 
     if (toolPath !== undefined) {
       const blocked = getProtectedPathBlock(event.toolName, toolPath, config.protectedPaths.paths, ctx.cwd);
@@ -115,6 +148,7 @@ export function createToolCallHandler(config: GuardianConfig) {
     }
 
     if (!isToolCallEventType("bash", event) ||
+      typeof event.input.command !== "string" ||
       !config.permissionGate.patterns.some((pattern) => pattern.test(event.input.command))) return undefined;
 
     if (!ctx.hasUI) {
@@ -155,6 +189,7 @@ export function createMessageEndHandler(config: GuardianConfig) {
     const guarded = await guardMessageEnd(event.message, {
       cwd: ctx.cwd,
       sessionId: ctx.sessionManager.getSessionId(),
+      logging: config.logging,
     });
     if (!guarded) return undefined;
     ctx.ui?.notify(red(guarded.diagnostic), "warning");

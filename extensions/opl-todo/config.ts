@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export interface TodoConfig {
 	allDoneHideMs: number;
@@ -28,7 +28,12 @@ const DEFAULT: TodoConfig = {
 	},
 };
 
-function load(path = join(homedir(), ".pi", "agent", "configs", "opl-todo.json")): TodoConfig {
+/** Resolved per call so a custom `PI_AGENT_DIR` (pi's own agent dir) is honoured. */
+export function configPath(): string {
+	return join(getAgentDir(), "configs", "opl-todo.json");
+}
+
+function load(path = configPath()): TodoConfig {
 	try {
 		if (!existsSync(path)) return DEFAULT;
 		const raw = JSON.parse(readFileSync(path, "utf8"));

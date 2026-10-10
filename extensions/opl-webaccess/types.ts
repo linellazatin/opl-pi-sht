@@ -23,4 +23,8 @@ export interface StoredData {
   timestamp: number;
   queries?: SearchQueryResult[];
   urls?: ExtractedContent[];
+  /** True when this is the session copy: body text was capped and lives in `file`. */
+  truncated?: boolean;
+  /** Path of the spilled full body in the disk cache, when one was written. */
+  file?: string;
 }

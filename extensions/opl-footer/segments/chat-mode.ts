@@ -6,8 +6,15 @@ interface ChatModeState {
   mode: string;
 }
 
+/**
+ * Written by `opl-modes`, which may not be installed. Only a `{ mode: string }` is honoured;
+ * anything else reads as "no state", so the segment stays invisible instead of throwing.
+ */
 function readChatModeState(): ChatModeState | undefined {
-  return (globalThis as Record<string, unknown>).__chatMode as ChatModeState | undefined;
+  const state = (globalThis as Record<string, unknown>).__chatMode as unknown;
+  if (!state || typeof state !== "object") return undefined;
+  const mode = (state as { mode?: unknown }).mode;
+  return typeof mode === "string" ? { mode } : undefined;
 }
 
 export const chatModeSegment = {

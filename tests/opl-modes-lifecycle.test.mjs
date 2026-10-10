@@ -13,6 +13,20 @@ import { join } from "node:path";
 const buildDir = new URL("./.build/opl-modes", import.meta.url).pathname;
 mkdirSync(buildDir, { recursive: true });
 const hostPackage = "@earendil-works/" + "pi-coding-agent";
+
+// The stub has to carry every host value the bundled extension imports. `getAgentDir()` mirrors
+// pi's resolver (PI_CODING_AGENT_DIR else ~/.pi/agent) so the lifecycle test exercises the same
+// path the host would, instead of a second private copy of the rule.
+const STUB_HOST = [
+  'import { join } from "node:path";',
+  'import { homedir } from "node:os";',
+  "export class DynamicBorder {}",
+  "export function getAgentDir() {",
+  "  const dir = process.env.PI_CODING_AGENT_DIR;",
+  "  return dir ? dir : join(homedir(), \".pi\", \"agent\");",
+  "}",
+  "",
+].join("\n");
 const built = await Bun.build({
   entrypoints: [new URL("./support/opl-modes-host-shim.ts", import.meta.url).pathname],
   target: "node",
@@ -22,7 +36,7 @@ const built = await Bun.build({
     name: "opl-pi-host",
     setup(build) {
       build.onResolve({ filter: new RegExp(`^${hostPackage}$`) }, () => ({ path: "pi-host", namespace: "opl-stub" }));
-      build.onLoad({ filter: /.*/, namespace: "opl-stub" }, () => ({ contents: "export class DynamicBorder {}\n", loader: "js" }));
+      build.onLoad({ filter: /.*/, namespace: "opl-stub" }, () => ({ contents: STUB_HOST, loader: "js" }));
     },
   }],
 });
@@ -98,7 +112,9 @@ function mount({ tools = [], active, models = [], current, journal = [] } = {}) 
 
   modeSwitcher(pi);
   const fire = async (name, event) => {
-    for (const handler of events.get(name) ?? []) await handler(event, ctx);
+    const results = [];
+    for (const handler of events.get(name) ?? []) results.push(await handler(event, ctx));
+    return results; // handlers that rewrite the prompt return a patch; tests assert on it
   };
   const run = async (name, args = "") => {
     await commands.get(name).handler(args, ctx);
@@ -243,6 +259,65 @@ test("execute mode survives aborted/error outcomes and exits on a completed one"
   assert.equal(getMode(), "off", "a completed run exits execute mode");
 });
 
+test("the plan injected into the system prompt is capped", async () => {
+  const planDir = join(process.cwd(), ".pi", "plans");
+  mkdirSync(planDir, { recursive: true });
+  const planPath = join(planDir, "plan-huge.md");
+  const body = "# Plan: Huge\n" + Array.from({ length: 1200 }, (_, i) => `- step ${i}: ${"y".repeat(60)}`).join("\n");
+  writeFileSync(planPath, body);
+  try {
+    const h = mount({
+      tools: BASE_TOOLS,
+      active: ["read", "bash"],
+      models: [MODEL_A],
+      journal: [
+        { type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: "plan-huge.md", restoreModel: null } },
+      ],
+    });
+    await h.fire("session_start", { reason: "startup" });
+    assert.equal(getMode(), "execute", "the harness resumed execute mode");
+
+    const results = await h.fire("before_agent_start", { systemPrompt: "BASE", reason: "startup" });
+    const prompt = results.find((r) => r && typeof r.systemPrompt === "string")?.systemPrompt;
+    assert.ok(prompt, "execute mode rewrites the system prompt");
+    assert.ok(prompt.startsWith("BASE"), "the base prompt is preserved");
+    assert.ok(Buffer.byteLength(body, "utf8") > 60000, "fixture must be well over the 24 KB ceiling");
+    assert.ok(Buffer.byteLength(prompt, "utf8") < 25000, `injected prompt is ${Buffer.byteLength(prompt)} bytes`);
+    assert.match(prompt, /plan truncated: showing \d+ of \d+ bytes/);
+    assert.ok(prompt.includes(planPath), "the marker points at the plan file to read");
+    assert.ok(prompt.includes("EXECUTE MODE"), "the execute instructions still surround the plan");
+  } finally {
+    rmSync(planPath, { force: true });
+  }
+});
+
+test("a user execute template cannot bypass the injection ceiling", async () => {
+  const planDir = join(process.cwd(), ".pi", "plans");
+  mkdirSync(planDir, { recursive: true });
+  const planPath = join(planDir, "plan-huge2.md");
+  writeFileSync(planPath, "# Plan: Huge2\n" + Array.from({ length: 1200 }, (_, i) => `- step ${i}: ${"z".repeat(60)}`).join("\n"));
+  try {
+    defineMode("execute", { prompt: "CUSTOM TEMPLATE\n{plan}" });
+    const h = mount({
+      tools: BASE_TOOLS,
+      active: ["read", "bash"],
+      models: [MODEL_A],
+      journal: [
+        { type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: "plan-huge2.md", restoreModel: null } },
+      ],
+    });
+    await h.fire("session_start", { reason: "startup" });
+    const results = await h.fire("before_agent_start", { systemPrompt: "BASE", reason: "startup" });
+    const prompt = results.find((r) => r && typeof r.systemPrompt === "string")?.systemPrompt;
+    assert.ok(prompt.startsWith("BASE\n\nCUSTOM TEMPLATE"), "the custom template is still used");
+    assert.ok(Buffer.byteLength(prompt, "utf8") < 25000, `injected prompt is ${Buffer.byteLength(prompt)} bytes`);
+    assert.match(prompt, /plan truncated/);
+  } finally {
+    defineMode("execute", { prompt: undefined });
+    rmSync(planPath, { force: true });
+  }
+});
+
 test("loading a plan appends a TUI-only entry, not a model-facing message", async () => {
   const planDir = join(process.cwd(), ".pi", "plans");
   mkdirSync(planDir, { recursive: true });
@@ -262,4 +337,62 @@ test("loading a plan appends a TUI-only entry, not a model-facing message", asyn
   } finally {
     rmSync(planPath, { force: true });
   }
+});
+
+test("a plan over the entry ceiling is stored capped, pointing at the file", async () => {
+  const planDir = join(process.cwd(), ".pi", "plans");
+  mkdirSync(planDir, { recursive: true });
+  const planPath = join(planDir, "plan-long-plan.md");
+  writeFileSync(planPath, "# Plan: Long Plan\n" + Array.from({ length: 400 }, (_, i) => `- step ${i}: ${"x".repeat(60)}`).join("\n"));
+  try {
+    const h = mount({ tools: BASE_TOOLS, active: ["read"], models: [MODEL_A] });
+    h.ctx.ui.custom = async () => "save";
+    await h.run("plan", "long-plan");
+
+    const entry = h.host.journal.filter((e) => e.customType === "plan-mode").pop();
+    const size = Buffer.byteLength(entry.data.plan, "utf8");
+    assert.ok(size <= 4096, `entry copy is ${size} bytes, over the 4096 ceiling`);
+    assert.equal(entry.data.truncated, true, "the entry records that the copy is partial");
+    assert.equal(entry.data.file, planPath, "the entry points at the full plan file");
+    assert.match(entry.data.plan, /plan truncated: showing \d+ of \d+ bytes/);
+  } finally {
+    rmSync(planPath, { force: true });
+  }
+});
+
+test("the footer seam is published on session start and cleared on shutdown", async () => {
+  const h = mount({ tools: BASE_TOOLS, active: ["read"], models: [MODEL_A] });
+  assert.equal(globalThis.__agentMode.mode, "off", "module load publishes an initial state");
+  await h.fire("session_shutdown", {});
+  assert.equal(globalThis.__agentMode, undefined, "a dead session leaves no mode behind");
+  assert.equal(globalThis.__planMode, undefined);
+  assert.equal(globalThis.__chatMode, undefined);
+
+  await h.fire("session_start", { reason: "startup" });
+  assert.equal(globalThis.__agentMode.mode, "off", "the next session republishes the seam");
+  await h.fire("session_shutdown", {});
+});
+
+test("a bash call whose command is not a string is blocked by the mode gate", async () => {
+  const h = mount({ tools: BASE_TOOLS, active: ["read"], models: [MODEL_A] });
+  h.ctx.ui.custom = async () => "save";
+  await h.run("plan", "seam-probe");
+  const blocked = await h.fire("tool_call", {
+    type: "tool_call",
+    toolCallId: "c1",
+    toolName: "bash",
+    input: { command: ["echo", "hi"] },
+  });
+  assert.ok(
+    blocked.some((result) => result?.block === true && /not a string/.test(result.reason ?? "")),
+    JSON.stringify(blocked),
+  );
+  const ok = await h.fire("tool_call", {
+    type: "tool_call",
+    toolCallId: "c2",
+    toolName: "bash",
+    input: { command: "echo hi" },
+  });
+  assert.ok(!ok.some((result) => result?.block === true && /not a string/.test(result.reason ?? "")));
+  await h.fire("session_shutdown", {});
 });

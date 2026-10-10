@@ -258,7 +258,7 @@ export function sanitizeForReport(s: string, maxLines = 40): string {
   // Use strict detection: require a closing tag AND a common HTML opening tag to avoid
   // false positives on code that mentions HTML-like syntax (e.g., "use <Item> from 'react'")
   if (/<!DOCTYPE\b|<html[\s>]/i.test(cleaned) || (/<[a-z][\s\S]*>/i.test(cleaned) && cleaned.includes("</") && /<(?:div|span|p|head|body|html|table|form|script)\b/i.test(cleaned))) {
-    const firstLine = cleaned.split("\n")[0];
+    const firstLine = cleaned.split("\n")[0] ?? "";
     return truncate(firstLine, 200) + "\n  ℹ️  (HTML response truncated)";
   }
 
@@ -365,7 +365,7 @@ function parseParamCount(s: string): number | undefined {
   const match = str.match(/^([\d.]+)\s*([bmt]?|a(?:pple)?)$/);
   if (!match) return undefined;
 
-  const num = parseFloat(match[1]);
+  const num = parseFloat(match[1] ?? "");
   if (isNaN(num) || num <= 0) return undefined;
 
   const suffix = match[2];

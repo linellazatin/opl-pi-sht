@@ -10,12 +10,6 @@ export function formatInstructionScore(instructions: { pass: boolean; score: str
 export function formatTestSummary(tests: Array<{ name: string; pass: boolean; score: string }>, totalMs: number): string[] {
   return [section("SUMMARY"), ...tests.map(t => t.pass ? ok(`${t.name}: ${t.score}`) : fail(`${t.name}: ${t.score}`)), info(`Total time: ${msHuman(totalMs)}`), info(`Score: ${tests.filter(t => t.pass).length}/${tests.length} tests passed`)];
 }
-/** Legacy-compatible category recommendation. New runner uses recommendation() above. */
-export function formatRecommendation(model: string, passed: number, total: number): string[] {
-  const label = passed === total ? "STRONG" : passed >= total - 1 ? "GOOD" : passed >= total - 2 ? "USABLE" : "WEAK";
-  return [section("RECOMMENDATION"), label === "WEAK" ? fail(`${model} is ${label}`) : ok(`${model} is ${label}`)];
-}
-
 export function recommendation(reasoning: string, instructionsPass: boolean, toolsPass: boolean, coding?: { passed: number; total: number; efficiency?: { strong: number; moderate: number; weak: number; fail: number } }) {
   const reasoningPass = reasoning === "STRONG" || reasoning === "MODERATE";
   // Efficiency-weighted coding pass: STRONG=1.0, MODERATE=0.7, WEAK=0.4, FAIL=0

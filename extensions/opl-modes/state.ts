@@ -7,12 +7,17 @@ import type { AgentMode, AgentModeBlob, ModeAppearanceConfig, ModeModelConfig } 
 const state: {
   mode: AgentMode;
   activePlanFile: string | null;
+  sessionCwd: string;
   restoringModel: ModeModelConfig | null;
   refining: boolean;
   refineCount: number;
 } = {
   mode: "off",
   activePlanFile: null,
+  // Until the first `session_start` hands us the real one, the directory the harness was started
+  // in is the only candidate. Plans and the footer path must never be resolved from
+  // `process.cwd()` at the call site: a session opened elsewhere would write its plans there.
+  sessionCwd: process.cwd(),
   restoringModel: null,
   refining: false,
   refineCount: 0,
@@ -22,6 +27,23 @@ const state: {
 (globalThis as Record<string, unknown>).__agentMode = { mode: "off" };
 (globalThis as Record<string, unknown>).__planMode = { mode: "off" };
 (globalThis as Record<string, unknown>).__chatMode = { mode: "off" };
+
+/**
+ * Cross-extension seam. `opl-footer` publishes `__footerRequestRender` while a footer is
+ * mounted; `__agentMode`, `__planMode` and `__chatMode` are read by the footer's mode
+ * segment and by `opl-input`. Extensions install one directory at a time and load in any
+ * combination, so nothing here may assume the other side exists or is healthy: the value can
+ * be missing, be something else entirely, or close over a TUI that was already torn down.
+ */
+function requestFooterRender(): void {
+  const requestRender = (globalThis as Record<string, unknown>).__footerRequestRender;
+  if (typeof requestRender !== "function") return;
+  try {
+    (requestRender as () => void)();
+  } catch {
+    // A dead footer must not fail a mode transition.
+  }
+}
 
 /** Derive and sync all globalThis snapshots from unified state. */
 function syncGlobalThis(): void {
@@ -35,8 +57,23 @@ function syncGlobalThis(): void {
   // plan-family modes light up __planMode, so a custom mode cannot read as "Plan mode ON".
   (globalThis as Record<string, unknown>).__planMode = { mode: m === "plan" || m === "execute" ? m : "off" };
   (globalThis as Record<string, unknown>).__chatMode = { mode: m === "chat" ? "chat" : "off" };
-  const requestRender = (globalThis as Record<string, unknown>).__footerRequestRender;
-  if (typeof requestRender === "function") requestRender();
+  requestFooterRender();
+}
+
+/** Re-publish the seam after a fresh session starts in this process. */
+export function publishModeGlobals(): void {
+  syncGlobalThis();
+}
+
+/**
+ * Drop the seam when the session ends. A leftover value would let a footer in a later
+ * session render a mode that belongs to nobody, and the footer's own render trigger is
+ * removed with it (see `opl-footer`).
+ */
+export function clearModeGlobals(): void {
+  delete (globalThis as Record<string, unknown>).__agentMode;
+  delete (globalThis as Record<string, unknown>).__planMode;
+  delete (globalThis as Record<string, unknown>).__chatMode;
 }
 
 export function getMode(): AgentMode { return state.mode; }
@@ -126,6 +163,7 @@ export function restore(
 ): boolean {
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i];
+    if (!entry) continue; // a hole in the persisted array is not a restore candidate
     if (entry.type !== "custom" || entry.customType !== ENTRY_TYPE) continue;
 
     const data = entry.data as AgentModeBlob | undefined;
@@ -145,6 +183,7 @@ export function restore(
   // Backward compat: restore from legacy entries written by the old extensions.
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i];
+    if (!entry) continue; // a hole in the persisted array is not a restore candidate
     if (entry.type !== "custom") continue;
 
     if (entry.customType === "plan-mode") {
@@ -180,4 +219,13 @@ export function resetState(): void {
   state.refining = false;
   state.refineCount = 0;
   syncGlobalThis();
+}
+
+/** The directory the current session lives in (`.pi/plans/` is resolved against this). */
+export function getSessionCwd(): string {
+  return state.sessionCwd;
+}
+
+export function setSessionCwd(cwd: string): void {
+  if (cwd) state.sessionCwd = cwd;
 }

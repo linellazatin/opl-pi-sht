@@ -22,6 +22,7 @@ import {
 import {
 	type Answer,
 	type Question,
+	type QuestionCheck,
 	QuestionnaireParams,
 	type QuestionnaireResult,
 	type RenderOption,
@@ -42,7 +43,7 @@ export function errorResult(
 /** Validate the question list. Returns the first error message, or null when valid.
  *  Blank ids are rejected (answers are keyed by id and "" would produce an empty key),
  *  as are duplicate ids and questions with nothing selectable. */
-export function validateQuestions(questions: Question[]): string | null {
+export function validateQuestions(questions: readonly QuestionCheck[]): string | null {
 	const seenIds = new Set<string>();
 	for (const q of questions) {
 		if (q.id.trim() === "") {
@@ -303,8 +304,10 @@ export default function questionnaire(pi: ExtensionAPI) {
 						const tabs: string[] = ["← "];
 						for (let i = 0; i < questions.length; i++) {
 							const isActive = i === currentTab;
-							const isAnswered = answers.has(questions[i].id);
-							const lbl = questions[i].label;
+							const question = questions[i];
+							if (!question) continue;
+							const isAnswered = answers.has(question.id);
+							const lbl = question.label;
 							const box = isAnswered ? "■" : "□";
 							const color = isAnswered ? "success" : "muted";
 							const text = ` ${box} ${lbl} `;
@@ -326,6 +329,7 @@ export default function questionnaire(pi: ExtensionAPI) {
 					function renderOptions() {
 						for (let i = 0; i < opts.length; i++) {
 							const opt = opts[i];
+							if (!opt) continue; // a hole in the option list renders nothing rather than throwing mid-frame
 							const selected = i === optionIndex;
 							const isOther = opt.isOther === true;
 							const prefix = selected ? theme.fg("accent", "> ") : "  ";
@@ -435,7 +439,9 @@ export default function questionnaire(pi: ExtensionAPI) {
 		},
 
 		renderResult(result, _options, theme, _context) {
-			if (result.isError) {
+			// `isError` on tool results is newer than the declared floor: pi 0.87.x does not carry
+			// it in its types, and an older host leaves it undefined, which reads as "not an error".
+			if ((result as { isError?: boolean }).isError) {
 				const text = result.content[0];
 				return new Text(theme.fg("error", text?.type === "text" ? text.text : ""), 0, 0);
 			}

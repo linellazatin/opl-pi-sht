@@ -95,15 +95,16 @@ export function verifyGroundedResearch(markdown: string, fixture: GroundedResear
   const findings = markdown.match(/##\s+Findings\s*\n([\s\S]*?)(?=\n##\s|$)/i)?.[1] ?? "";
   const sourceSection = markdown.match(/##\s+Sources\s*\n([\s\S]*?)(?=\n##\s|$)/i)?.[1] ?? "";
   const citedClaims = [...findings.matchAll(/^\s*[-*]\s+(.+?)\s+\[([A-Za-z0-9]+)\]\s*$/gm)];
-  const unknownCitations = citedClaims.map(match => match[2]).filter(id => !knownSources.has(id));
+  const citationIds = citedClaims.map((match) => match[2] ?? "");
+  const unknownCitations = citationIds.filter((id) => !knownSources.has(id));
   const missingClaims: string[] = [];
   const wrongCitations: string[] = [];
   for (const claim of fixture.claims) {
-    const match = citedClaims.find(item => normalizeClaim(item[1]) === normalizeClaim(claim.text));
+    const match = citedClaims.find((item) => normalizeClaim(item[1] ?? "") === normalizeClaim(claim.text));
     if (!match) missingClaims.push(claim.text);
-    else if (match[2] !== claim.sourceId) wrongCitations.push(claim.text);
+    else if ((match[2] ?? "") !== claim.sourceId) wrongCitations.push(claim.text);
   }
-  for (const id of new Set(citedClaims.map(match => match[2]).filter(id => knownSources.has(id)))) {
+  for (const id of new Set(citationIds.filter((id) => knownSources.has(id)))) {
     const source = knownSources.get(id)!;
     if (!new RegExp(`\\[${id}\\]\\(${source.url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`).test(sourceSection)) wrongCitations.push(id);
   }

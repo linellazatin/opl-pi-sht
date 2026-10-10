@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { FooterUserConfig, StatusLineSegmentId, ColorScheme, StatusLineSegmentOptions } from "./types.js";
 import { getDefaultColors } from "./theme.js";
 import type { IconSet } from "./icons.js";
@@ -27,7 +28,7 @@ export const CONFIGURABLE_SEGMENTS: StatusLineSegmentId[] = [
   "pi", "model", "path", "git", "thinking", "caveman", "plan_mode",
   "chat_mode", "mode_switcher", "token_in", "token_out", "token_total",
   "cache_read", "cache_write", "cost", "context_pct", "context_total",
-  "session_stats", "perf_stats", "status", "codex_usage", "openrouter_usage",
+  "session_stats", "compactions", "perf_stats", "status", "codex_usage", "openrouter_usage",
 ];
 
 const DEFAULT_LAYOUTS: Record<FooterLayoutKey, StatusLineSegmentId[]> = {
@@ -54,9 +55,9 @@ let userConfigCache: FooterUserConfig | null = null;
 let userConfigCacheTime = 0;
 const CACHE_TTL = 5000; // 5 seconds
 
-function getConfigPath(): string {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-  return join(homeDir, ".pi", "agent", "configs", "opl-footer.json");
+/** Resolved per call so a custom `PI_AGENT_DIR` (pi's own agent dir) is honoured. */
+export function configPath(): string {
+  return join(getAgentDir(), "configs", "opl-footer.json");
 }
 
 export function loadUserConfig(): FooterUserConfig | null {
@@ -65,10 +66,10 @@ export function loadUserConfig(): FooterUserConfig | null {
     return userConfigCache;
   }
 
-  const configPath = getConfigPath();
+  const file = configPath();
   try {
-    if (existsSync(configPath)) {
-      const content = readFileSync(configPath, "utf-8");
+    if (existsSync(file)) {
+      const content = readFileSync(file, "utf-8");
       const parsed = JSON.parse(content);
       userConfigCache = parsed as FooterUserConfig;
       userConfigCacheTime = now;
@@ -178,9 +179,9 @@ export function setSegmentSeparator(
 }
 
 export function saveUserConfig(config: FooterUserConfig): void {
-  const configPath = getConfigPath();
-  mkdirSync(dirname(configPath), { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  const file = configPath();
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, JSON.stringify(config, null, 2) + "\n", "utf-8");
   clearUserConfigCache();
 }
 

@@ -12,6 +12,11 @@
     "_comment": "Set to true to delete the plan file automatically after plan_complete is called.",
     "cleanupOnComplete": false
   },
+  "plan": {
+    "_comment": "UTF-8 byte ceilings include the truncation marker. maxInjectBytes bounds the plan body injected by plan-refine and execute modes; maxEntryBytes bounds the TUI-only session copy. Only complete lines are retained. If the source path cannot fit, the marker uses a generic reference or shortened notice; session entries retain the full path separately. Plan files remain unchanged. Both settings require positive integers; invalid values use the defaults.",
+    "maxInjectBytes": 24000,
+    "maxEntryBytes": 4096
+  },
   "defaultNotifyTemplate": "✓ {Name} mode ON",
   "_comment_defaultNotifyTemplate": "Default notify text for any custom mode that doesn't set its own labels.notify. {Name} is replaced with the mode name, capitalized.",
   "_comment_lazyTools": "Tool names withheld from the active set at rest and enabled on demand via the load_tools tool. Only affects modes that would otherwise include them (off/execute and custom modes that list them). Core built-ins, plan_complete, and load_tools are protected and ignored. Omit or leave empty to keep all tools always active.",

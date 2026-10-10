@@ -2,11 +2,16 @@ import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
 import { extractPdfBuffer } from "./pdf.js";
-import { errorMessage, isAbortError, isPdfUrl, isPdfContentType, assertHttpUrl, type HttpUrlOptions } from "./utils.js";
+import { errorMessage, isAbortError, isPdfUrl, isPdfContentType, resolveSafeHostUrl, type HttpUrlOptions } from "./utils.js";
+import { pinnedFetch, isRedirectStatus, type PinnedResponse } from "./http.js";
 import type { ExtractedContent } from "./types.js";
 
 const CONCURRENT_LIMIT = 3;
-const MAX_FETCH_BYTES = 10 * 1024 * 1024; // 10 MB response cap
+const MAX_FETCH_BYTES = 10 * 1024 * 1024; // default response cap, overridable by maxResponseBytes
+const FETCH_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (compatible; pi-web-access/1.0)",
+  Accept: "text/html,application/xhtml+xml,application/pdf,*/*",
+};
 const FETCH_TIMEOUT_MS = 30_000;
 const MAX_REDIRECTS = 5;
 /** Ceiling on the number of URLs a single fetch_content call may include. */
@@ -16,33 +21,6 @@ const td = new TurndownService({
   headingStyle: "atx",
   codeBlockStyle: "fenced",
 });
-
-/** Read a response body into bytes, aborting past maxBytes (guards memory against huge payloads). */
-async function readBufferCapped(response: Response, maxBytes: number): Promise<ArrayBuffer> {
-  const declared = Number(response.headers.get("content-length") ?? "0");
-  if (declared > maxBytes) throw new Error(`Response too large (${declared} bytes)`);
-  const reader = response.body?.getReader();
-  if (!reader) return await response.arrayBuffer();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel().catch(() => {});
-      throw new Error(`Response exceeds ${maxBytes} byte limit`);
-    }
-    chunks.push(value);
-  }
-  const merged = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    merged.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return merged.buffer;
-}
 
 export async function fetchAllContent(
   urls: string[],
@@ -62,36 +40,47 @@ export async function fetchAllContent(
 }
 
 /**
- * Fetch with redirects followed manually so each hop is re-validated. The native
- * `redirect: "follow"` would let a public URL bounce to a private/link-local host
- * past the `assertHttpUrl` check.
+ * Fetch with redirects followed manually so each hop is re-validated, re-resolved **and
+ * re-pinned**. The native `redirect: "follow"` would let a public URL bounce to a private or
+ * link-local host past the guard; a hostname that merely reads public can answer with an
+ * internal address; and a record with a short TTL can answer one address at check time and
+ * another at connect time. So every hop goes through resolveSafeHostUrl and the socket is
+ * pinned to the addresses that hop approved.
  */
 async function fetchWithRedirectValidation(
   url: string,
   fetchSignal: AbortSignal,
   opts: HttpUrlOptions
-): Promise<Response> {
-  let current = assertHttpUrl(url, opts);
-  const headers = {
-    "User-Agent": "Mozilla/5.0 (compatible; pi-web-access/1.0)",
-    Accept: "text/html,application/xhtml+xml,application/pdf,*/*",
-  };
+): Promise<PinnedResponse> {
+  const maxResponseBytes = opts.maxResponseBytes ?? MAX_FETCH_BYTES;
+  let current = url;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const response = await fetch(current, { signal: fetchSignal, headers, redirect: "manual" });
-    if (response.status < 300 || response.status >= 400) return response;
+    const target = await resolveSafeHostUrl(current, { ...opts, signal: fetchSignal });
+    const request = {
+      signal: fetchSignal,
+      headers: FETCH_HEADERS,
+      maxResponseBytes,
+      timeoutMs: opts.timeoutMs,
+    };
+    const response = await (opts.transport ?? pinnedFetch)(target, request);
+    if (!isRedirectStatus(response.status)) return response;
     const location = response.headers.get("location");
     if (!location) return response; // 3xx without a Location: treat as final
-    await response.body?.cancel().catch(() => {});
-    current = assertHttpUrl(new URL(location, current).href, opts);
+    current = new URL(location, target.url).href;
   }
   throw new Error(`Too many redirects (max ${MAX_REDIRECTS})`);
 }
 
 async function fetchOne(url: string, signal?: AbortSignal, opts: HttpUrlOptions = {}): Promise<ExtractedContent> {
+  const deadline = new AbortController();
+  const budget = opts.timeoutMs ?? FETCH_TIMEOUT_MS;
+  // Own this timer across all hops. Bun cancels AbortSignal.timeout when its last listener
+  // is removed, so transport cleanup between literal-IP hops must not cancel the deadline.
+  const timer = setTimeout(() => deadline.abort(), budget);
   try {
     const fetchSignal = signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)])
-      : AbortSignal.timeout(FETCH_TIMEOUT_MS);
+      ? AbortSignal.any([signal, deadline.signal])
+      : deadline.signal;
     const response = await fetchWithRedirectValidation(url, fetchSignal, opts);
 
     if (!response.ok) {
@@ -101,15 +90,14 @@ async function fetchOne(url: string, signal?: AbortSignal, opts: HttpUrlOptions 
     const contentType = response.headers.get("content-type") ?? "";
 
     if (isPdfUrl(url) || isPdfContentType(contentType)) {
-      const buffer = await readBufferCapped(response, MAX_FETCH_BYTES);
-      const content = await extractPdfBuffer(buffer);
+      const content = await extractPdfBuffer(response.body);
       return { url, title: url, content, error: null };
     }
 
     const isHtml =
       contentType.includes("text/html") || contentType.includes("application/xhtml");
 
-    const body = new TextDecoder().decode(await readBufferCapped(response, MAX_FETCH_BYTES));
+    const body = response.text();
 
     if (!isHtml) {
       // Plain text, markdown, JSON, etc. — return as-is
@@ -137,5 +125,7 @@ async function fetchOne(url: string, signal?: AbortSignal, opts: HttpUrlOptions 
   } catch (err) {
     if (isAbortError(err)) return { url, title: "", content: "", error: "Aborted" };
     return { url, title: "", content: "", error: errorMessage(err) };
+  } finally {
+    clearTimeout(timer);
   }
 }

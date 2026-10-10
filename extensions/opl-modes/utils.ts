@@ -52,6 +52,7 @@ function commandSegments(command: string): string[] {
   for (let i = 0; i < command.length; i++) {
     const ch = command[i];
     const top = stack[stack.length - 1];
+    if (!top) break; // stack drained: the rest of the command is literal text
     // Single quotes are literal: nothing expands, only the closing ' matters.
     if (top.quote === "'") {
       if (ch === "'") top.quote = "";
@@ -165,9 +166,9 @@ export function extractPlanText(message: string): string | null {
 
 // ─── Plan File I/O ────────────────────────────────────────────────────────────
 
-/** Ensure .pi/plans/ exists, return its absolute path. */
-export function ensurePlanDir(): string {
-  const dir = join(process.cwd(), PLAN_DIR);
+/** Ensure <sessionCwd>/.pi/plans/ exists, return its absolute path. */
+export function ensurePlanDir(cwd: string): string {
+  const dir = join(cwd, PLAN_DIR);
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -181,7 +182,12 @@ export function titleFromFilename(filename: string): string {
   // Detect timestamp pattern: YYYY-MM-DD-HH-MM
   const tsMatch = stem.match(/^(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})$/);
   if (tsMatch) {
-    const [, y, m, d, h, min] = tsMatch;
+    // Five digit groups by the shape test above; the explicit checks are what let the compiler see
+    // that, rather than a cast.
+    const [y, m, d, h, min] = tsMatch.slice(1);
+    if (y === undefined || m === undefined || d === undefined || h === undefined || min === undefined) {
+      return stem.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    }
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const month = months[parseInt(m, 10) - 1] ?? m;
     return `${month} ${parseInt(d, 10)}, ${y} ${h}:${min}`;
@@ -203,8 +209,8 @@ export function sanitizePlanName(name: string): string | null {
 }
 
 /** List available plan files in .pi/plans/ with titles from # Plan: heading. */
-export function listPlanFiles(): PlanFileSummary[] {
-  const dir = join(process.cwd(), PLAN_DIR);
+export function listPlanFiles(cwd: string): PlanFileSummary[] {
+  const dir = join(cwd, PLAN_DIR);
   if (!existsSync(dir)) return [];
 
   const files = readdirSync(dir)
@@ -214,7 +220,7 @@ export function listPlanFiles(): PlanFileSummary[] {
   return files.map((filename) => {
     const content = readFileSync(join(dir, filename), "utf-8");
     const titleMatch = content.match(/^# Plan:\s*(.+)$/m);
-    const title = titleMatch ? titleMatch[1].trim() : titleFromFilename(filename);
+    const title = titleMatch?.[1] ? titleMatch[1].trim() : titleFromFilename(filename);
     return { name: filename, title };
   });
 }
@@ -265,4 +271,8 @@ export function applyLabelColor(theme: Theme, color: string, text: string): stri
   } catch {
     return text;
   }
+}
+/** Absolute path of a plan file inside the session directory. */
+export function planFilePath(cwd: string, filename: string): string {
+  return join(cwd, PLAN_DIR, filename);
 }

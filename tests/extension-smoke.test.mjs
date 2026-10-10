@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { test } from "bun:test";
 
-const names = new Set(["opl-browser", "opl-footer", "opl-guardian", "opl-init", "opl-input", "opl-modes", "opl-questionnaire", "opl-todo", "opl-webaccess", "opl-simplebench", "opl-ctxtrim"]);
+const names = new Set(["opl-browser", "opl-configurator", "opl-footer", "opl-guardian", "opl-init", "opl-input", "opl-modes", "opl-questionnaire", "opl-todo", "opl-webaccess", "opl-simplebench", "opl-ctxtrim"]);
 const extension = process.env.OPL_EXTENSION;
 assert.ok(extension && names.has(extension), `OPL_EXTENSION must name a known extension; got ${extension || "(unset)"}`);
 
@@ -25,13 +25,26 @@ test(`bundles ${extension} extension entrypoint`, () => {
     assert.match(source, /tree truncated at/);
   }
 
+  if (extension === "opl-configurator") {
+    const source = readFileSync(`extensions/${extension}/index.ts`, "utf8");
+    assert.match(source, /registerCommand\("configurator"/);
+  }
+
   if (extension === "opl-footer") {
     const source = readFileSync(`extensions/${extension}/index.ts`, "utf8");
-    assert.match(source, /registerCommand\("configure-opl"/);
+    assert.doesNotMatch(source, /registerCommand\("configure-opl"/, "the command moved to opl-configurator");
+    assert.match(source, /registerFooterConfiguratorTab/, "the footer publishes a configurator tab");
   }
 
   if (extension === "opl-guardian") {
     JSON.parse(readFileSync("configs/opl-guardian.json.sample", "utf8"));
+  }
+
+  if (extension === "opl-simplebench") {
+    const source = readFileSync(`extensions/${extension}/index.ts`, "utf8");
+    assert.match(source, /parameters: Type\.Object\(/, "the model-facing schema must be TypeBox");
+    assert.doesNotMatch(source, /require\("node:/, "an ESM module must not call require()");
+    assert.doesNotMatch(source, /\} as any,/, "tool parameters must not be an untyped literal");
   }
 
   if (extension === "opl-modes") {

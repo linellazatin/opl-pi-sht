@@ -35,7 +35,8 @@ export default function (pi: ExtensionAPI) {
     description:
       `Drive a real Chromium browser (Playwright) for web testing and inspection. One dispatcher tool; pick action: ${ACTIONS}. ` +
       "navigate(url|back|forward|reload); snapshot (accessibility tree); extract (rendered-page markdown, optionally scoped to selector); screenshot (saved to file, not inlined); " +
-      "click/fill/hover/select by CSS selector; press(key); evaluate(script in page); console/network (captured for active page); " +
+      "click/fill/hover/select by CSS selector; press(key); evaluate(script in page); console/network (captured per page); " +
+      "index selects which page a page-scoped action runs on; without it the selected page is used and a stale selection is an error. " +
       "wait_for(selector|text); pages/new_page/select_page/close_page; resize(width,height); get(responseId) to retrieve a stored large result; close to shut the browser. " +
       "Large outputs return a preview + responseId; call action:get with that id for the full text.",
     parameters: Type.Object({
@@ -48,14 +49,14 @@ export default function (pi: ExtensionAPI) {
       script: Type.Optional(Type.String({ description: "evaluate: JS expression run in the page" })),
       path: Type.Optional(Type.String({ description: "screenshot: output file path" })),
       fullPage: Type.Optional(Type.Boolean({ description: "screenshot: capture full scrollable page" })),
-      index: Type.Optional(Type.Number({ description: "select_page/close_page: page index" })),
+      index: Type.Optional(Type.Number({ description: "page-scoped actions: act on this page index instead of the selected one (see pages)" })),
       timeoutMs: Type.Optional(Type.Number({ description: "wait_for: timeout in ms" })),
       width: Type.Optional(Type.Number({ description: "resize: viewport width" })),
       height: Type.Optional(Type.Number({ description: "resize: viewport height" })),
       responseId: Type.Optional(Type.String({ description: "get: id from a previous large result" })),
       offset: Type.Optional(Type.Number({ description: "get: character offset to continue a truncated retrieval" })),
     }),
-    async execute(_toolCallId, params) {
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const p = params as BrowserParams & { responseId?: string; offset?: number };
 
       if (p.action === "get") {
@@ -76,7 +77,7 @@ export default function (pi: ExtensionAPI) {
 
       let result;
       try {
-        result = await runAction(p, cfg);
+        result = await runAction(p, cfg, ctx.cwd);
       } catch (e) {
         return err(`browser ${p.action}: ${e instanceof Error ? e.message : String(e)}`);
       }

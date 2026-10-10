@@ -24,6 +24,13 @@ interface TodoDetails {
 	error?: string;
 }
 
+interface TodoStateSnapshot {
+	todos: Todo[];
+	nextId: number;
+}
+
+const TODO_STATE_ENTRY = "opl-todo-state";
+
 // ── Widget constants ─────────────────────────────────────────────────────────
 
 const TodoParams = Type.Object({
@@ -32,20 +39,34 @@ const TodoParams = Type.Object({
 	id: Type.Optional(Type.Number({ description: "Todo ID (for toggle)" })),
 });
 
+/** Rows per terminal before the overlay has reported one (first frame, or a non-TUI host). */
+const FALLBACK_ROWS = 24;
+
+/** How many todo lines fit in `rows` terminal rows, given the configured height budget and the
+ *  box's own chrome (border, title, progress line, footer). */
+export function widgetMaxItems(rows: number): number {
+	const usable = (rows > 0 ? rows : FALLBACK_ROWS) * CONFIG.widget.maxHeightPercent;
+	return Math.max(3, Math.floor(usable / 100) - 5);
+}
+
 /**
  * Persistent top-right overlay. Non-capturing — never steals editor focus.
  * Reads the shared `todos` array directly so render() always reflects live state.
  */
-class TodoWidgetComponent {
+export class TodoWidgetComponent {
 	constructor(
 		private readonly todos: Todo[],
 		private readonly theme: Theme,
+		// The height comes from the overlay renderer, which reports the terminal it is drawing
+		// into on every frame. The harness terminal size is not that: with stdout redirected, or
+		// an embedded terminal of a different shape, it describes some other screen.
+		private readonly terminalRows: () => number = () => FALLBACK_ROWS,
 	) {}
 
 	render(width: number): string[] {
 		const th = this.theme;
 		const t = this.todos;
-		const maxItems = Math.max(3, Math.floor((process.stdout.rows || 24) * CONFIG.widget.maxHeightPercent / 100) - 5);
+		const maxItems = widgetMaxItems(this.terminalRows());
 		const W = Math.max(width, CONFIG.widget.minWidth);
 
 		const b = (s: string) => th.fg("border", s);
@@ -168,6 +189,8 @@ export default function (pi: ExtensionAPI) {
 	// ── Widget handles ─────────────────────────────────────────────────────
 	let overlayHandle: OverlayHandle | undefined;
 	let tuiRef: TUI | undefined;
+	// Terminal height as the overlay renderer last reported it. 0 until the first frame.
+	let overlayRows = 0;
 	let autoHideTimer: ReturnType<typeof setTimeout> | undefined;
 
 	function showWidget(): void {
@@ -194,6 +217,15 @@ export default function (pi: ExtensionAPI) {
 		nextId = 1;
 
 		for (const entry of ctx.sessionManager.getBranch()) {
+			if (entry.type === "custom" && entry.customType === TODO_STATE_ENTRY) {
+				const state = entry.data as TodoStateSnapshot | undefined;
+				if (state && Array.isArray(state.todos) && typeof state.nextId === "number") {
+					todos.length = 0;
+					todos.push(...state.todos);
+					nextId = state.nextId;
+				}
+				continue;
+			}
 			if (entry.type !== "message") continue;
 			const msg = entry.message;
 			if (msg.role !== "toolResult" || msg.toolName !== "todo") continue;
@@ -226,7 +258,7 @@ export default function (pi: ExtensionAPI) {
 		void ctx.ui.custom<void>(
 			(tui, theme, _kb, _done) => {
 				tuiRef = tui;
-				return new TodoWidgetComponent(todos, theme);
+				return new TodoWidgetComponent(todos, theme, () => overlayRows);
 			},
 			{
 				overlay: true,
@@ -236,7 +268,12 @@ export default function (pi: ExtensionAPI) {
 					offsetY: 0,
 					width: `${CONFIG.widget.widthPercent}%`,
 					nonCapturing: true,
-					visible: (w) => w >= 80,
+					// pi-tui calls this every frame with the dimensions it is about to draw into, so the
+					// widget sizes itself against the screen it is actually on.
+					visible: (w, h) => {
+						overlayRows = h;
+						return w >= 80;
+					},
 				},
 				onHandle: (h) => {
 					overlayHandle = h;
@@ -259,12 +296,16 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerShortcut(CONFIG.shortcuts.resetDone as KeyId, {
-		description: "Clear completed todos (only when all are done)",
+		description: "Clear completed todos",
 		handler: (_ctx) => {
-			if (todos.length === 0 || !todos.every((t) => t.done)) return;
-			todos.length = 0;
-			nextId = 1;
-			hideWidget();
+			const remaining = todos.filter((todo) => !todo.done);
+			if (remaining.length === todos.length) return;
+			todos.splice(0, todos.length, ...remaining);
+			if (todos.length === 0) nextId = 1;
+			clearTimeout(autoHideTimer);
+			pi.appendEntry(TODO_STATE_ENTRY, { todos: [...todos], nextId } satisfies TodoStateSnapshot);
+			if (todos.length === 0) hideWidget();
+			else showWidget();
 		},
 	});
 

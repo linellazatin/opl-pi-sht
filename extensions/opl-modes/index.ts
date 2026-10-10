@@ -41,6 +41,7 @@ import {
   PLAN_DIR,
   buildExecutePrompt,
   buildRefinePrompt,
+  capPlan,
   USER_CONFIG,
   MODE_REGISTRY,
   getModeDefinition,
@@ -57,6 +58,7 @@ import {
   extractPlanText,
   isPlanLike,
   ensurePlanDir,
+  planFilePath,
   titleFromFilename,
   listPlanFiles,
   sanitizePlanName,
@@ -78,6 +80,10 @@ import {
   resetState,
   getRefineCount,
   incrementRefineCount,
+  publishModeGlobals,
+  clearModeGlobals,
+  getSessionCwd,
+  setSessionCwd,
 } from "./state.js";
 import { showSelectMenu } from "./menus.js";
 
@@ -260,7 +266,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   function getPlanFilePath(): string | null {
     const file = getActivePlanFile();
     if (!file) return null;
-    return join(process.cwd(), PLAN_DIR, file);
+    return planFilePath(getSessionCwd(), file);
   }
 
   function getPlanDisplayTitle(): string | null {
@@ -269,7 +275,8 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     const filePath = getPlanFilePath();
     if (filePath && existsSync(filePath)) {
       const heading = readFileSync(filePath, "utf-8").match(/^# Plan:\s*(.+)$/m);
-      if (heading) return heading[1].trim();
+      const captured = heading?.[1];
+      if (captured) return captured.trim();
     }
     return titleFromFilename(file);
   }
@@ -444,7 +451,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   /** Open the mode picker. Handles all mode transitions including cross-mode switches. */
   async function openModePicker(ctx: ExtensionContext): Promise<void> {
     const current = getMode();
-    const planFiles = listPlanFiles();
+    const planFiles = listPlanFiles(getSessionCwd());
 
     // Build mode list dynamically from registry (skip invisible/disabled modes)
     const registryModes = Array.from(MODE_REGISTRY.entries())
@@ -551,6 +558,8 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   // ─── Event: session_start ──────────────────────────────────────────────────────
 
   pi.on("session_start", async (event, ctx) => {
+    // Re-publish the footer seam: a previous session in this process cleared it on shutdown.
+    publishModeGlobals();
     if (event.reason === "startup") {
       if (pi.getFlag("chat") === true && getMode() === "off") {
         enterChatMode(ctx);
@@ -563,6 +572,12 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     }
 
     await syncStateFromBranch(ctx, event.reason === "resume" || event.reason === "fork");
+  });
+
+  pi.on("session_shutdown", async () => {
+    // Hand the seam back: an orphaned mode global would keep rendering a mode that no
+    // longer belongs to any live session.
+    clearModeGlobals();
   });
 
   // ─── Event: before_agent_start ──────────────────────────────────────────
@@ -578,7 +593,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       const filePath = getPlanFilePath();
       if (filePath && existsSync(filePath)) {
         const planContent = readFileSync(filePath, "utf-8");
-        return { systemPrompt: event.systemPrompt + "\n\n" + buildRefinePrompt(planContent) };
+        return { systemPrompt: event.systemPrompt + "\n\n" + buildRefinePrompt(planContent, filePath) };
       }
     }
     
@@ -590,12 +605,14 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       const customTemplate = modeDef.prompt;
       if (typeof customTemplate === "string" && customTemplate.trim().length > 0) {
         // User-configured template via modes.execute.prompt — {plan} is replaced with the plan file content.
+        // Capped here too: a custom template must not become a way around the injection budget.
+        const capped = capPlan(planContent, USER_CONFIG.plan.maxInjectBytes, filePath).text;
         const filled = customTemplate.includes("{plan}")
-          ? customTemplate.replace("{plan}", planContent)
-          : `${customTemplate}\n\nPlan:\n${planContent}`;
+          ? customTemplate.replace("{plan}", capped)
+          : `${customTemplate}\n\nPlan:\n${capped}`;
         return { systemPrompt: event.systemPrompt + "\n\n" + filled };
       }
-      return { systemPrompt: event.systemPrompt + "\n\n" + buildExecutePrompt(planContent) };
+      return { systemPrompt: event.systemPrompt + "\n\n" + buildExecutePrompt(planContent, filePath) };
     }
     
     // Generic mode prompt from registry
@@ -628,7 +645,13 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     if (event.toolName !== "bash") return {};
     if (!modeDef?.safePatterns && !modeDef?.destructivePatterns) return {};
 
-    const command = event.input.command as string;
+    if (typeof event.input.command !== "string") {
+      // Uninspectable commands are refused rather than coerced: String(["rm","-rf"]) would
+      // reach the pattern matchers as "rm,-rf" and slip past a segment-based safe list.
+      return { block: true, reason: `[mode-switcher] Blocked a bash tool call whose command was not a string [${mode} mode].` };
+    }
+
+    const command = event.input.command;
     const reason = bashBlockReason(command, modeDef.safePatterns, modeDef.destructivePatterns);
     if (reason) {
       return { block: true, reason: `[mode-switcher] Command blocked — ${reason} [${mode} mode]` };
@@ -699,7 +722,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     setRefining(false);
 
     if (planText) {
-      const planDir = ensurePlanDir();
+      const planDir = ensurePlanDir(getSessionCwd());
       const activeFile = getActivePlanFile();
       let filename = activeFile;
       if (!filename) {
@@ -850,17 +873,20 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       ctx.ui.notify(USER_CONFIG.labels.plan.notifyLoaded.replace("{title}", displayName), "info");
     }
 
-    const filePath = join(process.cwd(), PLAN_DIR, filename);
+    const filePath = planFilePath(getSessionCwd(), filename);
     if (existsSync(filePath)) {
       const planContent = readFileSync(filePath, "utf-8");
-      pi.appendEntry("plan-mode", { title: displayName, plan: planContent });
+      // The entry copy is display/session only (plain custom entries never reach the
+      // model), but it is written to the session file forever, so it gets its own budget.
+      const entry = capPlan(planContent, USER_CONFIG.plan.maxEntryBytes, filePath);
+      pi.appendEntry("plan-mode", { title: displayName, plan: entry.text, truncated: entry.truncated, file: filePath });
     }
   }
 
   // ─── Entry renderer for TUI-only plan cards (never sent to the model) ──────
 
   pi.registerEntryRenderer("plan-mode", (entry, _options, theme) => {
-    const data = (entry.data ?? {}) as { title?: string; plan?: string };
+    const data = (entry.data ?? {}) as { title?: string; plan?: string; truncated?: boolean; file?: string };
     const border = new DynamicBorder((s: string) => theme.fg("border", s));
     const container = new Container();
     container.addChild(border);
@@ -869,6 +895,9 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     if (body) {
       container.addChild(new Spacer());
       container.addChild(new Text(body));
+    }
+    if (data.truncated) {
+      container.addChild(new Text(theme.fg("muted", `✂ truncated copy — full plan: ${data.file ?? PLAN_DIR}`)));
     }
     container.addChild(border);
     return container;
@@ -982,7 +1011,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       if (!input) {
         const current = getMode();
         if (current === "off") {
-          const files = listPlanFiles();
+          const files = listPlanFiles(getSessionCwd());
           if (files.length === 0) {
             await promptNameAndEnterPlanMode(ctx);
           } else {
@@ -1025,7 +1054,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
         return;
       }
       const filename = `${PLAN_FILE_PREFIX}${sanitized}.md`;
-      const filePath = join(process.cwd(), PLAN_DIR, filename);
+      const filePath = planFilePath(getSessionCwd(), filename);
 
       if (existsSync(filePath)) {
         if (getMode() !== "off") enterOffMode(ctx, undefined, true);
@@ -1078,13 +1107,14 @@ export default function modeSwitcher(pi: ExtensionAPI) {
           pi.sendUserMessage("Execute the plan steps now.", { deliverAs: "followUp" });
           return;
         }
-        const files = listPlanFiles();
+        const files = listPlanFiles(getSessionCwd());
         if (files.length === 0) {
           if (ctx.hasUI) ctx.ui.notify("No plan files found. Run /plan first.", "warning");
           return;
         }
         if (files.length === 1) {
-          await startExecute(files[0].name);
+          const only = files[0];
+          if (only) await startExecute(only.name);
           return;
         }
         const items: SelectItem[] = files.map(f => ({ value: f.name, label: f.title }));
@@ -1100,7 +1130,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
         return;
       }
       const filename = `${PLAN_FILE_PREFIX}${sanitized}.md`;
-      const filePath = join(process.cwd(), PLAN_DIR, filename);
+      const filePath = planFilePath(getSessionCwd(), filename);
       if (!existsSync(filePath)) {
         if (ctx.hasUI) ctx.ui.notify(`Plan "${input}" not found. Check /plan for available plans.`, "warning");
         return;
@@ -1124,6 +1154,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
 
     const idx = order.indexOf(current);
     const next = idx === -1 ? order[0] : order[(idx + 1) % order.length];
+    if (!next) return; // order is non-empty above; this is what lets the branches below take a string
     if (next === current) return;
 
     if (next === "off") {

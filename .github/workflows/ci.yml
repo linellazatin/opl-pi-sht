@@ -14,10 +14,47 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
       - uses: oven-sh/setup-bun@v2
-      - run: npm install
+      - run: npm ci
+      - name: Typecheck extensions
+        run: npm run typecheck
       - run: npm test
       - name: Audit nested extension deps
         run: |
           cd extensions/opl-browser && npm audit --omit=dev --audit-level=high
           cd ../opl-webaccess && npm audit --omit=dev --audit-level=high
+
+  # The package declares a floor of pi >=0.87.0. This job pins all three host packages to that
+  # floor and runs the same suite there, so the floor is exercised instead of only asserted.
+  # The machine's managed pi install must not leak in: without the neutralisation below,
+  # tests/pi-host-loader.test.mjs prefers it and the floor never runs. OPL_PI_HOST_SOURCE makes
+  # that preference a hard failure rather than a silently greener job.
+  floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - uses: oven-sh/setup-bun@v2
+      - run: npm ci
+      - name: Pin the declared floor
+        run: >
+          npm install --no-save --no-audit --no-fund
+          @earendil-works/pi-coding-agent@0.87.0
+          @earendil-works/pi-tui@0.87.0
+          @earendil-works/pi-ai@0.87.0
+          typebox@1.3.27
+      - name: Typecheck at the floor
+        run: npm run typecheck
+        env:
+          PI_CODING_AGENT_DIR: /tmp/no-agent-dir
+          PI_MANAGED_INSTALL_ROOT: /tmp/no-install-root
+      - name: Test at the floor
+        run: npm test
+        env:
+          PI_CODING_AGENT_DIR: /tmp/no-agent-dir
+          PI_MANAGED_INSTALL_ROOT: /tmp/no-install-root
+          OPL_PI_HOST_SOURCE: devDependency pi 0.87.0

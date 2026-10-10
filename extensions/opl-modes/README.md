@@ -11,7 +11,7 @@ Unified mode manager for Pi. It provides normal, read-only chat, read-only plann
 - `--chat` and `--plan` start Pi in the corresponding read-only mode.
 - The configured cycle shortcut rotates through enabled visible modes. Execute mode is excluded from cycling because it requires an active plan. The default `ctrl+alt+m` does not collide with any built-in Pi keybinding; set `shortcuts.cycleMode` to rebind.
 
-Plans are Markdown files under `.pi/plans/` with the `plan-` filename prefix. A plan name must contain at least one letter or digit, so `/plan .` or `/plan --` is rejected instead of producing an untitled `plan-.md`. Loading a plan appends a TUI-only card (via `registerEntryRenderer`) so the plan text never enters the model context; the execute-mode system prompt is the single model-facing copy of the plan. `plan_complete` is available in execute mode and in any mode that sets `allowPlanComplete`. On completion, the plan file is deleted when `cleanup.cleanupOnComplete` is enabled. If execution ends without `plan_complete`, execute mode is exited automatically at Pi's `agent_before_settle` boundary (added in Pi 0.87.0) — but only when the run settled as `completed`: an aborted (ESC) or errored run keeps execute mode active so the plan can be resumed. On Pi < 0.87.0 this auto-exit is unavailable because the boundary is never emitted; `plan_complete` still exits the mode on any version.
+Plans are Markdown files under `<session directory>/.pi/plans/` with the `plan-` filename prefix - the directory comes from `ExtensionContext.cwd`, captured at `session_start`, so a session opened in one project never reads or writes another project's plans. A plan name must contain at least one letter or digit, so `/plan .` or `/plan --` is rejected instead of producing an untitled `plan-.md`. Loading a plan appends a TUI-only card (via `registerEntryRenderer`) so the plan text never enters the model context; the execute-mode system prompt is the single model-facing copy of the plan, capped at `plan.maxInjectBytes` (default 24 KB), truncating on a line boundary and ending with a marker that names the plan file — the file on disk stays authoritative and is never rewritten. The card stores at most `plan.maxEntryBytes` (default 4 KB) and shows the same marker. `plan_complete` is available in execute mode and in any mode that sets `allowPlanComplete`. On completion, the plan file is deleted when `cleanup.cleanupOnComplete` is enabled. If execution ends without `plan_complete`, execute mode is exited automatically at Pi's `agent_before_settle` boundary (added in Pi 0.87.0) — but only when the run settled as `completed`: an aborted (ESC) or errored run keeps execute mode active so the plan can be resumed. On Pi < 0.87.0 this auto-exit is unavailable because the boundary is never emitted; `plan_complete` still exits the mode on any version.
 
 ## Extension features
 
@@ -35,7 +35,7 @@ A custom mode with no `tools` array inherits **all** tools, including `write` an
 
 `off` behaves the same way: it restores the tools that were active before the mode (never a wider set). Set `modes.off.tools` to pin the resting tool set instead — for example to keep `subagent`/`browser` out of normal mode entirely. Pinning replaces the snapshot taken on mode entry, so a later mode that lists no `tools` inherits the pinned set rather than the older, wider one. `load_tools` is offered in `off` because withheld lazy tools are otherwise unreachable there.
 
-Model overrides are resolved through Pi's model registry when entering a mode. A blank or partial `model` (for example `{ "provider": "", "id": "" }`) is treated as **no override**, so the mode keeps the current model instead of warning `Model not found: /`. The previously active model is captured once per mode and restored on exit; the restore point is persisted in the mode session entry, so `/reload` and `/resume` inside a mode no longer lose it. If the restore target is gone from the registry it is dropped immediately; if it exists but has no credentials (before `/login`, say) the restore is retried once and then released, so a stale point cannot block future captures indefinitely. `Pi.setModel` is session-scoped: it never rewrites your configured `defaultProvider`/`defaultModel`, but it does append a model change to the session transcript, which is why the restore point is persisted alongside the mode. Changes are serialized, so a rapid mode exit cannot leave a superseded mode model active. Note that setting `modes.off.model` makes OFF a pinned baseline: it is applied on every mode exit *and* at session start, overriding `--model` and the configured default. Use Pi theme color tokens for widget label colors.
+Model overrides are resolved through Pi's model registry when entering a mode. A blank or partial `model` (for example `{ "provider": "", "id": "" }`) is treated as **no override**, so the mode keeps the current model instead of warning `Model not found: /`. The previously active model is captured once per mode and restored on exit; the restore point is persisted in the mode session entry, so `/reload` and `/resume` inside a mode no longer lose it. If the restore target is gone from the registry it is dropped immediately; if it exists but has no credentials (before `/login`, say) the restore is retried once and then released, so a stale point cannot block future captures indefinitely. `pi.setModel` is session-scoped: it never rewrites your configured `defaultProvider`/`defaultModel`, but it does append a model change to the session transcript, which is why the restore point is persisted alongside the mode. Changes are serialized, so a rapid mode exit cannot leave a superseded mode model active. Note that setting `modes.off.model` makes OFF a pinned baseline: it is applied on every mode exit *and* at session start, overriding `--model` and the configured default. Use Pi theme color tokens for widget label colors.
 
 Mode state is persisted in session entries and restored on session resume or branch changes. Pi ignores tool names it does not know, so a `tools` list with a typo would silently lose tools: every mode entry checks the list against the registered tools and warns once per unknown name per session. The `mode-switcher` entry type and legacy chat/plan event identifiers are compatibility contracts. On resume, an unknown mode name in a session entry is ignored (falling back to normal), and plan filenames containing path separators or `..` are dropped, so a stale or foreign branch cannot leave the session unrestricted or point plan reads outside `.pi/plans/`.
 
@@ -83,6 +83,8 @@ Create `~/.pi/agent/configs/opl-modes.json` or copy [`configs/opl-modes.json.sam
 | `ui.hideNotify` / `ui.hideWidget` | Suppress mode notifications or widgets. |
 | `shortcuts.cycleMode` | Keybinding for cycling enabled visible modes. |
 | `cleanup.cleanupOnComplete` | Delete the active plan after successful `plan_complete`. |
+| `plan.maxInjectBytes` | Bytes of plan text allowed into the system prompt for execute or refine (default `24000`). The UTF-8 cap includes the marker and retains complete lines. If the source path cannot fit, the marker refers to the plan file; very small budgets use a shortened notice. The file itself is never modified. Configured ceilings must be positive integers; invalid values fall back to defaults. |
+| `plan.maxEntryBytes` | Bytes of plan text stored in the `plan-mode` session entry (default `4096`). The cap includes the marker; the card retains the full file path separately. |
 | `defaultNotifyTemplate` | Notification template for custom modes; `{Name}` is capitalized mode name. |
 | `modes.chat.tools` / `modes.plan.tools` | Replace the respective built-in read-only tool lists. |
 | `chatAllowedTools` / `planAllowedTools` | **Deprecated compatibility aliases** for the built-in tool lists. They are used only when the corresponding `modes.<name>.tools` is omitted; migrate to `modes.chat.tools` or `modes.plan.tools`. |
@@ -113,8 +115,6 @@ Use `modes.<name>.appearance` to keep any mode's visual identity with its defini
 
 `prefix`, `prefixColor`, and `borderColor` style `opl-input`; omitted fields use its compiled mode defaults. `modeColor` styles the value in `opl-footer`'s `mode_switcher` segment; if omitted, the footer uses hardcoded `muted`. Colors accept Pi theme tokens, six-digit hex, or the three-digit `#abc` shorthand (expanded to `#aabbcc`).
 
-Model overrides are resolved through Pi's model registry when entering a mode and the previously active model is restored on exit when applicable. Changes are serialized, so a rapid mode exit cannot leave a superseded mode model active. Use Pi theme color tokens for widget label colors.
-
 ### Lazy tool loading
 
 `lazyTools` withholds heavy tool schemas from the active set until the model actually needs them, keeping the system-prompt prefix (and its prompt-cache write) smaller every session:
@@ -135,6 +135,18 @@ Behavior:
 - A mode `prompt` that instructs the model to use a lazy tool must also tell it to call `load_tools` first, otherwise the instruction names a tool the model cannot see. The bundled `research` mode does exactly that.
 
 Caching note: activating a lazy tool mid-session preserves the cached prefix on models with native deferred tool loading (Anthropic 4.5+, OpenAI gpt-5.4+) and otherwise triggers one prompt-cache rewrite from that point. It is most effective for tools you use occasionally (delegation, browser automation, benchmarking).
+
+## Cross-extension seams
+
+Extensions install one directory at a time and load in any combination, so `globalThis` is
+the only channel between them. `opl-modes` publishes `__agentMode`, `__planMode` and
+`__chatMode`; `opl-footer` publishes `__footerRequestRender` while a footer is mounted.
+
+Nothing may assume the other side is present or healthy. The render trigger is checked for
+being a function and called inside a `try`: a footer whose TUI was already torn down must not
+fail a mode transition. `session_start` re-publishes the three mode globals and
+`session_shutdown` deletes them, so a later session in the same process never reads a mode
+that belongs to a dead one.
 
 ## Architecture
 

@@ -6,8 +6,21 @@ interface AgentModeState {
   appearance?: { modeColor?: string };
 }
 
+/**
+ * Written by `opl-modes`, which may not be installed, and may be written by anything else
+ * that claims the name. Only a `{ mode: string }` is honoured; anything else renders nothing
+ * rather than throwing inside the footer's render loop.
+ */
 function readAgentModeState(): AgentModeState | undefined {
-  return (globalThis as Record<string, unknown>).__agentMode as AgentModeState | undefined;
+  const state = (globalThis as Record<string, unknown>).__agentMode as unknown;
+  if (!state || typeof state !== "object") return undefined;
+  const { mode, appearance } = state as { mode?: unknown; appearance?: unknown };
+  if (typeof mode !== "string" || !mode) return undefined;
+  const modeColor =
+    appearance && typeof appearance === "object"
+      ? (appearance as { modeColor?: unknown }).modeColor
+      : undefined;
+  return { mode, ...(typeof modeColor === "string" ? { appearance: { modeColor } } : {}) };
 }
 
 export const modeSwitcherSegment = {

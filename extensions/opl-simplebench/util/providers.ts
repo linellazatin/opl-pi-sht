@@ -6,8 +6,8 @@
  * @writtenby VTSTech — https://www.vts-tech.org
  */
 import * as fs from "node:fs";
-import * as path from "node:path";
-import os from "node:os";
+import { join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { debugLog } from "./debug";
 
 /** Minimal shape of Pi's extension context that provider detection reads. Keeps this module
@@ -41,11 +41,23 @@ export const EXTENSION_VERSION = "1.3.4";
  *
  * @example
  * ```typescript
- * console.log(MODELS_JSON_PATH);
+ * Pi reads it from its own agent directory, so `modelsJsonPath()` resolves it per call
+ * and a custom `PI_AGENT_DIR` is honoured.
+ *
+ * @example
+ * ```typescript
+ * console.log(modelsJsonPath());
  * // Output: "/home/user/.pi/agent/models.json"
  * ```
  */
-export const MODELS_JSON_PATH: string = path.join(os.homedir(), ".pi", "agent", "models.json");
+export function modelsJsonPath(): string {
+  return join(getAgentDir(), "models.json");
+}
+
+/** Pi's credential store, resolved the same way as {@link modelsJsonPath}. */
+export function authJsonPath(): string {
+  return join(getAgentDir(), "auth.json");
+}
 
 // ============================================================================
 // Types
@@ -189,8 +201,9 @@ export function getOllamaBaseUrl(): string {
   const now = Date.now();
   if (_ollamaBaseUrlCache && now - _ollamaBaseUrlCache.ts < CACHE_TTL_MS) return _ollamaBaseUrlCache.data;
   try {
-    if (fs.existsSync(MODELS_JSON_PATH)) {
-      const raw = fs.readFileSync(MODELS_JSON_PATH, "utf-8");
+    const file = modelsJsonPath();
+    if (fs.existsSync(file)) {
+      const raw = fs.readFileSync(file, "utf-8");
       const config = JSON.parse(raw) as PiModelsJson;
       const baseUrl = config?.providers?.["ollama"]?.baseUrl;
       if (baseUrl) {
@@ -234,8 +247,9 @@ export function readModelsJson(): PiModelsJson {
   const now = Date.now();
   if (_modelsJsonCache && now - _modelsJsonCache.ts < CACHE_TTL_MS) return _modelsJsonCache.data;
   try {
-    if (fs.existsSync(MODELS_JSON_PATH)) {
-      const raw = fs.readFileSync(MODELS_JSON_PATH, "utf-8");
+    const file = modelsJsonPath();
+    if (fs.existsSync(file)) {
+      const raw = fs.readFileSync(file, "utf-8");
       const data = JSON.parse(raw) as PiModelsJson;
       _modelsJsonCache = { data, ts: now };
       return data;
@@ -244,92 +258,6 @@ export function readModelsJson(): PiModelsJson {
   const empty = { providers: {} };
   _modelsJsonCache = { data: empty, ts: now };
   return empty;
-}
-
-/**
- * Write Pi's models.json configuration back to disk.
- *
- * Uses an atomic write-then-rename pattern: the new content is first written
- * to a `.tmp` sibling file, then renamed over the target. This ensures
- * concurrent readers never see a partially-written file.
- *
- * NOTE: The write-then-rename pattern provides filesystem-level atomicity
- * but does NOT protect against concurrent read-modify-write cycles (e.g.
- * two processes both read the file, mutate in memory, then write back).
- * If that becomes a concern in the future, file-based locking (e.g. `proper-lockfile`)
- * should be added around the read-modify-write sequence.
- *
- * @param data - The configuration object to write
- *
- * @example
- * ```typescript
- * const config = readModelsJson();
- * config.providers["ollama"] = {
- *   baseUrl: "http://localhost:11434/v1",
- *   models: [{ id: "qwen3:0.6b" }]
- * };
- * writeModelsJson(config);
- * ```
- */
-export function writeModelsJson(data: PiModelsJson): void {
-  const dir = path.dirname(MODELS_JSON_PATH);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  const tmpPath = MODELS_JSON_PATH + ".tmp";
-  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2) + "\n", "utf-8");
-  fs.renameSync(tmpPath, MODELS_JSON_PATH);
-  // Invalidate cache so next read picks up the written data
-  _modelsJsonCache = null;
-  _ollamaBaseUrlCache = null;
-}
-
-// In-memory mutex for models.json write operations
-let _modelsJsonLock: Promise<void> | null = null;
-
-/**
- * Acquire the models.json write lock.
- * Returns a release function that MUST be called when done.
- * Prevents concurrent read-modify-write cycles from different extensions.
- */
-export async function acquireModelsJsonLock(): Promise<{ release: () => void }> {
-  // Wait for any existing lock to be released
-  while (_modelsJsonLock) {
-    await _modelsJsonLock;
-  }
-  // Create new lock
-  let releaseLock: () => void;
-  _modelsJsonLock = new Promise<void>((resolve) => {
-    releaseLock = resolve;
-  });
-  return {
-    release: () => {
-      releaseLock!();
-      _modelsJsonLock = null;
-    },
-  };
-}
-
-/**
- * Safely read, modify, and write models.json under a lock.
- * Prevents concurrent read-modify-write cycles between extensions.
- *
- * @param modifier - Function that receives the current data and returns modified data (or null to abort)
- * @returns true if the write succeeded, false if aborted
- */
-export async function readModifyWriteModelsJson(
-  modifier: (data: PiModelsJson) => PiModelsJson | null
-): Promise<boolean> {
-  const { release } = await acquireModelsJsonLock();
-  try {
-    const data = readModelsJson();
-    const modified = modifier(data);
-    if (modified === null) return false;
-    writeModelsJson(modified);
-    return true;
-  } finally {
-    release();
-  }
 }
 
 // ============================================================================
@@ -468,86 +396,6 @@ export async function fetchOllamaModels(baseUrl: string): Promise<OllamaModel[]>
     const data = (await res.json()) as { models?: OllamaModel[] };
     return data.models ?? [];
   });
-}
-
-/**
- * Fetch detailed model info from Ollama's /api/show endpoint.
- *
- * Returns the model's context window size (`num_ctx`), along with
- * other details like the template and system prompt. Used by
- * ollama-sync to enrich model entries with context length metadata.
- *
- * @param baseUrl - The Ollama base URL (without /v1 suffix)
- * @param modelName - The model tag name (e.g., "qwen3:0.6b")
- * @returns Context length in tokens, or undefined if unavailable
- *
- * @example
- * ```typescript
- * const ctx = await fetchModelContextLength("http://localhost:11434", "qwen3:0.6b");
- * console.log(ctx); // 8192
- * ```
- */
-export async function fetchModelContextLength(
-  baseUrl: string,
-  modelName: string
-): Promise<number | undefined> {
-  return withRetry(async () => {
-    try {
-      const res = await fetch(`${baseUrl}/api/show`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: modelName }),
-        signal: AbortSignal.timeout(30000),
-      });
-      if (!res.ok) return undefined;
-      const data = (await res.json()) as {
-        model_info?: Record<string, unknown>;
-        template?: string;
-      };
-      const modelInfo = data.model_info ?? {};
-      // Ollama uses architecture-specific keys like "qwen3.context_length"
-      for (const key of Object.keys(modelInfo)) {
-        if (key.endsWith(".context_length")) {
-          const val = modelInfo[key];
-          if (typeof val === "number") return val;
-        }
-      }
-      // Fallback: generic "num_ctx" key
-      const numCtx = data?.model_info?.["num_ctx"];
-      if (typeof numCtx === "number") return numCtx;
-    } catch (err) {
-      debugLog("ollama", `failed to fetch context length for ${modelName}`, err);
-      return undefined;
-    }
-    return undefined;
-  });
-}
-
-/**
- * Fetch context lengths for multiple models, processing them in small batches
- * to avoid overwhelming the connection (especially over tunnels).
- *
- * @param baseUrl - The Ollama base URL (without /v1 suffix)
- * @param modelNames - Array of model tag names
- * @param batchSize - Number of concurrent requests (default: 3)
- * @returns Map of model name to context length (undefined if unavailable)
- */
-export async function fetchContextLengthsBatched(
-  baseUrl: string,
-  modelNames: string[],
-  batchSize = 3
-): Promise<Map<string, number | undefined>> {
-  const result = new Map<string, number | undefined>();
-  for (let i = 0; i < modelNames.length; i += batchSize) {
-    const batch = modelNames.slice(i, i + batchSize);
-    const results = await Promise.allSettled(
-      batch.map((name) => fetchModelContextLength(baseUrl, name))
-    );
-    results.forEach((r, idx) => {
-      result.set(batch[idx], r.status === "fulfilled" ? r.value : undefined);
-    });
-  }
-  return result;
 }
 
 /**
@@ -728,7 +576,7 @@ function expandEnvVars(value: string): string {
  */
 function readAuthJsonKey(providerName: string): string {
   try {
-    const p = path.join(os.homedir(), ".pi", "agent", "auth.json");
+    const p = authJsonPath();
     if (!fs.existsSync(p)) return "";
     const entry = JSON.parse(fs.readFileSync(p, "utf-8"))[providerName];
     return typeof entry?.key === "string" ? entry.key : "";
@@ -824,23 +672,4 @@ export function detectProvider(ctx: PiExtensionContext, modelsJson?: PiModelsJso
 
   // Tier 3: Unknown provider
   return { kind: "unknown", name: providerName };
-}
-
-// ============================================================================
-// Local Provider Detection
-// ============================================================================
-
-/**
- * Check if a provider URL indicates a local (on-machine) provider.
- * Used by api.ts, status.ts, and diag.ts to determine whether
- * system metrics (CPU/RAM/Swap) are meaningful.
- *
- * @param baseUrl - The provider's base URL (e.g. "http://localhost:11434/v1")
- * @param providerName - Optional provider name (e.g. "ollama")
- * @returns `true` if the provider is local, `false` otherwise
- */
-export function isLocalProvider(baseUrl: string, providerName?: string): boolean {
-  if (providerName === "ollama") return true;
-  const url = baseUrl || "";
-  return url.includes("localhost") || url.includes("127.0.0.1") || url.includes("0.0.0.0");
 }

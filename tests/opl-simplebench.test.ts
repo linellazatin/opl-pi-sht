@@ -3,14 +3,17 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "bun:test";
+import { Value } from "typebox/value";
 import { parseCommandArgs, resolveRunSequence } from "../extensions/opl-simplebench/index";
-import { buildToolContinuationMessages, createBenchmark, hasOllamaAssistantOutput, isValidInstructionOutput, openAiThinkingOptions, resolveBenchmarkModel, resolveThinkingMode } from "../extensions/opl-simplebench/benchmark";
+import { buildToolContinuationMessages, resolveAwsCredentials, createBenchmark, hasOllamaAssistantOutput, isValidInstructionOutput, openAiThinkingOptions, resolveBenchmarkModel, resolveThinkingMode } from "../extensions/opl-simplebench/benchmark";
 import { artifactFileName, writeArtifact, writeArtifactBundle } from "../extensions/opl-simplebench/artifact";
 import { codingRecommendation, formatInstructionScore, recommendation, renderSummary } from "../extensions/opl-simplebench/report";
 import { aggregateMetrics, mergeRequestMetrics, metricsFromChat, usageFromRaw, emptyMetrics } from "../extensions/opl-simplebench/metrics";
 import { scoreReasoning } from "../extensions/opl-simplebench/scoring";
 import { REASONING_TESTS, MULTISTEP_INSTRUCTION } from "../extensions/opl-simplebench/tests";
-import { CODING_LITE_TASKS, createCodingTaskDir, resolveCodingPath, runCodingTask, runCodingVerifier } from "../extensions/opl-simplebench/coding";
+import { CODING_LITE_TASKS, createCodingTaskDir, resolveCodingPath, runCodingTask, runCodingVerifier, type CodingTaskFixture } from "../extensions/opl-simplebench/coding";
+import { INHERITED_KEYS, scrubbedEnv } from "../extensions/opl-simplebench/util/exec-env";
+import { spawnSync } from "node:child_process";
 import { GROUNDED_RESEARCH_TASK_PROMPT, GROUNDED_URBAN_TREES_FIXTURE, isMinimalistResearchHtml, RESEARCH_TASK_PROMPT, runGroundedResearchTask, runResearchArtifactTask, verifyGroundedResearch } from "../extensions/opl-simplebench/research";
 import { applyLlamagputop, applyLlamagputopModelStats, buildServerStats, diffPrometheusMetrics, healthUrl, managementBaseUrl, normalizeLlamagputopStats, normalizeLlamaServerProps, parsePrometheusMetrics, statsUrl } from "../extensions/opl-simplebench/llama-server";
 
@@ -214,14 +217,16 @@ test("resolves Bedrock max thinking from Pi model metadata", () => {
   assert.throws(() => resolveThinkingMode({ kind: "bedrock" }, { ...active, thinkingLevelMap: {} }, true), /does not advertise max thinking/);
 });
 
-test("writes artifacts in the current working directory", () => {
+test("writes artifacts into the directory it is given, not the harness cwd", () => {
   assert.equal(artifactFileName("global.openai.gpt-5.6-terra", "test-all", "max", new Date("2026-08-23T12:00:00Z")), "simplebench--test-all-global.openai.gpt-5.6-terra-max-2026-08-23T12-00-00Z.json");
   assert.equal(artifactFileName("global.openai.gpt-5.6-terra", "baseline", "default", new Date("2026-08-23T12:00:00Z")), "simplebench--3ptest-global.openai.gpt-5.6-terra-default-2026-08-23T12-00-00Z.json");
   const cwd = process.cwd();
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "simplebench-test-"));
   try {
-    process.chdir(temp);
-    const output = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", model: "test/model", provider: "test", providerKind: "test", thinking: { requested: "default", effective: "provider-default", level: null, modelMetadataSource: null }, startedAt: "", finishedAt: "", wallTimeMs: 0, artifactEnabled: true }, tests: [], summary: {} });
+    // The writer takes the session directory explicitly, so launching the harness somewhere else
+    // cannot move the artifact out of the project the user is in.
+    process.chdir(cwd);
+    const output = writeArtifact({ schemaVersion: 1, benchmark: { name: "opl-simplebench", model: "test/model", provider: "test", providerKind: "test", thinking: { requested: "default", effective: "provider-default", level: null, modelMetadataSource: null }, startedAt: "", finishedAt: "", wallTimeMs: 0, artifactEnabled: true }, tests: [], summary: {} }, temp);
     const artifact = JSON.parse(fs.readFileSync(output, "utf8"));
     assert.equal(fs.realpathSync(path.dirname(output)), fs.realpathSync(temp));
     assert.equal(artifact.benchmark.model, "test/model");
@@ -238,7 +243,7 @@ test("writes test-all research artifacts into a result bundle", () => {
   const artifact = { schemaVersion: 1 as const, benchmark: { name: "opl-simplebench" as const, suite: "test-all" as const, model: "test/model", provider: "test", providerKind: "test", thinking: { requested: "default" as const, effective: "provider-default" as const, level: null, modelMetadataSource: null }, startedAt: "", finishedAt: "", wallTimeMs: 0, artifactEnabled: true }, tests: [], summary: {} };
   try {
     process.chdir(temp);
-    const bundle = writeArtifactBundle(artifact, { "research.md": "# Sources", "page.html": "<main>Page</main>" });
+    const bundle = writeArtifactBundle(artifact, { "research.md": "# Sources", "page.html": "<main>Page</main>" }, temp);
     assert.equal(fs.existsSync(path.join(bundle, "result.json")), true);
     assert.equal(fs.readFileSync(path.join(bundle, "research.md"), "utf8"), "# Sources");
     assert.equal(fs.readFileSync(path.join(bundle, "page.html"), "utf8"), "<main>Page</main>");
@@ -253,8 +258,8 @@ test("does not overwrite an artifact created within the same second", () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "simplebench-artifact-"));
   const artifact = { schemaVersion: 1 as const, benchmark: { name: "opl-simplebench" as const, model: "test/model", provider: "test", providerKind: "test", thinking: { requested: "default" as const, effective: "provider-default" as const, level: null, modelMetadataSource: null }, startedAt: "", finishedAt: "", wallTimeMs: 0, artifactEnabled: true }, tests: [], summary: {} };
   try {
-    process.chdir(temp);
-    assert.notEqual(writeArtifact(artifact), writeArtifact(artifact));
+    process.chdir(cwd);
+    assert.notEqual(writeArtifact(artifact, temp), writeArtifact(artifact, temp));
   } finally {
     process.chdir(cwd);
     fs.rmSync(temp, { recursive: true });
@@ -615,4 +620,105 @@ test("returns recoverable errors when a coding agent searches a missing path", a
   }, "test-model", CODING_LITE_TASKS.find(task => task.id === "safe-refactor")!);
   assert.equal(result.turns, 2);
   assert.ok(!result.error?.includes("ENOENT"));
+});
+
+// --- Phase 2 / P1-4: AWS credential resolution ---------------------------------
+
+test("aws: profile names with shell metacharacters are refused", async () => {
+  let calls = 0;
+  const runner = async () => { calls++; return { stdout: "{}" }; };
+  for (const prof of ["default; touch /tmp/pwned", "prod$(id)", "a`whoami`", "-credential", "--profile=x"]) {
+    assert.equal(await resolveAwsCredentials({ env: { AWS_PROFILE: prof }, runner }), null, prof);
+  }
+  assert.equal(calls, 0, "an invalid profile must never reach the CLI");
+  // An empty AWS_PROFILE is treated as unset, so the CLI is asked for "default".
+  assert.equal(await resolveAwsCredentials({ env: { AWS_PROFILE: "" }, runner }), null);
+  assert.equal(calls, 1);
+});
+
+test("aws: valid profile runs argv, never a shell string", async () => {
+  let seen: { file: string; args: string[] } | undefined;
+  const runner = async (cmd: { file: string; args: string[] }) => {
+    seen = cmd;
+    return { stdout: JSON.stringify({ AccessKeyId: "A", SecretAccessKey: "S", SessionToken: "T" }) };
+  };
+  const creds = await resolveAwsCredentials({ env: {}, runner });
+  assert.deepEqual(seen, { file: "aws", args: ["configure", "export-credentials", "--profile", "default"] });
+  assert.deepEqual(creds, { accessKeyId: "A", secretAccessKey: "S", sessionToken: "T" });
+});
+
+test("aws: env credentials win, and a CLI failure resolves to null instead of throwing", async () => {
+  const env = { AWS_ACCESS_KEY_ID: "K", AWS_SECRET_ACCESS_KEY: "S" };
+  assert.deepEqual(
+    await resolveAwsCredentials({ env, runner: async () => { throw new Error("unused"); } }),
+    { accessKeyId: "K", secretAccessKey: "S", sessionToken: undefined },
+  );
+  assert.equal(await resolveAwsCredentials({ env: {}, runner: async () => { throw new Error("aws: command not found"); } }), null);
+  assert.equal(await resolveAwsCredentials({ env: {}, runner: async () => ({ stdout: "not json" }) }), null);
+});
+
+// --- Phase 2 / P1-3: environment of model-authored code ------------------------
+
+test("exec env: credentials and agent paths are not inherited, runtime basics are", () => {
+  const scrubbed = scrubbedEnv({
+    PATH: "/usr/bin", HOME: "/home/u", TMPDIR: "/tmp/x", LANG: "en_US.UTF-8", TZ: "UTC", TERM: "xterm-256color",
+    ANTHROPIC_API_KEY: "sk-secret", AWS_ACCESS_KEY_ID: "ak", AWS_SECRET_ACCESS_KEY: "aws",
+    GH_TOKEN: "gh", OPENAI_API_KEY: "o", PI_CODING_AGENT_DIR: "/agent", PI_AGENT_DIR: "/agent",
+    NODE_OPTIONS: "--require /evil.js", NODE_PATH: "/evil", PWD: "/elsewhere", OLDMULTI: "a\0b",
+  });
+  assert.equal(scrubbed.PATH, "/usr/bin");
+  assert.equal(scrubbed.HOME, "/home/u");
+  assert.equal(scrubbed.TMPDIR, "/tmp/x");
+  assert.equal(scrubbed.TZ, "UTC");
+  for (const key of ["ANTHROPIC_API_KEY", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "GH_TOKEN",
+    "OPENAI_API_KEY", "PI_CODING_AGENT_DIR", "PI_AGENT_DIR", "NODE_OPTIONS", "NODE_PATH", "PWD", "OLDMULTI"]) {
+    assert.ok(!(key in scrubbed), key);
+  }
+});
+
+test("coding verifier: model-authored code and its children see only the allowlisted environment", () => {
+  const task: CodingTaskFixture = {
+    id: "env-probe",
+    prompt: "",
+    files: {},
+    allowedFiles: [],
+    verify: () => `const { spawnSync } = require('node:child_process');
+      const nested = spawnSync(process.execPath, ['-e', 'console.log(JSON.stringify(Object.keys(process.env).sort()))'], { encoding: 'utf8' });
+      console.log(JSON.stringify({ self: Object.keys(process.env).sort(), nested: JSON.parse(nested.stdout) }));`,
+  };
+  const result = runCodingVerifier(task, createCodingTaskDir(task), "public");
+  assert.ok(result.passed, `probe must run cleanly, got: ${result.output}`);
+  const { self, nested } = JSON.parse(result.output) as { self: string[]; nested: string[] };
+  const allowed = new Set(INHERITED_KEYS);
+  assert.deepEqual(self.filter((key) => !allowed.has(key)), [], `verifier inherited: ${self.filter((key) => !allowed.has(key)).join(", ")}`);
+  assert.deepEqual(nested.filter((key) => !allowed.has(key)), [], `nested child inherited: ${nested.filter((key) => !allowed.has(key)).join(", ")}`);
+  assert.ok(self.includes("PATH") && nested.includes("PATH"), "PATH must survive so the verifier can run node");
+});
+
+test("exec env: an inherited environment really does expose the canary (control)", () => {
+  const probe = `console.log(process.env.SB_PHASE2_CANARY ? 'leak' : 'clean');`;
+  const base = { ...process.env, SB_PHASE2_CANARY: "control" } as NodeJS.ProcessEnv;
+  const inherited = spawnSync(process.execPath, ["--eval", probe], { encoding: "utf8", env: base });
+  assert.equal(inherited.stdout.trim(), "leak", "the control must be visible to an inheriting child");
+  const scrubbed = spawnSync(process.execPath, ["--eval", probe], { encoding: "utf8", env: scrubbedEnv(base) });
+  assert.equal(scrubbed.stdout.trim(), "clean", "scrubbing must remove it");
+});
+
+// --- Phase 2 / P3: model-facing tool schema ------------------------------------
+
+test("simplebench tool: the model-facing schema is TypeBox with every field optional", async () => {
+  const tools: any[] = [];
+  const extension = (await import("../extensions/opl-simplebench/index")).default;
+  extension({ registerTool: (t: any) => tools.push(t), registerCommand: () => {}, sendMessage: () => {} } as any);
+  const tool = tools.find((entry) => entry.name === "simplebench");
+  assert.ok(tool, "the simplebench tool must be registered");
+  const schema: any = tool.parameters;
+  assert.equal(schema.type, "object");
+  assert.equal(schema.required, undefined, "every parameter is optional");
+  assert.equal(schema.properties.model.type, "string");
+  assert.equal(schema.properties.coding_lite.type, "boolean");
+  assert.ok(Value.Check(schema, {}));
+  assert.ok(Value.Check(schema, { model: "qwen3", coding_lite: true }));
+  assert.ok(!Value.Check(schema, { model: 5 }), "a non-string model must be rejected");
+  assert.ok(!Value.Check(schema, { coding_lite: "yes" }), "a non-boolean flag must be rejected");
 });

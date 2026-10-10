@@ -26,15 +26,28 @@ export interface WebAccessConfig {
   maxSearchQueries?: number;
   /** Cap on the number of URLs a single fetch_content call may fetch. */
   maxFetchUrls?: number;
-  /** Allow fetch_content to reach private/link-local ranges (loopback is always
-   *  allowed; cloud metadata is always blocked). Default false. */
+  /** Allow fetch_content to reach private/link-local ranges (default false). Cloud
+   *  metadata is always blocked. */
   allowPrivateNetwork?: boolean;
+  /** Allow fetch_content to reach loopback hosts — localhost, 127.0.0.0/8, ::1
+   *  (default false: opt in). Cloud metadata is unaffected. */
+  allowLoopback?: boolean;
+  /** Deadline applied to one provider search request or one fetched URL (ms,
+   *  default 30000). The agent's own abort signal is combined with it, so the
+   *  shorter of the two wins. */
+  timeoutMs?: number;
+  /** Ceiling on one fetched response body (bytes, default 10485760). The transport stops
+   *  reading and drops the socket past it, so an oversized page cannot cost memory before
+   *  content truncation gets a say. */
+  maxResponseBytes?: number;
 }
 
 export const DEFAULT_MAX_CONTENT_CHARS = 30_000;
 export const DEFAULT_MAX_RETRIEVAL_CHARS = 30_000;
 export const DEFAULT_MAX_SEARCH_QUERIES = 10;
 export const DEFAULT_MAX_FETCH_URLS = 20;
+export const DEFAULT_TIMEOUT_MS = 30_000;
+export const DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
 /** Coerce an unknown value into a positive integer, else the fallback. */
 function positiveInt(value: unknown, fallback: number): number {
@@ -55,7 +68,20 @@ export function resolveCaps(
   };
 }
 
-const CONFIG_PATH = join(getAgentDir(), "configs", "opl-webaccess.json");
+/** Per-request deadline for provider calls and URL fetches (ms). */
+export function resolveTimeoutMs(cfg: Pick<WebAccessConfig, "timeoutMs">): number {
+  return positiveInt(cfg.timeoutMs, DEFAULT_TIMEOUT_MS);
+}
+
+/** Per-response body ceiling for URL fetches (bytes). */
+export function resolveMaxResponseBytes(cfg: Pick<WebAccessConfig, "maxResponseBytes">): number {
+  return positiveInt(cfg.maxResponseBytes, DEFAULT_MAX_RESPONSE_BYTES);
+}
+
+/** Resolved per call so a custom `PI_CODING_AGENT_DIR` (pi's own agent dir) is honoured. */
+export function configPath(): string {
+  return join(getAgentDir(), "configs", "opl-webaccess.json");
+}
 
 const DEFAULT_CONFIG: WebAccessConfig = {
   provider: "gemini",
@@ -68,13 +94,13 @@ const DEFAULT_CONFIG: WebAccessConfig = {
   },
 };
 
-export function loadConfig(): WebAccessConfig {
-  if (!existsSync(CONFIG_PATH)) return DEFAULT_CONFIG;
+export function loadConfig(file = configPath()): WebAccessConfig {
+  if (!existsSync(file)) return DEFAULT_CONFIG;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    parsed = JSON.parse(readFileSync(file, "utf-8"));
   } catch {
-    console.error(`[opl-webaccess] failed to parse ${CONFIG_PATH}, using defaults`);
+    console.error(`[opl-webaccess] failed to parse ${file}, using defaults`);
     return DEFAULT_CONFIG;
   }
   return normalizeConfig(parsed);
@@ -106,6 +132,9 @@ function normalizeConfig(parsed: unknown): WebAccessConfig {
     maxSearchQueries: record.maxSearchQueries as number | undefined,
     maxFetchUrls: record.maxFetchUrls as number | undefined,
     allowPrivateNetwork: record.allowPrivateNetwork === true,
+    allowLoopback: record.allowLoopback === true,
+    timeoutMs: record.timeoutMs as number | undefined,
+    maxResponseBytes: record.maxResponseBytes as number | undefined,
   };
 }
 

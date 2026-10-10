@@ -5,6 +5,13 @@ export interface IncidentContext {
   cwd: string;
 }
 
+export interface RemovedToolCallSummary {
+  name: string;
+  argumentKeys: string[];
+  /** Size of the arguments that were dropped; the values themselves are never recorded. */
+  argumentsBytes: number;
+}
+
 export interface GuardianIncident {
   timestamp: string;
   kind: "malformed_tool_call";
@@ -14,7 +21,7 @@ export interface GuardianIncident {
   model: string;
   responseId?: string;
   action: "dropped";
-  removedToolCalls: ToolCall[];
+  removedToolCalls: RemovedToolCallSummary[];
 }
 
 export interface GuardResult {
@@ -26,20 +33,28 @@ function hasValue(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-export function isMalformedToolCall(block: unknown): block is ToolCall {
-  if (!block || typeof block !== "object" || (block as { type?: unknown }).type !== "toolCall") {
-    return false;
-  }
-  const toolCall = block as ToolCall;
-  return !hasValue(toolCall.id) || !hasValue(toolCall.name);
+function isToolCallBlock(block: unknown): block is ToolCall {
+  return !!block && typeof block === "object" && (block as { type?: unknown }).type === "toolCall";
+}
+
+/** A toolCall block whose id or name is missing: pi cannot route it, and leaving it in the
+ *  message fails the whole turn, so the guardian drops it. */
+export function isMalformedToolCall(block: unknown): boolean {
+  return isToolCallBlock(block) && (!hasValue(block.id) || !hasValue(block.name));
+}
+
+// The same test as a type predicate, so `filter` can type the removed blocks as ToolCall[]
+// without narrowing ToolCall out of the kept content array.
+function isMalformedToolCallBlock(block: unknown): block is ToolCall {
+  return isMalformedToolCall(block);
 }
 
 export function guardAssistantMessage(message: AssistantMessage): GuardResult | undefined {
-  const removedToolCalls = message.content.filter(isMalformedToolCall);
+  const removedToolCalls = message.content.filter(isMalformedToolCallBlock);
   if (removedToolCalls.length === 0) return undefined;
 
   const content = message.content.filter((block) => !isMalformedToolCall(block));
-  const hasValidToolCall = content.some((block) => block.type === "toolCall");
+  const hasValidToolCall = content.some(isToolCallBlock);
 
   return {
     removedToolCalls,
@@ -69,6 +84,23 @@ export function buildIncidentRecord(
     model: message.model,
     ...(message.responseId ? { responseId: message.responseId } : {}),
     action: "dropped",
-    removedToolCalls,
+    removedToolCalls: removedToolCalls.map(summarizeRemovedToolCall),
   };
+}
+
+/**
+ * Incident records are kept for diagnostics, not as a copy of the transcript: argument
+ * *names* say which call went wrong, while the values can carry file contents, commands or
+ * credentials straight out of the session.
+ */
+export function summarizeRemovedToolCall(call: ToolCall): RemovedToolCallSummary {
+  const args = (call as { arguments?: unknown }).arguments;
+  const keys = args && typeof args === "object" ? Object.keys(args as Record<string, unknown>).sort() : [];
+  let bytes = 0;
+  try {
+    bytes = Buffer.byteLength(JSON.stringify(args ?? {}));
+  } catch {
+    bytes = -1; // not serializable; the size is unknown but nothing is leaked either
+  }
+  return { name: hasValue(call.name) ? call.name : "(unnamed)", argumentKeys: keys, argumentsBytes: bytes };
 }

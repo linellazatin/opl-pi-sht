@@ -1,8 +1,8 @@
 /** Config: tool allowlists, bash patterns, prompt templates, plan file constants, user config. */
 
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ModeSwitcherUserConfig, ModeDefinition, PartialModeDefinition, ModeModelConfig } from "./types.js";
 
 // ─── Plan File Constants ────────────────────────────────────────────────────
@@ -150,7 +150,8 @@ After listing all steps, stop and wait for the user to choose:
 Do NOT attempt to make any file changes, run destructive commands, or modify anything.`;
 
 /** System prompt injected when in EXECUTE mode. */
-export function buildExecutePrompt(planContent: string): string {
+export function buildExecutePrompt(planContent: string, source?: string): string {
+  const capped = capPlan(planContent, USER_CONFIG.plan.maxInjectBytes, source);
   return `\
 You are in EXECUTE MODE. Execute the plan below step by step.
 
@@ -159,16 +160,17 @@ After completing ALL steps, call plan_complete() to signal that execution is fin
 If the \`todo\` tool is available, use it to track progress: add all plan steps at the start of execution, then toggle each one done as you complete it.
 
 Plan:
-${planContent}`;
+${capped.text}`;
 }
 
 /** System prompt injected when refining a plan in PLAN mode. */
-export function buildRefinePrompt(planContent: string): string {
+export function buildRefinePrompt(planContent: string, source?: string): string {
+  const capped = capPlan(planContent, USER_CONFIG.plan.maxInjectBytes, source);
   return `\
 You are in PLAN MODE (refining). The user wants to revise the current plan based on their feedback.
 
 Current plan:
-${planContent}
+${capped.text}
 
 Each step MUST be self-contained — write it as if the executor has no memory of this conversation. Include enough context that it can be carried out with only the plan file and the codebase. Assume the executor will read the relevant files fresh — do not rely on findings you discovered during planning.
 
@@ -195,6 +197,10 @@ const DEFAULT_CONFIG = {
   UI: {
     HIDE_NOTIFY: false,
     HIDE_WIDGET: true,
+  },
+  PLAN: {
+    MAX_INJECT_BYTES: 24000,
+    MAX_ENTRY_BYTES: 4096,
   },
   SHORTCUTS: {
     CYCLE_MODE: "ctrl+alt+m",
@@ -230,15 +236,18 @@ const DEFAULT_CONFIG = {
   },
 };
 
-const CONFIG_PATH = join(homedir(), ".pi", "agent", "configs", "opl-modes.json");
+/** Resolved per call so a custom `PI_AGENT_DIR` (pi's own agent dir) is honoured. */
+export function configPath(): string {
+  return join(getAgentDir(), "configs", "opl-modes.json");
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function loadUserConfig(path = CONFIG_PATH): ModeSwitcherUserConfig {
+export function loadUserConfig(file = configPath()): ModeSwitcherUserConfig {
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    const parsed = JSON.parse(readFileSync(file, "utf8"));
     return isRecord(parsed) ? parsed as ModeSwitcherUserConfig : {};
   } catch {
     return {};
@@ -335,9 +344,54 @@ export function lazyToolsToEnable(
   return want.filter((n) => lazy.has(n) && (!allowed || allowed.has(n)) && !active.has(n));
 }
 
+/** Positive integer from user config, else the default. Anything else is ignored rather than trusted. */
+function positiveInt(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+export interface CappedPlan {
+  text: string;
+  truncated: boolean;
+  omittedBytes: number;
+}
+
+/**
+ * Bound a plan body before it is injected into a prompt or stored as an entry.
+ * A plan file is user-authored and uncapped: injected whole it is re-sent on
+ * every provider request for the run, and stored whole it lives in the session
+ * file forever. Truncation is announced so the reader can open the file.
+ */
+export function capPlan(plan: string, maxBytes: number, source?: string): CappedPlan {
+  const bytes = Buffer.byteLength(plan, "utf8");
+  if (!Number.isFinite(maxBytes) || maxBytes <= 0 || bytes <= maxBytes) {
+    return { text: plan, truncated: false, omittedBytes: 0 };
+  }
+  const budget = Math.floor(maxBytes);
+  const marker = (shown: number, location: string) =>
+    `\n\n[… plan truncated: showing ${shown} of ${bytes} bytes, ${bytes - shown} omitted - read ${location} for the rest …]`;
+  // Reserve the widest possible counts, including a UTF-8 source path.
+  const reserve = (location: string) => Buffer.byteLength(marker(0, location), "utf8") + String(bytes).length - 1;
+  let location = source ?? "the plan file";
+  if (reserve(location) > budget) location = "the plan file";
+  if (reserve(location) > budget) {
+    return { text: "[plan truncated]".slice(0, budget), truncated: true, omittedBytes: bytes };
+  }
+  const buffer = Buffer.from(plan, "utf8");
+  const limit = budget - reserve(location);
+  const newline = buffer.lastIndexOf(10, limit);
+  // Keep only complete lines. A single line that exceeds the budget stays in the file.
+  const head = newline < 0 ? "" : buffer.subarray(0, newline).toString("utf8");
+  const shown = Buffer.byteLength(head, "utf8");
+  return { text: head + marker(shown, location), truncated: true, omittedBytes: bytes - shown };
+}
+
 export const USER_CONFIG = {
   cleanup: {
     cleanupOnComplete: userConfig.cleanup?.cleanupOnComplete ?? DEFAULT_CONFIG.CLEANUP.CLEANUP_ON_COMPLETE,
+  },
+  plan: {
+    maxInjectBytes: positiveInt(userConfig.plan?.maxInjectBytes, DEFAULT_CONFIG.PLAN.MAX_INJECT_BYTES),
+    maxEntryBytes: positiveInt(userConfig.plan?.maxEntryBytes, DEFAULT_CONFIG.PLAN.MAX_ENTRY_BYTES),
   },
   ui: {
     hideNotify: userConfig.ui?.hideNotify ?? DEFAULT_CONFIG.UI.HIDE_NOTIFY,

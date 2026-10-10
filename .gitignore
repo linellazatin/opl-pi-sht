@@ -1,8 +1,8 @@
 .pi/
 .nanomneme/
 
-## Just opl config files
-opl-*.json
+## Live config files the operator keeps beside the repo (samples are tracked, these are not)
+/configs/opl-*.json
 
 ## local research files
 research/
