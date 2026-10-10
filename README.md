@@ -10,7 +10,7 @@
 
 </div>
 
-**Cut token cost, run the agent safely, and drop your MCP servers.**
+**Cut token cost, run the agent safely, and drop your MCP servers (probably).**
 
 A portable collection of various Pi coding agent extensions. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
 
