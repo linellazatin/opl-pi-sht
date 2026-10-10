@@ -14,6 +14,7 @@
 
 A portable collection of various Pi coding agent extensions. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
 
+> ### BIG A👀️ UPDATE
 >
 > ### v0.3.0 - security hardening, fixes, and extension enhancements
 >
@@ -26,11 +27,13 @@ A portable collection of various Pi coding agent extensions. Repository director
 > - **Organization and convenience**: configs consistently resolve from Pi's agent directory, and plans, screenshots and benchmark artifacts use the session directory. The installer supplies sample configs, preserves existing settings and tracks stale extensions for cleanup or retry. npm packages ship sample configs without checkout live configs; obsolete `models.json` write helpers were removed. [Configuration](#configuration), [Checkout installer](#checkout-installer).
 > - **Stronger release checks**: clean installs use a repaired lockfile, release validation runs strict typechecking and the full test suite, and floor CI verifies compatibility against Pi `0.87.0`. `noUncheckedIndexedAccess` remains enabled to catch unsafe array access. [Tests](#tests).
 > - **Breaking behavior changes**: loopback access is now opt-in (`allowLoopback: false`), and the entire `64:ff9b:1::/48` local-use translation prefix is blocked even with network opt-ins enabled. The well-known `64:ff9b::/96` prefix still follows embedded-IPv4 policy. Stale browser selections now return an error requiring explicit recovery. [Network policy](extensions/opl-browser/README.md#network-policy), [Page selection](extensions/opl-browser/README.md#extension-features).
+> - **Added**: separate, extensible [`opl-configurator`](extensions/opl-configurator/README.md#extension-features), and [`compactions`](extensions/opl-footer/README.md#available-segments) segment in `opl-footer`.
 >
 > See [CHANGELOG](CHANGELOG.md) for more details.
 >
-> **Validation**: all 11 extensions pass loader checks with Pi `1.1.0`, locked Pi `1.0.0` and the declared `0.87.0` floor.
+> Having issues? [Opl a ticket](https://github.com/linellazatin/opl-pi-sht/issues/new).
 >
+> **Validation**: all 12 extensions pass loader checks with Pi `1.1.0`, locked Pi `1.0.0` and the declared `0.87.0` floor.
 
 ## Installation
 
@@ -78,28 +81,29 @@ chmod +x install.sh
 ./install.sh                         # copy all extensions and configs
 ./install.sh --link                  # non-destructive symlinks
 ./install.sh --only opl-init opl-todo
-./install.sh --link --only opl-input # installs the complete UI bundle
+./install.sh --link --only opl-input # installs the UI + /configurator bundle
 PI_CODING_AGENT_DIR=/path/to/.pi/agent ./install.sh --link   # PI_AGENT_DIR is a legacy alias
 ```
 
-Copy mode refreshes extension directories but keeps a config that already exists in the target; pass `--force-configs` to replace it. A config comes from `configs/<name>.json` when the repo carries one, otherwise from the shipped `configs/<name>.json.sample`, so a fresh clone installs defaults instead of silently installing none. What was installed is recorded in `<agent-dir>/extensions/.opl-pi-sht.installed`, and a recorded directory that this release no longer ships is pruned on the next run (`--no-prune` keeps it recorded for later cleanup, and nothing outside the record is ever touched). Failed pruning retains ownership and exits nonzero so the next run can retry; invalid manifest names are ignored. Link mode skips existing destinations without claiming ownership. `--only`/`-o` accepts one or more extension names; selecting `opl-footer`, `opl-input`, or `opl-modes` installs all three because they share active-mode state. Use `./install.sh --help` for flags. The repository uses standard `.json` only.
+Copy mode refreshes extension directories but keeps a config that already exists in the target; pass `--force-configs` to replace it. A config comes from `configs/<name>.json` when the repo carries one, otherwise from the shipped `configs/<name>.json.sample`, so a fresh clone installs defaults instead of silently installing none. What was installed is recorded in `<agent-dir>/extensions/.opl-pi-sht.installed`, and a recorded directory that this release no longer ships is pruned on the next run (`--no-prune` keeps it recorded for later cleanup, and nothing outside the record is ever touched). Failed pruning retains ownership and exits nonzero so the next run can retry; invalid manifest names are ignored. Link mode skips existing destinations without claiming ownership. `--only`/`-o` accepts one or more extension names; selecting `opl-configurator`, `opl-footer`, `opl-input`, or `opl-modes` installs all four: `/configurator` plus the three extensions that share active-mode state. Use `./install.sh --help` for flags. The repository uses standard `.json` only.
 
 ## Extensions
 
 
-| Extension                                                     | Summary                                                                                                                                                                                                                      | Commands, tools, and configuration                                                                             |
-| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| [`opl-init`](extensions/opl-init/README.md)                   | Fingerprinted repository-guide generator with out-of-band model refinement.                                                                                                                                                  | `/init`; no config.                                                                                             |
-| [`opl-simplebench`](extensions/opl-simplebench/README.md)     | Auditable provider-aware model benchmark with JSON artifacts and metrics.                                                                                                                                                    | `/simplebench`, `simplebench`; supports Ollama, OpenAI-compatible providers, and Bedrock; optional `opl-simplebench.json`. |
-| [`opl-webaccess`](extensions/opl-webaccess/README.md)         | Search plus readable URL/PDF retrieval with session recovery.                                                                                                                                                                | `web_search`, `fetch_content`, `get_search_content`; `opl-webaccess.json`.                                     |
-| [`opl-browser`](extensions/opl-browser/README.md)             | Chromium automation via Playwright with structured extraction of rendered pages; single dispatcher tool replacing the chrome-devtools MCP.                                                                                   | `browser` (action-based); `opl-browser.json`.                                                                  |
-| [`opl-ctxtrim`](extensions/opl-ctxtrim/README.md)             | Description trimmer specifically for known context-mode `ctx_*` tools in Pi outbound requests, across OpenAI, Anthropic, Mistral, Bedrock and Google/Gemini formats. Its allowlist supplies concise replacements for the [context-mode](https://github.com/mksglu/context-mode) bridge's verbose `ctx_*` descriptions and leaves every other tool byte-for-byte alone (~67-74% smaller tool payloads per measured shape, ~4,700-6,300 tokens/request). | No commands/tools; no config.                                                                                  |
-| [`opl-guardian`](extensions/opl-guardian/README.md)           | Configurable tool and session safety: dangerous-Bash confirmation, protected paths, destructive-session confirmation, and malformed-call filtering. | No commands/tools; `opl-guardian.json`. |
-| [`opl-todo`](extensions/opl-todo/README.md)                   | Branch-aware task tool, overlay, and task list.                                                                                                                                                                              | `todo`, `/todos`; `opl-todo.json`.                                                                             |
-| [`opl-questionnaire`](extensions/opl-questionnaire/README.md) | Interactive structured-choice tool.                                                                                                                                                                                          | `questionnaire`; no config.                                                                                    |
-| [`opl-input`](extensions/opl-input/README.md)                 | Configurable replacement editor - enhanced [pikit chat-input](https://github.com/adrianapan/pikit) (because pet is life, and configurable). ![pet](images/ss-input-pet.png)                                                                                   | No commands/tools;`opl-input.json`.                                                                            |
-| [`opl-modes`](extensions/opl-modes/README.md)                 | Mode, plan, tool-safety, lazy-tool-loading, and active-appearance manager - highly-modified, configrable and enhanced mode-switcher.                                                                                         | `/mode`, `/chat`, `/plan`, `/execute`, `plan_complete`, `load_tools`; `opl-modes.json`.                        |
-| [`opl-footer`](extensions/opl-footer/README.md)               | Configurable multi-row status footer - highly-specialized, and enhanced [pikit footer](https://github.com/adrianapan/pikit).                                      | `/configure-opl`; `opl-footer.json`.                                                                           |
+| Extension                                                     | Summary                                                                                                                                                                                                                                                                                                                                                                                                                                               | Commands, tools, and configuration                                                                                         |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| [`opl-init`](extensions/opl-init/README.md)                   | Fingerprinted repository-guide generator with out-of-band model refinement.                                                                                                                                                                                                                                                                                                                                                                           | `/init`; no config.                                                                                                        |
+| [`opl-simplebench`](extensions/opl-simplebench/README.md)     | Auditable provider-aware model benchmark with JSON artifacts and metrics.                                                                                                                                                                                                                                                                                                                                                                             | `/simplebench`, `simplebench`; supports Ollama, OpenAI-compatible providers, and Bedrock; optional `opl-simplebench.json`. |
+| [`opl-webaccess`](extensions/opl-webaccess/README.md)         | Search plus readable URL/PDF retrieval with session recovery.                                                                                                                                                                                                                                                                                                                                                                                         | `web_search`, `fetch_content`, `get_search_content`; `opl-webaccess.json`.                                                 |
+| [`opl-browser`](extensions/opl-browser/README.md)             | Chromium automation via Playwright with structured extraction of rendered pages; single dispatcher tool replacing the chrome-devtools MCP.                                                                                                                                                                                                                                                                                                            | `browser` (action-based); `opl-browser.json`.                                                                              |
+| [`opl-ctxtrim`](extensions/opl-ctxtrim/README.md)             | Description trimmer specifically for known context-mode`ctx_*` tools in Pi outbound requests, across OpenAI, Anthropic, Mistral, Bedrock and Google/Gemini formats. Its allowlist supplies concise replacements for the [context-mode](https://github.com/mksglu/context-mode) bridge's verbose `ctx_*` descriptions and leaves every other tool byte-for-byte alone (~67-74% smaller tool payloads per measured shape, ~4,700-6,300 tokens/request). | No commands/tools; no config.                                                                                              |
+| [`opl-guardian`](extensions/opl-guardian/README.md)           | Configurable tool and session safety: dangerous-Bash confirmation, protected paths, destructive-session confirmation, and malformed-call filtering.                                                                                                                                                                                                                                                                                                   | No commands/tools;`opl-guardian.json`.                                                                                     |
+| [`opl-todo`](extensions/opl-todo/README.md)                   | Branch-aware task tool, overlay, and task list.                                                                                                                                                                                                                                                                                                                                                                                                       | `todo`, `/todos`; `opl-todo.json`.                                                                                         |
+| [`opl-questionnaire`](extensions/opl-questionnaire/README.md) | Interactive structured-choice tool.                                                                                                                                                                                                                                                                                                                                                                                                                   | `questionnaire`; no config.                                                                                                |
+| [`opl-input`](extensions/opl-input/README.md)                 | Configurable replacement editor - enhanced[pikit chat-input](https://github.com/adrianapan/pikit) (because pet is life, and configurable). ![pet](images/ss-input-pet.png)                                                                                                                                                                                                                                                                            | `/configurator` (Input tab); `opl-input.json`.                                                                             |
+| [`opl-modes`](extensions/opl-modes/README.md)                 | Mode, plan, tool-safety, lazy-tool-loading, and active-appearance manager - highly-modified, configrable and enhanced mode-switcher.                                                                                                                                                                                                                                                                                                                  | `/mode`, `/chat`, `/plan`, `/execute`, `plan_complete`, `load_tools`; `opl-modes.json`.                                    |
+| [`opl-footer`](extensions/opl-footer/README.md)               | Configurable multi-row status footer - highly-specialized, and enhanced[pikit footer](https://github.com/adrianapan/pikit).                                                                                                                                                                                                                                                                                                                           | `/configurator`; `opl-footer.json`.                                                                                        |
+| [`opl-configurator`](extensions/opl-configurator/README.md)   | Generic extensible configuration shell with hotkey-selected tabs; each instrumented extension publishes one tab.                                                                                                                                                                                                                                                                                                                                      | `/configurator`; no config.                                                                                                |
 
 ## What you'll gain
 
@@ -124,28 +128,27 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 ### Run the agent without babysitting it
 
 - **`opl-modes`** provides read-only chat/plan toolsets, checks each Bash command segment including quoted substitutions, and blocks destructive operations. Custom modes support exploration-to-execution workflows; `load_tools` cannot exceed their permissions. Plan copies stay within UTF-8 caps including truncation notices: **24 KB** in prompts and **4 KB** in session entries, with the full file retained. Execute auto-exit requires Pi >=0.87.0. [Mode behavior](extensions/opl-modes/README.md#mode-behavior), [Plan configuration](extensions/opl-modes/README.md#configuration).
-![custom mode sample](images/ss-mode-custom.png)
-
+  ![custom mode sample](images/ss-mode-custom.png)
 - **`opl-guardian`** confirms dangerous Bash commands and destructive session actions, and protects configured file paths through symlink resolution. Without a UI, confirmation-required actions block. Bash path matching avoids harmless text-search matches but remains advisory, not a shell sandbox. Malformed calls are removed before persistence/replay; byte-rotated logs in `<agent dir>/guardian-incidents.jsonl` record argument names, never values. [Guards](extensions/opl-guardian/README.md#what-it-guards), [Forensics](extensions/opl-guardian/README.md#forensic-jsonl).
 
 ### Move through work faster
 
 - **`opl-init`** crawls, writes and reloads `AGENTS.md` using one out-of-band refinement call. An unchanged fingerprint skips the model; mid-session requests wait for the agent to settle. No synthetic user messages. Requires Pi >=0.86.0. [Workflow](extensions/opl-init/README.md#extension-features).
-![init](images/ss-init.png)
+  ![init](images/ss-init.png)
 - **`opl-browser`** exposes Chromium navigation, snapshots, rendered Markdown, interaction, screenshots, diagnostics and evaluation through one tool, with paged previews for large results. Address-based guards cover navigation, page requests, WebSockets and redirected frames; private/link-local access is blocked by default, loopback is opt-in, metadata is always blocked and service workers are disabled. PNG/JPG screenshots are contained within the session project and reserved against overwrites. Page actions support `index`, preserve selection identity and reject stale targets. [Features](extensions/opl-browser/README.md#extension-features), [Network policy and limits](extensions/opl-browser/README.md#network-policy).
 - **`opl-webaccess`** provides search, readable URL/PDF extraction and result recovery. HTTP(S) fetches validate and pin approved addresses at every redirect, block private/link-local hosts by default, make loopback opt-in and always block metadata/unspecified addresses. Compressed responses are decoded within **10 MB** received/decoded caps and a **30 s** deadline across hops. Sessions keep bounded previews; full results live in a **1 h / 32 MB** disk cache. [Retrieval and storage](extensions/opl-webaccess/README.md#extension-features), [Configuration](extensions/opl-webaccess/README.md#configuration).
 - **`opl-simplebench`** compares models using deterministic answers, instruction-following, tool calls and coding tasks. Model-authored verifier code and its children receive an allowlisted environment without provider credentials, tokens or agent paths; this is not filesystem/network isolation. [Methodology](extensions/opl-simplebench/README.md#benchmark-methodology), [Coding safety](extensions/opl-simplebench/README.md#coding-lite).
-![simplebench](images/ss-simplebench.png)
+  ![simplebench](images/ss-simplebench.png)
 - **`opl-todo`** persists branch-aware tasks, reconstructs them from session history and sizes its overlay to the renderer's terminal. [Features](extensions/opl-todo/README.md#extension-features).
-![todo](images/ss-todo.png)
+  ![todo](images/ss-todo.png)
 - **`opl-questionnaire`** resolves ambiguous choices through an interactive structured questionnaire. [Features](extensions/opl-questionnaire/README.md#extension-features).
-![questionnaire0](images/ss-questionnaire0.png) ![questionnaire1](images/ss-questionnaire1.png)
+  ![questionnaire0](images/ss-questionnaire0.png) ![questionnaire1](images/ss-questionnaire1.png)
 
 ### See what the agent is doing
 
-- **`opl-footer`** shows model, cost, tokens/cache, git state, agent activity and timing, plus optional Codex subscription quota and OpenRouter key usage. Empty rows disappear; failed segments show `[?]` without blanking the footer. Branch switches and compaction refresh cached facts, and canonical context usage replaces estimates. Quotas refresh during runs with a 30 s minimum interval; OpenRouter keys/responses are never logged or persisted. Configure the layout with `/configure-opl`. [Features](extensions/opl-footer/README.md#features), [Usage segments](extensions/opl-footer/README.md#available-segments).
-- **`opl-input`** provides a configurable editor that reflects the active mode. [Editor features](extensions/opl-input/README.md#extension-features).
-![input-footer](images/ss-input-footer.png)
+- **`opl-footer`** shows model, cost, tokens/cache, git state, agent activity and timing, plus optional Codex subscription quota and OpenRouter key usage. Empty rows disappear; failed segments show `[?]` without blanking the footer. Branch switches and compaction refresh cached facts, and canonical context usage replaces estimates. Quotas refresh during runs with a 30 s minimum interval; OpenRouter keys/responses are never logged or persisted. Configure the layout with `/configurator`. [Features](extensions/opl-footer/README.md#features), [Usage segments](extensions/opl-footer/README.md#available-segments).
+- **`opl-input`** provides a configurable editor that reflects the active mode. Configure it through `/configurator` (Input tab); changes apply after `/reload`. [Editor features](extensions/opl-input/README.md#extension-features).
+  ![input-footer](images/ss-input-footer.png)
 
 ### Fewer moving parts
 
@@ -153,15 +156,16 @@ Cold prompt-cache write, measured /init session (opl-modes lazy tools + MCP adap
 
 ### Pick your footprint
 
-| If you want to...                  | Install                                                         |
-| ---------------------------------- | --------------------------------------------------------------- |
-| Cut token cost with minimal change | `opl-ctxtrim`, `opl-modes`                                      |
-| Run the agent safely on real repos | `opl-modes` (pulls in the `opl-input` + `opl-footer` UI bundle), `opl-guardian` |
-| Research and drive the web         | `opl-webaccess`, `opl-browser`                                  |
-| Choose models with data            | `opl-simplebench`                                               |
-| The full, coordinated experience   | all eleven                                                      |
 
-Selecting `opl-footer`, `opl-input`, or `opl-modes` installs all three, because they share active-mode state.
+| If you want to...                  | Install                                                                                             |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Cut token cost with minimal change | `opl-ctxtrim`, `opl-modes`                                                                          |
+| Run the agent safely on real repos | `opl-modes` (pulls in the `opl-input` + `opl-footer` UI and `/configurator` bundle), `opl-guardian` |
+| Research and drive the web         | `opl-webaccess`, `opl-browser`                                                                      |
+| Choose models with data            | `opl-simplebench`                                                                                   |
+| The full, coordinated experience   | all twelve                                                                                          |
+
+Selecting `opl-configurator`, `opl-footer`, `opl-input`, or `opl-modes` installs all four. The configurator carries the `/configurator` command, and the other three share active-mode state.
 
 ## Token overhead
 
@@ -169,19 +173,21 @@ Installing extensions adds tool schemas (name + description + JSON parameters) t
 
 ### Per extension (resting prompt prefix)
 
-| Extension | Adds to resting prompt | Est. tokens |
-|---|---|---|
-| `opl-browser` | `browser` tool schema | ~596 |
-| `opl-questionnaire` | `questionnaire` schema + prompt guidelines | ~532 |
-| `opl-webaccess` | `web_search`, `fetch_content`, `get_search_content` | ~394 |
-| `opl-simplebench` | `simplebench` schema | ~230 |
-| `opl-modes` | `plan_complete` + `load_tools` schemas | ~215 |
-| `opl-todo` | `todo` schema | ~92 |
-| `opl-init` | command only (no tool) | ~0 |
-| `opl-input` | UI only | ~0 |
-| `opl-footer` | UI only | ~0 |
-| `opl-guardian` | none (tool/session safety; no added tool schemas) | ~0 |
-| `opl-ctxtrim` | none (payload transformer) | net negative |
+
+| Extension           | Adds to resting prompt                              | Est. tokens  |
+| ------------------- | --------------------------------------------------- | ------------ |
+| `opl-browser`       | `browser` tool schema                               | ~596         |
+| `opl-questionnaire` | `questionnaire` schema + prompt guidelines          | ~532         |
+| `opl-webaccess`     | `web_search`, `fetch_content`, `get_search_content` | ~394         |
+| `opl-simplebench`   | `simplebench` schema                                | ~230         |
+| `opl-modes`         | `plan_complete` + `load_tools` schemas              | ~215         |
+| `opl-todo`          | `todo` schema                                       | ~92          |
+| `opl-init`          | command only (no tool)                              | ~0           |
+| `opl-configurator`  | command only (no tool)                              | ~0           |
+| `opl-input`         | UI only                                             | ~0           |
+| `opl-footer`        | UI only                                             | ~0           |
+| `opl-guardian`      | none (tool/session safety; no added tool schemas)   | ~0           |
+| `opl-ctxtrim`       | none (payload transformer)                          | net negative |
 
 Command descriptions add roughly another ~120 tokens collectively, and only if your build surfaces them in the prompt or help block.
 
@@ -208,7 +214,7 @@ Copy applicable files from [`configs/`](configs/) to `~/.pi/agent/configs/` - or
 - `opl-browser` has optional configuration (`opl-browser.json`); all fields default, so it works without any config file.
 - `opl-simplebench` has optional `opl-simplebench.json`; copy `configs/opl-simplebench.json.sample` to configure DDGS/SearXNG research and llama metadata endpoints.
 - `opl-guardian` has an optional `opl-guardian.json`; copy `configs/opl-guardian.json.sample` and manually migrate any old permission-gate or protected-path settings. It does not load legacy files. Configured `permissionGate.patterns` replace the defaults, so copied live patterns do not automatically inherit later default-rule updates.
-- `opl-init` and `opl-questionnaire` have no external configuration.
+- `opl-init`, `opl-questionnaire` and `opl-configurator` have no external configuration.
 - Config files must be valid JSON, with no comments or trailing commas beyond deliberate `_comment` keys.
 - `opl-modes` owns active-mode appearance. Each mode's `appearance.prefix`, `prefixColor`, and `borderColor` style `opl-input`; `appearance.modeColor` styles `opl-footer`'s unified mode label. Renderers retain hardcoded fallbacks.
   - `opl-modes.bashPatterns` is the shared read-only Bash policy now applied to every mode by default; a mode overrides it with its own valid `safePatterns`/`destructivePatterns` array, an empty array explicitly removes that policy, or `unrestrictedBash: true` disables both gates. Malformed per-mode arrays retain the existing policy.
@@ -239,6 +245,6 @@ A Pi package (npm or Git) still needs the one-time `npx playwright install chrom
 npm test
 ```
 
-`npm run test:shared` runs the cross-extension checks: agent-directory resolution, parity of the duplicated host and git guards, installer, package metadata, and the `globalThis` seams between `opl-modes`, `opl-footer` and `opl-input`. `npm run typecheck` runs `tsc` in strict mode over all 86 extension sources and is separate from `npm test`. Release validation uses `npm ci`, strict typechecking and the full suite; package tests exercise npm packing to exclude live configs. Run one extension suite with `npm run test:opl-<name>` for `browser`, `footer`, `guardian`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, `simplebench`, or `ctxtrim`. `npm run test:pi-host` uses the Pi build this machine actually runs (the installed managed release, falling back to the `>=0.87.0` devDependency when none is present) and its real extension loader to load every entrypoint and assert no loader errors. Every helper, functional, and selected-entrypoint smoke check uses Bun's named-test reporter; output includes per-test status, timings, and pass/fail totals. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.
+`npm run test:shared` runs the cross-extension checks: agent-directory resolution, parity of the duplicated host and git guards, installer, package metadata, and the `globalThis` seams between `opl-modes`, `opl-footer`, `opl-input` and `opl-configurator`. `npm run typecheck` runs `tsc` in strict mode over all 90 extension sources and is separate from `npm test`. Release validation uses `npm ci`, strict typechecking and the full suite; package tests exercise npm packing to exclude live configs. Run one extension suite with `npm run test:opl-<name>` for `browser`, `configurator`, `footer`, `guardian`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, `simplebench`, or `ctxtrim`. `npm run test:pi-host` uses the Pi build this machine actually runs (the installed managed release, falling back to the `>=0.87.0` devDependency when none is present) and its real extension loader to load every entrypoint and assert no loader errors. Every helper, functional, and selected-entrypoint smoke check uses Bun's named-test reporter; output includes per-test status, timings, and pass/fail totals. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.
 
 For agents/models testing extensions in a running Pi session, follow the [live-test instructions](tests/support/opl-live-test.md): one extension per phase, safe tool probes, operator-assisted UI checks, and separate reporting of live observations, automated coverage, and unverified behavior.
