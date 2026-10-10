@@ -3,6 +3,7 @@ import type { TUI, EditorTheme } from "@earendil-works/pi-tui";
 import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 import { CONFIG, COMPANION_PADDING, MIN_WIDTH_FOR_COMPANION } from "./config.js";
+import { registerInputConfiguratorTab } from "./configure.js";
 import { resolveModeStyle, type ModeAppearance } from "./mode-style.js";
 import { applyColor, CompanionAnimator, COMPANION_TICK_MS, IDLE_REPAINT_MS, startRenderTimer } from "./utils.js";
 
@@ -306,4 +307,9 @@ export default function (pi: ExtensionAPI) {
 		activeEditor?.dispose();
 		activeEditor = null;
 	});
+
+	// Expose the settings screen to opl-configurator's generic shell; the shell owns the
+	// /configurator command and the tab only writes opl-input.json (a /reload is still
+	// required before the running editor picks the change up).
+	registerInputConfiguratorTab();
 }

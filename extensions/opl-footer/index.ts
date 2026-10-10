@@ -11,7 +11,7 @@ import { getGitStatus, invalidateGitStatus, invalidateGitBranch } from "./git-st
 import { getEffectiveConfig } from "./config.js";
 import { getIcons } from "./icons.js";
 import { getDefaultColors, fg } from "./theme.js";
-import { showFooterConfigurator } from "./configure.js";
+import { registerFooterConfiguratorTab } from "./configure.js";
 import { fetchCodexUsage, refreshCodexUsageSnapshot, type CodexUsageSnapshot } from "./codex-usage.js";
 import { fetchOpenRouterUsage, refreshOpenRouterUsageSnapshot, type OpenRouterUsageSnapshot } from "./openrouter-usage.js";
 
@@ -395,15 +395,13 @@ export default function footer(pi: ExtensionAPI) {
   let statusTracker = createAgentStatusTracker();
   const toolStartTimes = new Map<string, number>();
 
-  pi.registerCommand("configure-opl", {
-    description: "Interactively configure the OPL footer layout",
-    handler: async (_args, ctx) => {
-      await showFooterConfigurator(ctx, () => {
-        tuiRef?.requestRender();
-        void refreshCodexUsage(ctx, true);
-        void refreshOpenRouterUsage(ctx, true);
-      });
-    },
+  // The footer exposes itself to opl-configurator's generic tabbed shell; the shell owns
+  // the /configurator command, so a session that reloads the config from another tab still
+  // re-renders the footer and refreshes quota usage here.
+  registerFooterConfiguratorTab((ctx) => {
+    tuiRef?.requestRender();
+    void refreshCodexUsage(ctx, true);
+    void refreshOpenRouterUsage(ctx, true);
   });
 
   // Track session start

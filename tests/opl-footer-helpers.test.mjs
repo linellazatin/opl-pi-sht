@@ -274,8 +274,8 @@ test("updates one footer layout while preserving retained config entries", () =>
 
 test("uses default layouts and keeps shown segments unique", () => {
   assert.deepEqual(getLayoutSegments({}, "row2RightSegments"), ["token_total", "separator", "cost"]);
-  assert.ok(CONFIGURABLE_SEGMENTS.includes("codex_usage"), "makes the optional segment available to /configure-opl");
-  assert.ok(CONFIGURABLE_SEGMENTS.includes("openrouter_usage"), "makes the OpenRouter segment available to /configure-opl");
+  assert.ok(CONFIGURABLE_SEGMENTS.includes("codex_usage"), "makes the optional segment available to /configurator");
+  assert.ok(CONFIGURABLE_SEGMENTS.includes("openrouter_usage"), "makes the OpenRouter segment available to /configurator");
   const once = setLayoutSegment({ row2RightSegments: [] }, "row2RightSegments", "cost", true);
   const twice = setLayoutSegment(once, "row2RightSegments", "cost", true);
   assert.equal(twice.row2RightSegments.filter((segment) => segment === "cost").length, 1);

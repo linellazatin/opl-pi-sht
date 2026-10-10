@@ -4,7 +4,7 @@ A customizable three-row footer for the Pi coding agent. It shows model, path, G
 
 ## Commands, flags, and shortcuts
 
-`/configure-opl` provides six row/side tabs to toggle or reorder standard segments and their trailing separators, applying changes immediately. Press `r` for reorder view, then `,`/`.` to move the selected segment. The `status` segment shows `Working` during agent execution, `Waiting` while Pi tools run, and `Ready` when the agent settles. Colors, icons, literal text, and other options remain JSON-only. Nerd Font detection can be overridden with `FOOTER_NERD_FONTS=1` or `FOOTER_NERD_FONTS=0`.
+`/configurator` opens the `opl-configurator` shell, whose Footer tab (hotkey `f`) provides six row/side tabs to toggle or reorder standard segments and their trailing separators, applying changes immediately. Press `r` for reorder view, then `,`/`.` to move the selected segment. The `status` segment shows `Working` during agent execution, `Waiting` while Pi tools run, and `Ready` when the agent settles. Colors, icons, literal text, and other options remain JSON-only. Nerd Font detection can be overridden with `FOOTER_NERD_FONTS=1` or `FOOTER_NERD_FONTS=0`.
 
 ## Extension features
 
@@ -68,7 +68,7 @@ Probes are also hardened against the repository itself. A worktree can declare p
 }
 ```
 
-That is the shipped default layout (`DEFAULT_CONFIG` in `config.ts`); `codex_usage` and `openrouter_usage` start disabled and are added by editing the arrays or using `/configure-opl`.
+That is the shipped default layout (`DEFAULT_CONFIG` in `config.ts`); `codex_usage` and `openrouter_usage` start disabled and are added by editing the arrays or using `/configurator`.
 
 See the tracked [`configs/opl-footer.json.sample`](../../configs/opl-footer.json.sample) for a complete example. Segment IDs, color fields, context-bar options, thinking-level colors, and icon overrides are documented below. Colors accept Pi theme tokens, six-digit hex, or the three-digit `#abc` shorthand (expanded to `#aabbcc`); the context bar gradient resolves both forms to RGB. An unknown token or malformed hex renders that text uncolored instead of failing the footer render, so a typo in `colors` or in `opl-modes`' `appearance.modeColor` costs you a color, not the footer.
 
@@ -86,6 +86,12 @@ only a `{ mode: <non-empty string> }` is honoured, a malformed or missing value 
 `Mode: Normal`, and a `modeColor` that is not a string is ignored.
 `session_shutdown` deletes the published trigger, because it closes over this session's TUI
 and a stale one would hand a dead component to the next session.
+
+For configuration, `opl-footer` publishes one entry on `globalThis.__oplConfiguratorTabs`
+(id `opl-footer`, hotkey `f`, label `Footer`) whose factory returns the same
+settings/reorder screen. The `/configurator` shell in `opl-configurator` owns the command
+and reads that array lazily; the entry is registered once at load and the factory is called
+fresh on every `/configurator` invocation.
 
 ## Available Segments
 
@@ -119,13 +125,13 @@ and a stale one would hand a dead component to the next session.
 
 ## Codex Subscription Usage
 
-Add `codex_usage` to any row through `/configure-opl` or `opl-footer.json`. While the active model is the OAuth-authenticated `openai-codex` provider, the footer asks Pi's model registry to resolve the same short-lived OAuth access token that Pi uses for the selected model, then sends `GET https://chatgpt.com/backend-api/wham/usage` directly from the local Pi process. The request carries `Authorization: Bearer <Pi OAuth token>`, `Accept: application/json`, a fixed `User-Agent: opl-footer-codex-usage`, and the token's `chatgpt_account_id` JWT claim as `chatgpt-account-id` when present. It refreshes after session start, model selection, each completed assistant response, each tool completion, and settled agent runs. Refreshes are non-blocking, with a 30-second floor and a 15-second request timeout; events within that floor coalesce into one trailing refresh, including events received during an in-flight request. Pending refreshes are cancelled on session reset, shutdown, or switching away from Codex, and recheck whether the segment is enabled before fetching. It classifies the returned windows by duration rather than response order. This is ChatGPT subscription quota, not OpenAI Platform API-key usage or billing.
+Add `codex_usage` to any row through `/configurator` or `opl-footer.json`. While the active model is the OAuth-authenticated `openai-codex` provider, the footer asks Pi's model registry to resolve the same short-lived OAuth access token that Pi uses for the selected model, then sends `GET https://chatgpt.com/backend-api/wham/usage` directly from the local Pi process. The request carries `Authorization: Bearer <Pi OAuth token>`, `Accept: application/json`, a fixed `User-Agent: opl-footer-codex-usage`, and the token's `chatgpt_account_id` JWT claim as `chatgpt-account-id` when present. It refreshes after session start, model selection, each completed assistant response, each tool completion, and settled agent runs. Refreshes are non-blocking, with a 30-second floor and a 15-second request timeout; events within that floor coalesce into one trailing refresh, including events received during an in-flight request. Pending refreshes are cancelled on session reset, shutdown, or switching away from Codex, and recheck whether the segment is enabled before fetching. It classifies the returned windows by duration rather than response order. This is ChatGPT subscription quota, not OpenAI Platform API-key usage or billing.
 
 No OAuth token, account ID, or response body is written to disk, logged, added to the Pi session, or sent anywhere other than `chatgpt.com` for that request. **The footer retains only the parsed 5-hour/weekly percentage and reset time in process memory for the active session.** The endpoint is an internal ChatGPT backend API and can change without notice. A failed refresh keeps the most recent exact snapshot and marks it `(stale)`; if no request has ever succeeded, the segment stays hidden. Disabling the segment prevents future requests and discards any result from a request already in flight.
 
 ## OpenRouter Usage
 
-Add `openrouter_usage` to any row through `/configure-opl` or `opl-footer.json`. While the selected model provider is `openrouter`, the footer resolves the same API key Pi uses for inference and sends `GET https://openrouter.ai/api/v1/key` from the local Pi process. It renders the configured per-key limit as `$<limit - limit_remaining> / $<limit> (<percent>%)`; an absent, malformed, or unlimited key cap leaves the segment hidden. The numerator deliberately uses OpenRouter's authoritative `limit_remaining`, rather than `usage` or `byok_usage`, because those ledgers may not both count against the key limit.
+Add `openrouter_usage` to any row through `/configurator` or `opl-footer.json`. While the selected model provider is `openrouter`, the footer resolves the same API key Pi uses for inference and sends `GET https://openrouter.ai/api/v1/key` from the local Pi process. It renders the configured per-key limit as `$<limit - limit_remaining> / $<limit> (<percent>%)`; an absent, malformed, or unlimited key cap leaves the segment hidden. The numerator deliberately uses OpenRouter's authoritative `limit_remaining`, rather than `usage` or `byok_usage`, because those ledgers may not both count against the key limit.
 
 It refreshes after session start, model selection, each completed assistant response, each tool completion, and settled agent runs. Refreshes are non-blocking, with a 30-second floor and a 15-second request timeout; events within that floor coalesce into one trailing refresh, including events received during an in-flight request. Pending refreshes are cancelled on session reset, shutdown, or switching away from OpenRouter, and recheck whether the segment is enabled before fetching. No API key or response body is written to disk, logged, added to the Pi session, or sent anywhere other than `openrouter.ai`. A failed refresh keeps the most recent exact snapshot and marks it `(stale)`; if no request has ever succeeded, the segment stays hidden. Disabling the segment prevents future requests and discards any result from a request already in flight.
 

@@ -4,7 +4,7 @@ Replaces Pi's default chat editor with a mode-aware custom editor. Native editor
 
 ## Commands, flags, and shortcuts
 
-No commands, flags, or shortcuts. It replaces the standard editor at session start.
+No commands, flags, or shortcuts of its own. It replaces the standard editor at session start. Its settings are editable through the `/configurator` shell (Input tab, hotkey `i`); a save writes `opl-input.json` and reports that the change takes effect after `/reload`.
 
 ## Extension features
 
