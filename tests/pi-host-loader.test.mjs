@@ -47,7 +47,7 @@ test("Pi host loader loads every package extension without errors", async () => 
     const result = await discoverAndLoadExtensions(["extensions"], process.cwd(), agentDir);
 
     assert.deepEqual(result.errors, []);
-    assert.equal(result.extensions.length, 11);
+    assert.equal(result.extensions.length, 12);
     console.log(`[pi-host] loaded ${result.extensions.length} extensions with ${source}`);
   } finally {
     rmSync(agentDir, { recursive: true, force: true });

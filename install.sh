@@ -17,8 +17,8 @@ USAGE="Usage: $0 [--link] [--only EXTENSION...] [--force-configs] [--no-prune]
 
   --link, -l        Create symlinks from $REPO_DIR to \$AGENT_DIR/extensions and \$AGENT_DIR/configs
                     (non-destructive; does not overwrite existing files)
-  --only, -o        Install only the listed extensions. opl-footer, opl-input, and opl-modes
-                    are a bundle: selecting any one installs all three.
+  --only, -o        Install only the listed extensions. opl-configurator, opl-footer,
+                    opl-input, and opl-modes are a bundle: selecting any one installs all four.
   --force-configs   Overwrite config files that already exist in \$AGENT_DIR/configs.
   --no-prune        Keep extension directories recorded by a previous install of this
                     collection even when this release no longer ships them.
@@ -72,10 +72,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-ALL_EXTENSIONS=(opl-browser opl-ctxtrim opl-footer opl-guardian opl-init opl-input opl-modes opl-questionnaire opl-simplebench opl-todo opl-webaccess)
-BUNDLE=(opl-footer opl-input opl-modes)
+ALL_EXTENSIONS=(opl-browser opl-configurator opl-ctxtrim opl-footer opl-guardian opl-init opl-input opl-modes opl-questionnaire opl-simplebench opl-todo opl-webaccess)
+BUNDLE=(opl-configurator opl-footer opl-input opl-modes)
 # Extensions that ship no config file.
-CONFIGLESS=(opl-ctxtrim)
+CONFIGLESS=(opl-configurator opl-ctxtrim)
 
 contains() {
     local needle="$1"

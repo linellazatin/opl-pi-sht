@@ -6,7 +6,7 @@ import { test } from "bun:test";
 
 const INSTALL = new URL("../install.sh", import.meta.url).pathname;
 const ALL = [
-	"opl-browser", "opl-ctxtrim", "opl-footer", "opl-guardian", "opl-init", "opl-input",
+	"opl-browser", "opl-configurator", "opl-ctxtrim", "opl-footer", "opl-guardian", "opl-init", "opl-input",
 	"opl-modes", "opl-questionnaire", "opl-simplebench", "opl-todo", "opl-webaccess",
 ];
 
@@ -17,7 +17,7 @@ function fakeRepo() {
 	for (const name of ALL) {
 		mkdirSync(join(root, "extensions", name), { recursive: true });
 		writeFileSync(join(root, "extensions", name, "index.ts"), "// extension\n");
-		if (name !== "opl-ctxtrim") {
+		if (name !== "opl-configurator" && name !== "opl-ctxtrim") {
 			writeFileSync(join(root, "configs", `${name}.json.sample`), JSON.stringify({ shipped: name }));
 		}
 	}
@@ -49,7 +49,7 @@ test("installs shipped sample configs from a clone", async () => {
 		const r = await run(repo, [["PI_CODING_AGENT_DIR", agent]]);
 		assert.equal(r.code, 0, r.stderr);
 		for (const name of ALL) {
-			if (name === "opl-ctxtrim") continue;
+			if (name === "opl-configurator" || name === "opl-ctxtrim") continue;
 			const dest = join(agent, "configs", `${name}.json`);
 			assert.ok(existsSync(dest), `${name}.json was not installed from its sample`);
 			assert.deepEqual(JSON.parse(readFileSync(dest, "utf8")), { shipped: name });
@@ -138,7 +138,7 @@ test("--only expands the UI bundle", async () => {
 	try {
 		const r = await run(repo, [["PI_CODING_AGENT_DIR", agent]], ["--only", "opl-footer"]);
 		assert.equal(r.code, 0, r.stderr);
-		for (const name of ["opl-footer", "opl-input", "opl-modes"]) {
+		for (const name of ["opl-configurator", "opl-footer", "opl-input", "opl-modes"]) {
 			assert.ok(existsSync(join(agent, "extensions", name)), `${name} should install with the bundle`);
 		}
 		assert.ok(!existsSync(join(agent, "extensions", "opl-todo")), "unselected extensions must not install");
