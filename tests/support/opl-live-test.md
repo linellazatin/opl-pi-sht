@@ -128,7 +128,7 @@ Run `npm run test:opl-footer`.
 
 1. Ask whether enabled footer rows remained visible and values updated during the preceding tool calls, without unexpected clipping or blanking. Offer visual-only and unobserved options; do not require segments absent from the operator's layout.
 2. Record the observed fields. During an active run, status need not be `Ready`; that transition happens only after the agent settles. Do not claim post-settle behavior while the current turn is still running.
-3. Do not alter `/configure-opl`, switch providers, or enable quota endpoints just for a smoke check. Branch/compaction cache invalidation, optional quota refreshes, configuration persistence, empty-row budgets, and fault isolation remain automated-only unless separately exercised with approval.
+3. Do not alter `/configurator`, switch providers, or enable quota endpoints just for a smoke check. Branch/compaction cache invalidation, optional quota refreshes, configuration persistence, empty-row budgets, and fault isolation remain automated-only unless separately exercised with approval.
 
 ## Final integration and integrity
 
