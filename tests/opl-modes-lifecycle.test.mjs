@@ -142,6 +142,30 @@ const MODEL_A = { provider: "alpha", id: "model-a" };
 const MODEL_B = { provider: "beta", id: "model-b" };
 const BASE_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls", "plan_complete"];
 
+function beforeAgentStart(messageType) {
+  const base = { type: "before_agent_start", messageType, systemPrompt: "BASE" };
+  return messageType === "user"
+    ? { ...base, prompt: "Continue the work.", images: [] }
+    : { ...base, message: { role: "custom", customType: "compatibility-probe", content: "Continue the work.", display: false, timestamp: 1 } };
+}
+
+for (const mode of ["chat", "plan"]) {
+  for (const messageType of ["user", "custom"]) {
+    test(`${mode} mode injects its prompt for a ${messageType}-started run`, async () => {
+      const h = mount({ tools: [...BASE_TOOLS], models: [MODEL_A] });
+      await h.run(mode === "plan" ? "plan" : "mode", mode === "plan" ? "lifecycle-probe" : "chat");
+      const event = beforeAgentStart(messageType);
+      assert.equal(Object.hasOwn(event, "prompt"), messageType === "user");
+
+      const results = await h.fire("before_agent_start", event);
+      const prompt = results.find((r) => typeof r?.systemPrompt === "string")?.systemPrompt;
+      assert.ok(prompt?.startsWith("BASE\n\n"), "the base prompt is preserved");
+      assert.match(prompt, mode === "chat" ? /CHAT MODE/ : /PLAN MODE/);
+      assert.equal(getMode(), mode, "prompt injection does not change the active mode");
+    });
+  }
+}
+
 test("OFF with pinned tools discards the snapshot taken on mode entry", async () => {
   defineMode("off", { tools: ["read", "grep"] });
   const h = mount({ tools: BASE_TOOLS, active: ["read", "bash"], models: [MODEL_A] });
@@ -277,7 +301,7 @@ test("the plan injected into the system prompt is capped", async () => {
     await h.fire("session_start", { reason: "startup" });
     assert.equal(getMode(), "execute", "the harness resumed execute mode");
 
-    const results = await h.fire("before_agent_start", { systemPrompt: "BASE", reason: "startup" });
+    const results = await h.fire("before_agent_start", beforeAgentStart("user"));
     const prompt = results.find((r) => r && typeof r.systemPrompt === "string")?.systemPrompt;
     assert.ok(prompt, "execute mode rewrites the system prompt");
     assert.ok(prompt.startsWith("BASE"), "the base prompt is preserved");
@@ -291,7 +315,7 @@ test("the plan injected into the system prompt is capped", async () => {
   }
 });
 
-test("a user execute template cannot bypass the injection ceiling", async () => {
+test("a custom-started run's execute template cannot bypass the injection ceiling", async () => {
   const planDir = join(process.cwd(), ".pi", "plans");
   mkdirSync(planDir, { recursive: true });
   const planPath = join(planDir, "plan-huge2.md");
@@ -307,7 +331,7 @@ test("a user execute template cannot bypass the injection ceiling", async () => 
       ],
     });
     await h.fire("session_start", { reason: "startup" });
-    const results = await h.fire("before_agent_start", { systemPrompt: "BASE", reason: "startup" });
+    const results = await h.fire("before_agent_start", beforeAgentStart("custom"));
     const prompt = results.find((r) => r && typeof r.systemPrompt === "string")?.systemPrompt;
     assert.ok(prompt.startsWith("BASE\n\nCUSTOM TEMPLATE"), "the custom template is still used");
     assert.ok(Buffer.byteLength(prompt, "utf8") < 25000, `injected prompt is ${Buffer.byteLength(prompt)} bytes`);

@@ -14,6 +14,9 @@
 
 A portable collection of various Pi coding agent extensions. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
 
+>
+> **Validation**: all 12 extensions pass loader checks with Pi `1.2.0`, `1.1.0`, locked Pi `1.0.0` and the declared `0.87.0` floor. Pi `1.2.0` also passes strict typechecking and the full suite; custom-triggered mode runs are covered by real-host tests with synthetic model responses.
+>
 > ### BIG A👀️ UPDATE
 >
 > ### v0.3.0 - security hardening, fixes, and extension enhancements
@@ -33,7 +36,6 @@ A portable collection of various Pi coding agent extensions. Repository director
 >
 > Having issues? [Opl a ticket](https://github.com/linellazatin/opl-pi-sht/issues/new).
 >
-> **Validation**: all 12 extensions pass loader checks with Pi `1.1.0`, locked Pi `1.0.0` and the declared `0.87.0` floor.
 
 ## Installation
 
@@ -245,6 +247,8 @@ A Pi package (npm or Git) still needs the one-time `npx playwright install chrom
 npm test
 ```
 
-`npm run test:shared` runs the cross-extension checks: agent-directory resolution, parity of the duplicated host and git guards, installer, package metadata, and the `globalThis` seams between `opl-modes`, `opl-footer`, `opl-input` and `opl-configurator`. `npm run typecheck` runs `tsc` in strict mode over all 90 extension sources and is separate from `npm test`. Release validation uses `npm ci`, strict typechecking and the full suite; package tests exercise npm packing to exclude live configs. Run one extension suite with `npm run test:opl-<name>` for `browser`, `configurator`, `footer`, `guardian`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, `simplebench`, or `ctxtrim`. `npm run test:pi-host` uses the Pi build this machine actually runs (the installed managed release, falling back to the `>=0.87.0` devDependency when none is present) and its real extension loader to load every entrypoint and assert no loader errors. Every helper, functional, and selected-entrypoint smoke check uses Bun's named-test reporter; output includes per-test status, timings, and pass/fail totals. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.
+`npm run test:shared` runs the cross-extension checks: agent-directory resolution, parity of the duplicated host and git guards, installer, package metadata, and the `globalThis` seams between `opl-modes`, `opl-footer`, `opl-input` and `opl-configurator`. `npm run typecheck` runs `tsc` in strict mode over all 90 extension sources and is separate from `npm test`. Release validation uses `npm ci`, strict typechecking and the full suite; package tests exercise npm packing to exclude live configs. Run one extension suite with `npm run test:opl-<name>` for `browser`, `configurator`, `footer`, `guardian`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, `simplebench`, or `ctxtrim`. `npm run test:pi-host` uses the Pi build this machine actually runs (the installed managed release, falling back to the `>=0.87.0` devDependency when none is present) and its real extension loader to load every entrypoint and assert no loader errors. On Pi >=1.2.0 it also checks custom/user `before_agent_start` events, busy-during-start semantics and mode-prompt persistence after real file-tool execution, using isolated fixtures and synthetic model responses; those host-specific cases are skipped on older Pi. Every helper, functional, and selected-entrypoint smoke check uses Bun's named-test reporter; output includes per-test status, timings, and pass/fail totals. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.
+
+CI runs strict typechecking and the suite against the committed lockfile, the Pi `0.87.0` floor, and a rolling `current` job that resolves `pi-coding-agent`, `pi-tui` and `pi-ai` from `~1.2.0`. The rolling job ignores the lockfile for range resolution, reports exact resolved versions, disables managed-install discovery and requires the loader to use its selected devDependency. The tilde range selects stable releases >=1.2.0 and <1.3.0, so only 1.2 patches are followed, not later minor releases or every version in that range; patches may still regress extension behavior, so a green run is evidence for its resolved versions, not a blanket compatibility promise. Keep the locked job for reproducibility. New upstream releases are checked on the next push or pull request, not automatically at publication.
 
 For agents/models testing extensions in a running Pi session, follow the [live-test instructions](tests/support/opl-live-test.md): one extension per phase, safe tool probes, operator-assisted UI checks, and separate reporting of live observations, automated coverage, and unverified behavior.
