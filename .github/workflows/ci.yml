@@ -31,8 +31,8 @@ jobs:
   current:
     runs-on: ubuntu-latest
     env:
-      PI_CODING_AGENT_DIR: ${{ runner.temp }}/opl-current-agent
-      PI_MANAGED_INSTALL_ROOT: ${{ runner.temp }}/opl-no-managed-install
+      PI_CODING_AGENT_DIR: /tmp/opl-current-agent
+      PI_MANAGED_INSTALL_ROOT: /tmp/opl-no-managed-install
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
