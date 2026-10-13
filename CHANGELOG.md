@@ -1,5 +1,16 @@
 # Changelog
 
+## [NO extension runtime changes -> NO version bump] CI + tests update for Pi v1.2.0
+
+### Tests
+
+- **CI**: rolling Pi `~1.2.0` checks alongside locked dependencies and the `0.87.0` floor; reports resolved versions and verifies devDependency loading, not a managed install.
+- **`opl-modes`**: user/custom fixtures and Pi >=1.2.0 real-host tests cover busy startup, custom events without a user prompt, and mode-prompt persistence after file-tool execution. Isolated config, synthetic responses, no inference calls; older hosts skip only these host-specific cases.
+
+### Docs
+
+- Recorded Pi `1.2.0` validation and the rolling tilde range's coverage and reproducibility limits. **No extension runtime changes or minimum-version bump.**
+
 ## [0.3.0] - Security hardening, fixes, and extension enhancements
 
 The network trust boundary became address-based, code that Pi executes on the model's behalf stopped inheriting the harness environment, configuration and written paths became relocatable, and the collection stopped paying tokens for content it does not use. Detail lives in each extension's README.

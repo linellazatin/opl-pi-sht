@@ -36,7 +36,7 @@ Typecheck separately; it is not part of `npm test`:
 npm run typecheck
 ```
 
-This runs `tsc -p tsconfig.json` in `strict` mode with `noUncheckedIndexedAccess` on, over `extensions/**/*.ts`. The flag was enabled after a four-batch sweep cleared 127 index-access sites across 9 extensions; keep it on - it is what stops the `arr[0]`-typed-as-`T` crash class (empty array read as an object) from coming back in payload parsers and render loops. CI runs the suite twice: once against the installed devDependency range, and once in a `floor` job that pins `@earendil-works/pi-coding-agent`, `pi-tui` and `pi-ai` to `0.87.0` with `typebox@1.3.27` and asserts the loader really used it (`OPL_PI_HOST_SOURCE`).
+This runs `tsc -p tsconfig.json` in `strict` mode with `noUncheckedIndexedAccess` on, over `extensions/**/*.ts`. The flag was enabled after a four-batch sweep cleared 127 index-access sites across 9 extensions; keep it on - it is what stops the `arr[0]`-typed-as-`T` crash class (empty array read as an object) from coming back in payload parsers and render loops. CI runs the suite against the committed lockfile, a rolling `current` job that resolves all three Pi host packages from `~1.2.0` (1.2 patches only), and a `floor` job that pins `@earendil-works/pi-coding-agent`, `pi-tui` and `pi-ai` to `0.87.0` with `typebox@1.3.27`. The rolling and floor jobs disable managed-install discovery and assert the loader really used the selected devDependency (`OPL_PI_HOST_SOURCE`); the rolling job also reports exact resolved versions.
 
 ## Architecture
 
@@ -46,7 +46,7 @@ The repository is organized around individual Pi extensions, each with its own h
 - `opl-footer`, `opl-guardian`, `opl-input`, `opl-modes`, `opl-questionnaire`, `opl-todo` - agent UI/behavior extensions.
 - `opl-init` - crawling, fingerprinting, and packet handling.
 - `opl-simplebench`, `opl-ctxtrim` - TypeScript-based utilities (their tests are `.ts`). `opl-ctxtrim` trims known context-mode `ctx_*` tool descriptions in Pi provider requests. Provider handlers locate different encodings of the same tools; they do not expand its scope. Only own entries in `CTX_DESCRIPTIONS` match, and widening that table is a source change, not a configuration.
-- There is no `pi-host` extension directory. `test:pi-host` loads every package extension through Pi's host loader (`tests/pi-host-loader.test.mjs`), preferring the locally installed Pi build.
+- There is no `pi-host` extension directory. `test:pi-host` loads every package extension through Pi's host loader (`tests/pi-host-loader.test.mjs`), preferring the locally installed Pi build, and on Pi >=1.2.0 exercises custom/user run startup and mode-prompt persistence with synthetic responses and real file-tool execution. Its agent configuration and workspace are fixtures; older hosts skip only the 1.2-specific cases.
 
 The test layout mirrors the extension layout: most tests are `.mjs`, with `.ts` tests for the TypeScript extensions. A shared smoke test at `tests/extension-smoke.test.mjs` is parameterized by `OPL_EXTENSION`. Cross-cutting concerns live in `tests/agent-dir-config.test.mjs`, `tests/net-guard-parity.test.mjs`, `tests/install-sh.test.mjs` and `tests/package-metadata.test.mjs`, `tests/git-guard.test.mjs`, `tests/cross-extension-seams.test.mjs` and `tests/session-cwd.test.mjs`, all under `test:shared`.
 
