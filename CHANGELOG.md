@@ -1,5 +1,11 @@
 # Changelog
 
+## [NO extension runtime changes -> NO version bump] CI + docs update for Pi v1.4.0
+
+- **CI**: advance rolling checks to Pi `~1.4.0` (1.4 patches only); retain locked dependencies and the `0.87.0` floor.
+- **Validation**: isolated Pi `1.4.0` passes strict typechecking and 508 tests; Pi `0.87.0` passes strict typechecking and 506 tests, with two >=1.2 host lifecycle cases skipped. All 12 extensions load on both versions; no live-provider or interactive TUI validation.
+- **Docs**: refresh compatibility statements. No extension runtime, package version, dependency floor or lockfile changes; no republishing required.
+
 ## [NO extension runtime changes -> NO version bump] CI + tests update for Pi v1.2.0
 
 ### Tests

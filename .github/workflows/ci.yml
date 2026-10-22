@@ -25,7 +25,7 @@ jobs:
           cd extensions/opl-browser && npm audit --omit=dev --audit-level=high
           cd ../opl-webaccess && npm audit --omit=dev --audit-level=high
 
-  # Rolling 1.2.x compatibility is separate from the reproducible lockfile and floor jobs.
+  # Rolling 1.4.x compatibility is separate from the reproducible lockfile and floor jobs.
   # Resolve the tilde range afresh, report all three versions, and require the loader to
   # use that devDependency rather than a managed install on the runner.
   current:
@@ -41,12 +41,12 @@ jobs:
           cache: npm
       - uses: oven-sh/setup-bun@v2
       - run: npm ci
-      - name: Resolve current Pi 1.2.x
+      - name: Resolve current Pi 1.4.x
         run: >
           npm install --no-save --package-lock=false --no-audit --no-fund
-          '@earendil-works/pi-coding-agent@~1.2.0'
-          '@earendil-works/pi-tui@~1.2.0'
-          '@earendil-works/pi-ai@~1.2.0'
+          '@earendil-works/pi-coding-agent@~1.4.0'
+          '@earendil-works/pi-tui@~1.4.0'
+          '@earendil-works/pi-ai@~1.4.0'
       - name: Report resolved versions and require the selected host
         run: |
           npm ls --depth=0 @earendil-works/pi-coding-agent @earendil-works/pi-tui @earendil-works/pi-ai

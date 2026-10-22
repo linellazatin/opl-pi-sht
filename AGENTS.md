@@ -36,7 +36,7 @@ Typecheck separately; it is not part of `npm test`:
 npm run typecheck
 ```
 
-This runs `tsc -p tsconfig.json` in `strict` mode with `noUncheckedIndexedAccess` on, over `extensions/**/*.ts`. The flag was enabled after a four-batch sweep cleared 127 index-access sites across 9 extensions; keep it on - it is what stops the `arr[0]`-typed-as-`T` crash class (empty array read as an object) from coming back in payload parsers and render loops. CI runs the suite against the committed lockfile, a rolling `current` job that resolves all three Pi host packages from `~1.2.0` (1.2 patches only), and a `floor` job that pins `@earendil-works/pi-coding-agent`, `pi-tui` and `pi-ai` to `0.87.0` with `typebox@1.3.27`. The rolling and floor jobs disable managed-install discovery and assert the loader really used the selected devDependency (`OPL_PI_HOST_SOURCE`); the rolling job also reports exact resolved versions.
+This runs `tsc -p tsconfig.json` in `strict` mode with `noUncheckedIndexedAccess` on, over `extensions/**/*.ts`. The flag was enabled after a four-batch sweep cleared 127 index-access sites across 9 extensions; keep it on - it is what stops the `arr[0]`-typed-as-`T` crash class (empty array read as an object) from coming back in payload parsers and render loops. CI runs the suite against the committed lockfile, a rolling `current` job that resolves all three Pi host packages from `~1.4.0` (1.4 patches only), and a `floor` job that pins `@earendil-works/pi-coding-agent`, `pi-tui` and `pi-ai` to `0.87.0` with `typebox@1.3.27`. The rolling and floor jobs disable managed-install discovery and assert the loader really used the selected devDependency (`OPL_PI_HOST_SOURCE`); the rolling job also reports exact resolved versions.
 
 ## Architecture
 
