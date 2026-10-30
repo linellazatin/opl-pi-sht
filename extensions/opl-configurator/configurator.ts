@@ -95,6 +95,9 @@ export async function showConfigurator(ctx: ExtensionContext): Promise<void> {
       return {
         render: (width: number) => [truncateToWidth(theme.fg("dim", "No instrumented extensions could be loaded."), width)],
         invalidate() {},
+        handleInput(data: string) {
+          if (matchesKey(data, Key.escape)) done(undefined);
+        },
       };
     }
 
