@@ -558,6 +558,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   // ─── Event: session_start ──────────────────────────────────────────────────────
 
   pi.on("session_start", async (event, ctx) => {
+    setSessionCwd(ctx.cwd);
     // Re-publish the footer seam: a previous session in this process cleared it on shutdown.
     publishModeGlobals();
     if (event.reason === "startup") {
