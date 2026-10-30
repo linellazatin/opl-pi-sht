@@ -15,7 +15,11 @@
 A portable collection of various Pi coding agent extensions. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
 
 >
-> **Validation**: Pi `1.4.0` passes strict typechecking and all 508 tests; the declared `0.87.0` floor passes strict typechecking and 506 tests, with two >=1.2 host lifecycle cases skipped. All 12 extensions load on both versions. Custom/user mode runs on Pi `1.4.0` are covered by real-host tests with synthetic model responses. Earlier loader checks also passed on Pi `1.2.0`, `1.1.0` and locked Pi `1.0.0`. Live provider and interactive TUI behavior are not covered by these checks.
+> **Validation**: Pi `1.4.0` passes strict typechecking and 528 tests; the `0.87.0` floor passes strict typechecking and 526 tests, with two >=1.2 host lifecycle cases skipped. All 12 extensions load on both versions. Tests cover resource-loader tab replacement on both and custom/user mode runs on Pi `1.4.0` with synthetic responses.
+>
+> ### v0.3.1 - mode and configurator fixes
+>
+> Plan paths now use the session directory, OFF and execute tool policies apply consistently, and named plans use the configured plan model. Configurator tabs refresh on reload and its failure screen closes with Escape. [CHANGELOG](CHANGELOG.md).
 >
 > ### BIG A👀️ UPDATE
 >
@@ -31,8 +35,6 @@ A portable collection of various Pi coding agent extensions. Repository director
 > - **Stronger release checks**: clean installs use a repaired lockfile, release validation runs strict typechecking and the full test suite, and floor CI verifies compatibility against Pi `0.87.0`. `noUncheckedIndexedAccess` remains enabled to catch unsafe array access. [Tests](#tests).
 > - **Breaking behavior changes**: loopback access is now opt-in (`allowLoopback: false`), and the entire `64:ff9b:1::/48` local-use translation prefix is blocked even with network opt-ins enabled. The well-known `64:ff9b::/96` prefix still follows embedded-IPv4 policy. Stale browser selections now return an error requiring explicit recovery. [Network policy](extensions/opl-browser/README.md#network-policy), [Page selection](extensions/opl-browser/README.md#extension-features).
 > - **Added**: separate, extensible [`opl-configurator`](extensions/opl-configurator/README.md#extension-features), and [`compactions`](extensions/opl-footer/README.md#available-segments) segment in `opl-footer`.
->
-> See [CHANGELOG](CHANGELOG.md) for more details.
 >
 > Having issues? [Opl a ticket](https://github.com/linellazatin/opl-pi-sht/issues/new).
 >
@@ -67,7 +69,7 @@ npx playwright install chromium
 {
   "packages": [
     {
-      "source": "npm:@openlines/opl-pi-sht@0.3.0",
+      "source": "npm:@openlines/opl-pi-sht@0.3.1",
       "extensions": ["extensions/opl-init/index.ts", "extensions/opl-todo/index.ts"]
     }
   ]
