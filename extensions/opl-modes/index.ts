@@ -374,10 +374,14 @@ export default function modeSwitcher(pi: ExtensionAPI) {
 
   async function enterExecuteMode(ctx: ExtensionContext): Promise<void> {
     transition("execute", pi);
-    const baseNames = savedToolNames ?? pi.getActiveTools();
-    pi.setActiveTools(applyLazyPolicy([...toolsWithoutPlanComplete(baseNames), "plan_complete"]));
-    savedToolNames = null;
     const modeDef = getModeDefinition("execute");
+    if (modeDef?.tools) {
+      saveAndSetActiveTools(withPlanComplete("execute", toolsWithoutPlanComplete(modeDef.tools)));
+    } else {
+      const baseNames = savedToolNames ?? pi.getActiveTools();
+      pi.setActiveTools(applyLazyPolicy(withPlanComplete("execute", toolsWithoutPlanComplete(baseNames))));
+      savedToolNames = null;
+    }
     await applyModeModel(ctx, modeDef);
     updateStatus(ctx);
     const title = getPlanDisplayTitle();
@@ -511,7 +515,9 @@ export default function modeSwitcher(pi: ExtensionAPI) {
 
     if (!restored) {
       resetState();
-      restoreAllTools();
+      const offTools = getModeDefinition("off")?.tools;
+      if (offTools) saveAndSetActiveTools(withPlanComplete("off", offTools), true);
+      else restoreAllTools();
       applyOffModel(ctx);
       updateStatus(ctx);
       return;
@@ -531,10 +537,11 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     if (modeDef?.tools) {
       // Honor allowPlanComplete here too, otherwise a resume drops the tool a mode was given.
       // OFF's declared list is the resting baseline, so it must not keep a stale snapshot.
-      saveAndSetActiveTools(withPlanComplete(mode, modeDef.tools), mode === "off");
+      const tools = mode === "execute" ? toolsWithoutPlanComplete(modeDef.tools) : modeDef.tools;
+      saveAndSetActiveTools(withPlanComplete(mode, tools), mode === "off");
     } else if (mode === "execute") {
       const allNames = pi.getActiveTools();
-      pi.setActiveTools(applyLazyPolicy([...toolsWithoutPlanComplete(allNames), "plan_complete"]));
+      pi.setActiveTools(applyLazyPolicy(withPlanComplete(mode, toolsWithoutPlanComplete(allNames))));
     } else {
       // Default: the active set minus plan_complete, re-added when the mode allows it.
       const allNames = pi.getActiveTools();
