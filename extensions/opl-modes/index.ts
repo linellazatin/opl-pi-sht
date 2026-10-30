@@ -129,6 +129,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   // ─── Saved model for restoring ─────────────────────────────────────────────
   let savedModel: Model<any> | null = null;
   const queueModelChange = createLatestModelQueue();
+  let pendingPlanModel: Promise<void> | null = null;
   // Consecutive restore failures for the same model, so an un-authable restore point is
   // retried once and then released instead of blocking future captures forever.
   let restoreAttempts = 0;
@@ -363,7 +364,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     transition("plan", pi);
     const modeDef = getModeDefinition("plan");
     saveAndSetActiveTools(planModeTools());
-    applyModeModel(ctx, modeDef);
+    pendingPlanModel = applyModeModel(ctx, modeDef);
     updateStatus(ctx);
     if (ctx.hasUI && !USER_CONFIG.ui.hideNotify) {
       const notify = modeDef?.labels?.notify ?? USER_CONFIG.labels.plan.notify;
@@ -382,6 +383,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       pi.setActiveTools(applyLazyPolicy(withPlanComplete("execute", toolsWithoutPlanComplete(baseNames))));
       savedToolNames = null;
     }
+    await pendingPlanModel;
     await applyModeModel(ctx, modeDef);
     updateStatus(ctx);
     const title = getPlanDisplayTitle();
@@ -401,6 +403,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
    */
   function enterOffMode(ctx: ExtensionContext, message?: string, silent = false): void {
     transition("off", pi);
+    pendingPlanModel = null;
     const offModeDef = getModeDefinition("off");
     // OFF gates tools only when the user declares modes.off.tools; otherwise it restores
     // whatever was active before the mode.
@@ -807,6 +810,8 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       const filename = `${PLAN_FILE_PREFIX}${sanitized}.md`;
       enterPlanWithFile(filename, pi);
       saveAndSetActiveTools(planModeTools());
+      pendingPlanModel = applyModeModel(ctx, getModeDefinition("plan"));
+      await pendingPlanModel;
       updateStatus(ctx);
       const createTitle = titleFromFilename(filename);
       if (ctx.hasUI && !USER_CONFIG.ui.hideNotify) {
@@ -873,9 +878,11 @@ export default function modeSwitcher(pi: ExtensionAPI) {
   }
 
   /** Load an existing plan file and show the action menu. */
-  function loadPlanAndShowMenu(ctx: ExtensionContext, filename: string, displayName: string): void {
+  async function loadPlanAndShowMenu(ctx: ExtensionContext, filename: string, displayName: string): Promise<void> {
     enterPlanWithFile(filename, pi);
     saveAndSetActiveTools(planModeTools());
+    pendingPlanModel = applyModeModel(ctx, getModeDefinition("plan"));
+    await pendingPlanModel;
     updateStatus(ctx);
     if (ctx.hasUI && !USER_CONFIG.ui.hideNotify) {
       ctx.ui.notify(USER_CONFIG.labels.plan.notifyLoaded.replace("{title}", displayName), "info");
@@ -1032,7 +1039,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
             if (choice === "__new__") {
               await promptNameAndEnterPlanMode(ctx);
             } else {
-              loadPlanAndShowMenu(ctx, choice, titleFromFilename(choice));
+              await loadPlanAndShowMenu(ctx, choice, titleFromFilename(choice));
               await showPlanMenu(ctx);
             }
           }
@@ -1066,7 +1073,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
 
       if (existsSync(filePath)) {
         if (getMode() !== "off") enterOffMode(ctx, undefined, true);
-        loadPlanAndShowMenu(ctx, filename, titleFromFilename(filename));
+        await loadPlanAndShowMenu(ctx, filename, titleFromFilename(filename));
         await showPlanMenu(ctx);
       } else {
         if (getMode() === "plan" || getMode() === "execute") {
@@ -1076,6 +1083,8 @@ export default function modeSwitcher(pi: ExtensionAPI) {
         if (getMode() !== "off") enterOffMode(ctx, undefined, true);
         enterPlanWithFile(filename, pi);
         saveAndSetActiveTools(planModeTools());
+        pendingPlanModel = applyModeModel(ctx, getModeDefinition("plan"));
+        await pendingPlanModel;
         updateStatus(ctx);
         if (ctx.hasUI && !USER_CONFIG.ui.hideNotify) {
           ctx.ui.notify(USER_CONFIG.labels.plan.notifyWithTitle.replace("{title}", titleFromFilename(filename)), USER_CONFIG.labels.plan.notifyType as "info" | "warning" | "error");
