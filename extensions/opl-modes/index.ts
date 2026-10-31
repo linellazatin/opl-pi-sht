@@ -572,6 +572,10 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     // Re-publish the footer seam: a previous session in this process cleared it on shutdown.
     publishModeGlobals();
     if (event.reason === "startup") {
+      if (getMode() === "off" && (pi.getFlag("chat") === true || pi.getFlag("plan") === true)) {
+        const offTools = getModeDefinition("off")?.tools;
+        if (offTools) saveAndSetActiveTools(withPlanComplete("off", offTools), true);
+      }
       if (pi.getFlag("chat") === true && getMode() === "off") {
         enterChatMode(ctx);
         return;

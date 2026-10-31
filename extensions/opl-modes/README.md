@@ -33,7 +33,7 @@ Any mode can start plan execution via the mode picker's `Execute:` entries or `/
 
 A custom mode with no `tools` array inherits **all** tools, including `write` and `edit` — it is write-capable by default. Always specify an explicit read-only tool list for restrictive modes.
 
-`off` behaves the same way: it restores the tools that were active before the mode (never a wider set). Set `modes.off.tools` to pin the resting tool set instead — for example to keep `subagent`/`browser` out of normal mode entirely. The pinned set also applies on startup when no mode entry is restored. Pinning replaces the snapshot taken on mode entry, so a later mode that lists no `tools` inherits the pinned set rather than the older, wider one. `load_tools` is offered in `off` because withheld lazy tools are otherwise unreachable there.
+`off` behaves the same way: it restores the tools that were active before the mode (never a wider set). Set `modes.off.tools` to pin the resting tool set instead — for example to keep `subagent`/`browser` out of normal mode entirely. The pinned set also applies before `--chat` or `--plan` startup takes its snapshot, and on startup when no mode entry is restored. Pinning replaces the snapshot taken on mode entry, so a later mode that lists no `tools` inherits the pinned set rather than the older, wider one. `load_tools` is offered in `off` because withheld lazy tools are otherwise unreachable there.
 
 Set `modes.execute.tools` to replace the tools available during execution; otherwise execute inherits the pre-plan active set. The configured list is applied on entry and resume, with lazy loading and `allowPlanComplete` still in effect. Exiting restores the previous set or the pinned OFF baseline.
 

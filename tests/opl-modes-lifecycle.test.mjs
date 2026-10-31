@@ -279,6 +279,42 @@ for (const mode of ["chat", "plan"]) {
   });
 }
 
+test("--plan execution inherits the pinned OFF baseline instead of startup tools", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-flag-execute-"));
+  try {
+    defineMode("off", { tools: ["read", "grep"] });
+    const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash", "edit"], models: [MODEL_A] });
+    h.host.flags = { plan: true };
+    h.ctx.cwd = root;
+    h.ctx.hasUI = true;
+    h.ctx.ui.custom = async () => "execute";
+    await h.fire("session_start", { reason: "startup" });
+    await h.fire("agent_end", { messages: [{ role: "assistant", content: [{ type: "text", text: "# Plan:\n1. Implement." }] }] });
+    assert.equal(getMode(), "execute");
+    assert.deepEqual(h.active(), ["read", "grep", "plan_complete"]);
+    await h.run("mode", "off");
+    assert.deepEqual(h.active(), ["read", "grep"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("--plan execution without an OFF override retains the startup tool set", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-flag-inherit-"));
+  try {
+    const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash", "edit"], models: [MODEL_A] });
+    h.host.flags = { plan: true };
+    h.ctx.cwd = root;
+    h.ctx.hasUI = true;
+    h.ctx.ui.custom = async () => "execute";
+    await h.fire("session_start", { reason: "startup" });
+    await h.fire("agent_end", { messages: [{ role: "assistant", content: [{ type: "text", text: "# Plan:\n1. Implement." }] }] });
+    assert.deepEqual(h.active(), ["read", "bash", "edit", "plan_complete"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("execute applies configured tools and restores the pre-plan snapshot on exit", async () => {
   const root = mkdtempSync(join(tmpdir(), "opl-execute-tools-"));
   try {

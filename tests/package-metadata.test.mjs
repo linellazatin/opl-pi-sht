@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -38,6 +39,23 @@ test("nested extension manifests keep their own version line", () => {
 			);
 		}
 	}
+});
+
+test("release validates its tag before publishing and creates the GitHub release afterwards", () => {
+  const workflow = readFileSync(join(ROOT, ".github/workflows/release.yml"), "utf8");
+  const validation = workflow.match(/- name: Validate release version\n\s+run: \|\n((?: {10}.+\n)+)/);
+  assert.ok(validation, "release workflow must validate tag and package version");
+  const command = validation[1].replace(/^ {10}/gm, "");
+  for (const [tag, expected] of [[`v${root.version}`, 0], ["v999.0.0", 1], [root.version, 1]]) {
+    const result = spawnSync("bash", ["-e", "-c", command], {
+      cwd: ROOT, env: { ...process.env, GITHUB_REF_NAME: tag }, encoding: "utf8",
+    });
+    assert.equal(result.status, expected, `tag ${tag}: ${result.stderr}`);
+  }
+  const check = workflow.indexOf("- name: Validate release version");
+  const publish = workflow.indexOf("npm publish --access public");
+  const release = workflow.indexOf("- name: Create GitHub release");
+  assert.ok(check < publish && publish < release, "validate, publish, then create the GitHub release");
 });
 
 test("the live-config ignore rule is anchored to configs/", () => {
