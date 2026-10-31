@@ -19,7 +19,6 @@ jobs:
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
-          package-manager-cache: false
       - uses: oven-sh/setup-bun@v2
       - run: npm ci
       - run: npm run typecheck
@@ -28,6 +27,9 @@ jobs:
         run: |
           cd extensions/opl-browser && npm audit --omit=dev --audit-level=high
           cd ../opl-webaccess && npm audit --omit=dev --audit-level=high
+      - name: Validate release version
+        run: |
+          node -e 'const version = require("./package.json").version; if (process.env.GITHUB_REF_NAME !== `v${version}`) { console.error("Release tag must match package.json version"); process.exit(1); }'
       - name: Extract changelog for this version
         id: changelog
         run: |
@@ -36,11 +38,11 @@ jobs:
           echo "notes<<EOF" >> "$GITHUB_OUTPUT"
           echo "$NOTES" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          body: ${{ steps.changelog.outputs.notes }}
       - run: npm install -g npm@latest
       - run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ''
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.changelog.outputs.notes }}

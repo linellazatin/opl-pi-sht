@@ -3,7 +3,8 @@
 // Run: bun test tests/opl-modes-lifecycle.test.mjs
 import assert from "node:assert/strict";
 import { test, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // Pi's extension host package ships with the running `pi` binary and is deliberately not a
@@ -41,7 +42,7 @@ const built = await Bun.build({
   }],
 });
 if (!built.success) throw new Error(`opl-modes lifecycle build failed: ${built.logs.map((l) => l.message).join("\n")}`);
-const { default: modeSwitcher, getMode, getRestoringModel, resetState, MODE_REGISTRY, registerMode, getModeDefinition } =
+const { default: modeSwitcher, getMode, getRestoringModel, resetState, setSessionCwd, MODE_REGISTRY, registerMode, getModeDefinition, LAZY_TOOLS } =
   await import(new URL("./.build/opl-modes/opl-modes-host-shim.js", import.meta.url).href);
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -60,8 +61,11 @@ function mount({ tools = [], active, models = [], current, journal = [] } = {}) 
     journal: journal.map((entry) => ({ ...entry })),
     modelChanges: [],
     userMessages: [],
+    userMessageModels: [],
+    userMessageTools: [],
     sentMessages: [],
     entryRenderers: [],
+    registeredTools: new Map(),
   };
   const events = new Map();
   const commands = new Map();
@@ -72,7 +76,7 @@ function mount({ tools = [], active, models = [], current, journal = [] } = {}) 
       if (!events.has(name)) events.set(name, []);
       events.get(name).push(handler);
     },
-    registerTool(tool) { if (!tools.includes(tool.name)) tools.push(tool.name); },
+    registerTool(tool) { host.registeredTools.set(tool.name, tool); if (!tools.includes(tool.name)) tools.push(tool.name); },
     registerCommand(name, def) { commands.set(name, def); },
     registerFlag() {},
     registerShortcut() {},
@@ -89,12 +93,13 @@ function mount({ tools = [], active, models = [], current, journal = [] } = {}) 
       return true;
     },
     appendEntry(type, data) { host.journal.push({ type: "custom", customType: type, data }); },
-    sendUserMessage(text) { host.userMessages.push(text); },
+    sendUserMessage(text) { host.userMessages.push(text); host.userMessageModels.push(host.model); host.userMessageTools.push([...host.active]); },
     sendMessage(message) { host.sentMessages.push(message); },
     events: { emit() {} },
   };
 
   const ctx = {
+    cwd: process.cwd(),
     hasUI: false,
     get model() { return host.model; },
     modelRegistry: {
@@ -125,11 +130,16 @@ function mount({ tools = [], active, models = [], current, journal = [] } = {}) 
 
 /** Built-in definitions are module state; snapshot and restore them around each test. */
 let registrySnapshot;
+let lazySnapshot;
 beforeEach(() => {
   registrySnapshot = new Map(MODE_REGISTRY);
+  lazySnapshot = [...LAZY_TOOLS];
   resetState();
 });
 afterEach(() => {
+  setSessionCwd(process.cwd());
+  LAZY_TOOLS.clear();
+  for (const name of lazySnapshot) LAZY_TOOLS.add(name);
   MODE_REGISTRY.clear();
   for (const [name, def] of registrySnapshot) MODE_REGISTRY.set(name, def);
 });
@@ -165,6 +175,333 @@ for (const mode of ["chat", "plan"]) {
     });
   }
 }
+
+test("session startup and replacement resolve named plans from each session cwd", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-mode-cwd-"));
+  const first = join(root, "first");
+  const second = join(root, "second");
+  const name = "session-cwd-probe";
+  const planName = `plan-${name}.md`;
+  for (const [cwd, text] of [[first, "FIRST SESSION PLAN"], [second, "SECOND SESSION PLAN"]]) {
+    const dir = join(cwd, ".pi", "plans");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, planName), `# Plan: Session\n\n${text}\n`);
+  }
+  try {
+    const h = mount({ tools: [...BASE_TOOLS], models: [MODEL_A] });
+    h.ctx.cwd = first;
+    await h.fire("session_start", { reason: "startup" });
+    await h.run("execute", name);
+    let results = await h.fire("before_agent_start", beforeAgentStart("user"));
+    assert.match(results[0]?.systemPrompt ?? "", /FIRST SESSION PLAN/);
+
+    h.host.journal = [];
+    h.ctx.cwd = second;
+    await h.fire("session_start", { reason: "new" });
+    await h.run("execute", name);
+    results = await h.fire("before_agent_start", beforeAgentStart("user"));
+    assert.match(results[0]?.systemPrompt ?? "", /SECOND SESSION PLAN/);
+    assert.doesNotMatch(results[0]?.systemPrompt ?? "", /FIRST SESSION PLAN/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resume and --plan startup use session cwd before resolving a plan", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-mode-cwd-"));
+  const planDir = join(root, ".pi", "plans");
+  mkdirSync(planDir, { recursive: true });
+  writeFileSync(join(planDir, "plan-cwd-resume.md"), "# Plan: Resume\n\nRESUMED SESSION PLAN\n");
+  try {
+    const journal = [{ type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: "plan-cwd-resume.md", restoreModel: null } }];
+    const resumed = mount({ tools: [...BASE_TOOLS], models: [MODEL_A], journal });
+    resumed.ctx.cwd = root;
+    await resumed.fire("session_start", { reason: "resume" });
+    const results = await resumed.fire("before_agent_start", beforeAgentStart("user"));
+    assert.match(results[0]?.systemPrompt ?? "", /RESUMED SESSION PLAN/);
+
+    resetState();
+    const flagged = mount({ tools: [...BASE_TOOLS], models: [MODEL_A] });
+    flagged.host.flags = { plan: true };
+    flagged.ctx.cwd = root;
+    await flagged.fire("session_start", { reason: "startup" });
+    await flagged.run("execute", "cwd-resume");
+    const flagResults = await flagged.fire("before_agent_start", beforeAgentStart("user"));
+    assert.match(flagResults[0]?.systemPrompt ?? "", /RESUMED SESSION PLAN/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("--plan writes generated plans in the session cwd", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-mode-cwd-"));
+  try {
+    const h = mount({ tools: [...BASE_TOOLS], models: [MODEL_A] });
+    h.host.flags = { plan: true };
+    h.ctx.cwd = root;
+    h.ctx.hasUI = true;
+    h.ctx.ui.custom = async () => "save";
+    await h.fire("session_start", { reason: "startup" });
+    await h.fire("agent_end", { messages: [{ role: "assistant", content: [{ type: "text", text: "# Plan:\n1. Write the expected plan." }] }] });
+    const dir = join(root, ".pi", "plans");
+    const files = readdirSync(dir);
+    assert.equal(files.length, 1);
+    assert.match(readFileSync(join(dir, files[0]), "utf8"), /Write the expected plan/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("fresh and unknown-branch startup apply the pinned OFF tools", async () => {
+  defineMode("off", { tools: ["read", "grep"] });
+  for (const journal of [[], [{ type: "custom", customType: "mode-switcher", data: { mode: "removed-mode" } }]]) {
+    resetState();
+    const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash", "edit"], models: [MODEL_A], journal });
+    await h.fire("session_start", { reason: "startup" });
+    assert.equal(getMode(), "off");
+    assert.deepEqual(h.active(), ["read", "grep"]);
+  }
+});
+
+test("fresh OFF without a pinned list preserves the active set", async () => {
+  const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash"], models: [MODEL_A] });
+  await h.fire("session_start", { reason: "startup" });
+  assert.deepEqual(h.active(), ["read", "bash"]);
+});
+
+for (const mode of ["chat", "plan"]) {
+  test(`--${mode} startup keeps its mode tools rather than the pinned OFF list`, async () => {
+    defineMode("off", { tools: ["write"] });
+    defineMode(mode, { tools: ["read", "grep"] });
+    const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash"], models: [MODEL_A] });
+    h.host.flags = { [mode]: true };
+    await h.fire("session_start", { reason: "startup" });
+    assert.equal(getMode(), mode);
+    assert.deepEqual(h.active(), ["read", "grep"]);
+  });
+}
+
+test("--plan execution inherits the pinned OFF baseline instead of startup tools", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-flag-execute-"));
+  try {
+    defineMode("off", { tools: ["read", "grep"] });
+    const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash", "edit"], models: [MODEL_A] });
+    h.host.flags = { plan: true };
+    h.ctx.cwd = root;
+    h.ctx.hasUI = true;
+    h.ctx.ui.custom = async () => "execute";
+    await h.fire("session_start", { reason: "startup" });
+    await h.fire("agent_end", { messages: [{ role: "assistant", content: [{ type: "text", text: "# Plan:\n1. Implement." }] }] });
+    assert.equal(getMode(), "execute");
+    assert.deepEqual(h.active(), ["read", "grep", "plan_complete"]);
+    await h.run("mode", "off");
+    assert.deepEqual(h.active(), ["read", "grep"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("--plan execution without an OFF override retains the startup tool set", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-flag-inherit-"));
+  try {
+    const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash", "edit"], models: [MODEL_A] });
+    h.host.flags = { plan: true };
+    h.ctx.cwd = root;
+    h.ctx.hasUI = true;
+    h.ctx.ui.custom = async () => "execute";
+    await h.fire("session_start", { reason: "startup" });
+    await h.fire("agent_end", { messages: [{ role: "assistant", content: [{ type: "text", text: "# Plan:\n1. Implement." }] }] });
+    assert.deepEqual(h.active(), ["read", "bash", "edit", "plan_complete"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("execute applies configured tools and restores the pre-plan snapshot on exit", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-execute-tools-"));
+  try {
+    const dir = join(root, ".pi", "plans");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plan-tools.md"), "# Plan: Tools\n\nImplement.\n");
+    defineMode("execute", { tools: ["read", "grep"] });
+    const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash", "edit"], models: [MODEL_A] });
+    h.ctx.cwd = root;
+    await h.fire("session_start", { reason: "startup" });
+    await h.run("execute", "tools");
+    assert.deepEqual(h.active(), ["read", "grep", "plan_complete"]);
+    await h.fire("agent_before_settle", { outcome: "completed" });
+    assert.equal(getMode(), "off");
+    assert.deepEqual(h.active(), ["read", "bash", "edit"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("execute without a tool override inherits the pre-plan active tools", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-execute-inherited-"));
+  try {
+    const dir = join(root, ".pi", "plans");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plan-tools.md"), "# Plan: Tools\n\nImplement.\n");
+    const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash", "edit"], models: [MODEL_A] });
+    h.ctx.cwd = root;
+    await h.fire("session_start", { reason: "startup" });
+    await h.run("execute", "tools");
+    assert.deepEqual(h.active(), ["read", "bash", "edit", "plan_complete"]);
+    await h.run("mode", "off");
+    assert.deepEqual(h.active(), ["read", "bash", "edit"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+for (const reason of ["resume", "fork", "startup"]) {
+  test(`${reason} into execute uses pinned OFF tools before any follow-up`, async () => {
+    defineMode("off", { tools: ["read", "grep"] });
+    const journal = [{ type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: null, restoreModel: null } }];
+    const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash", "edit"], models: [MODEL_A], journal });
+    await h.fire("session_start", { reason });
+    assert.deepEqual(h.active(), ["read", "grep", "plan_complete"]);
+    assert.equal(h.host.userMessages.length, reason === "startup" ? 0 : 1);
+    if (reason !== "startup") assert.deepEqual(h.host.userMessageTools[0], ["read", "grep", "plan_complete"]);
+    await h.run("mode", "off");
+    assert.deepEqual(h.active(), ["read", "grep"]);
+  });
+}
+
+test("restored plan inherits the pinned OFF baseline when execution starts", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-resume-plan-"));
+  try {
+    const dir = join(root, ".pi", "plans");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plan-probe.md"), "# Plan: Probe\\n\\nImplement.\\n");
+    defineMode("off", { tools: ["read", "grep"] });
+    const journal = [{ type: "custom", customType: "mode-switcher", data: { mode: "plan", activePlanFile: "plan-probe.md", restoreModel: null } }];
+    const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash", "edit"], models: [MODEL_A], journal });
+    h.ctx.cwd = root;
+    await h.fire("session_start", { reason: "resume" });
+    await h.run("execute");
+    assert.deepEqual(h.active(), ["read", "grep", "plan_complete"]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("resumed execute without a pinned OFF list retains the host tool set", async () => {
+  const journal = [{ type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: null, restoreModel: null } }];
+  const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash", "edit"], models: [MODEL_A], journal });
+  await h.fire("session_start", { reason: "resume" });
+  assert.deepEqual(h.active(), ["read", "bash", "edit", "plan_complete"]);
+});
+
+test("resumed execute keeps lazy tools withheld from the pinned OFF baseline", async () => {
+  LAZY_TOOLS.add("browser");
+  defineMode("off", { tools: ["read", "browser"] });
+  const journal = [{ type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: null, restoreModel: null } }];
+  const h = mount({ tools: [...BASE_TOOLS, "browser"], active: ["read", "edit", "browser"], models: [MODEL_A], journal });
+  await h.fire("session_start", { reason: "resume" });
+  assert.deepEqual(h.active(), ["read", "load_tools", "plan_complete"]);
+});
+
+for (const restored of [false, true]) {
+  for (const policy of ["pinned", "explicit", "unpinned"]) {
+    test(`execute lazy loading respects ${policy} policy (${restored ? "restored" : "fresh"})`, async () => {
+      LAZY_TOOLS.add("browser");
+      LAZY_TOOLS.add("simplebench");
+      if (policy !== "unpinned") defineMode("off", { tools: ["read", "browser"] });
+      if (policy === "explicit") defineMode("execute", { tools: ["read", "simplebench"] });
+      const journal = restored ? [{ type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: null, restoreModel: null } }] : [];
+      const h = mount({ tools: [...BASE_TOOLS, "browser", "simplebench"], models: [MODEL_A], journal });
+      await h.fire("session_start", { reason: restored ? "resume" : "startup" });
+      if (!restored) {
+        const root = mkdtempSync(join(tmpdir(), "opl-lazy-execute-"));
+        try {
+          h.ctx.cwd = root;
+          h.host.flags = { plan: true };
+          await h.fire("session_start", { reason: "startup" });
+          h.ctx.hasUI = true;
+          h.ctx.ui.custom = async () => "execute";
+          await h.fire("agent_end", { messages: [{ role: "assistant", content: [{ type: "text", text: "# Plan:\n1. Implement." }] }] });
+        } finally { rmSync(root, { recursive: true, force: true }); }
+      }
+      assert.equal(getMode(), "execute");
+      const loader = h.host.registeredTools.get("load_tools");
+      assert.ok(loader);
+      // Both explicit requests and load-all must respect the effective policy.
+      const result = await loader.execute("probe", { tools: [policy === "explicit" ? "browser" : "simplebench"] });
+      assert.deepEqual(result.details.enabled, policy === "unpinned" ? ["simplebench"] : []);
+      await loader.execute("probe-all", {});
+      assert.equal(h.active().includes("browser"), policy !== "explicit");
+      assert.equal(h.active().includes("simplebench"), policy !== "pinned");
+    });
+  }
+}
+
+test("tool-less custom modes inherit the pinned OFF lazy-tool policy", async () => {
+  LAZY_TOOLS.add("browser");
+  LAZY_TOOLS.add("simplebench");
+  defineMode("off", { tools: ["read", "browser"] });
+  defineMode("review-probe", { prompt: "Inspect." });
+  const h = mount({ tools: [...BASE_TOOLS, "browser", "simplebench"], models: [MODEL_A] });
+  await h.fire("session_start", { reason: "startup" });
+  await h.run("mode", "review-probe");
+  const result = await h.host.registeredTools.get("load_tools").execute("probe", {});
+  assert.deepEqual(result.details.enabled, ["browser"]);
+  assert.ok(!h.active().includes("simplebench"));
+});
+
+test("switching branches to execute applies the pinned OFF baseline", async () => {
+  defineMode("off", { tools: ["read", "grep"] });
+  const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash", "edit"], models: [MODEL_A] });
+  await h.fire("session_start", { reason: "startup" });
+  h.host.journal = [{ type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: null, restoreModel: null } }];
+  await h.fire("session_tree", {});
+  assert.deepEqual(h.active(), ["read", "grep", "plan_complete"]);
+  assert.equal(h.host.userMessages.length, 0);
+});
+
+test("restored execute preserves explicit tools and completion policy with pinned OFF", async () => {
+  defineMode("off", { tools: ["read", "grep"] });
+  defineMode("execute", { tools: ["read", "edit"], allowPlanComplete: false });
+  const journal = [{ type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: null, restoreModel: null } }];
+  const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash"], models: [MODEL_A], journal });
+  await h.fire("session_start", { reason: "resume" });
+  assert.deepEqual(h.active(), ["read", "edit"]);
+  await h.run("mode", "off");
+  assert.deepEqual(h.active(), ["read", "grep"]);
+});
+
+test("resumed execute restores the original active set after a configured tool policy", async () => {
+  defineMode("execute", { tools: ["read", "grep"] });
+  const journal = [{ type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: null, restoreModel: null } }];
+  const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash", "edit"], models: [MODEL_A], journal });
+  await h.fire("session_start", { reason: "resume" });
+  assert.deepEqual(h.active(), ["read", "grep", "plan_complete"]);
+  await h.run("mode", "off");
+  assert.deepEqual(h.active(), ["read", "bash", "edit"]);
+});
+
+test("execute respects lazy tools, completion permission, and pinned OFF on exit", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-execute-lazy-"));
+  try {
+    const dir = join(root, ".pi", "plans");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plan-tools.md"), "# Plan: Tools\n\nImplement.\n");
+    LAZY_TOOLS.add("browser");
+    defineMode("off", { tools: ["read", "bash"] });
+    defineMode("execute", { tools: ["read", "browser"], allowPlanComplete: false });
+    const h = mount({ tools: [...BASE_TOOLS, "browser"], active: ["read", "bash", "edit"], models: [MODEL_A] });
+    h.ctx.cwd = root;
+    await h.fire("session_start", { reason: "startup" });
+    assert.deepEqual(h.active(), ["read", "bash"]);
+    await h.run("execute", "tools");
+    assert.deepEqual(h.active(), ["read", "load_tools"]);
+    const denied = await h.fire("tool_call", { toolName: "plan_complete", input: {} });
+    assert.equal(denied[0]?.block, true);
+    await h.run("mode", "off");
+    assert.deepEqual(h.active(), ["read", "bash"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("OFF with pinned tools discards the snapshot taken on mode entry", async () => {
   defineMode("off", { tools: ["read", "grep"] });
@@ -215,6 +552,128 @@ test("an unknown mode in the newest entry restores nothing", async () => {
   await h.fire("session_start", { reason: "resume" });
   assert.equal(getMode(), "off", "a removed custom mode must not resume the older chat entry");
   assert.deepEqual(h.active(), ["read", "bash"], "restored tools are unchanged for OFF without a declared list");
+});
+
+test("named plan creation applies its model and restores the previous model", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-plan-model-"));
+  try {
+    defineMode("plan", { model: MODEL_B });
+    const h = mount({ tools: [...BASE_TOOLS], models: [MODEL_A, MODEL_B], current: MODEL_A });
+    h.ctx.cwd = root;
+    await h.fire("session_start", { reason: "startup" });
+    await h.run("plan", "new-name");
+    assert.equal(h.host.model, MODEL_B);
+    assert.deepEqual(getRestoringModel(), { provider: "alpha", id: "model-a" });
+    assert.deepEqual(h.blob().restoreModel, { provider: "alpha", id: "model-a" });
+    await h.run("mode", "off");
+    assert.equal(h.host.model, MODEL_A);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("loading a plan switches models before immediate execution", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-plan-model-"));
+  try {
+    const dir = join(root, ".pi", "plans");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plan-existing.md"), "# Plan: Existing\n\nImplement.\n");
+    defineMode("plan", { model: MODEL_B });
+    const h = mount({ tools: [...BASE_TOOLS], models: [MODEL_A, MODEL_B], current: MODEL_A });
+    h.ctx.cwd = root;
+    h.ctx.ui.custom = async () => "execute";
+    await h.fire("session_start", { reason: "startup" });
+    await h.run("plan", "existing");
+    assert.deepEqual(h.host.modelChanges, ["beta/model-b"]);
+    assert.deepEqual(h.host.userMessageModels, [MODEL_B]);
+    assert.deepEqual(getRestoringModel(), { provider: "alpha", id: "model-a" });
+    await h.run("mode", "off");
+    assert.equal(h.host.model, MODEL_A);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("loaded plan waits for a slow plan model before switching to execute model", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-plan-model-"));
+  const executeModel = { provider: "gamma", id: "model-c" };
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  try {
+    const dir = join(root, ".pi", "plans");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plan-existing.md"), "# Plan: Existing\n\nImplement.\n");
+    defineMode("plan", { model: MODEL_B });
+    defineMode("execute", { model: executeModel });
+    const h = mount({ tools: [...BASE_TOOLS], models: [MODEL_A, MODEL_B, executeModel], current: MODEL_A });
+    h.ctx.cwd = root;
+    h.ctx.ui.custom = async () => "execute";
+    h.pi.setModel = async (model) => {
+      h.host.modelChanges.push(`${model.provider}/${model.id}`);
+      if (model === MODEL_B) await pending;
+      h.host.model = model;
+      return true;
+    };
+    await h.fire("session_start", { reason: "startup" });
+    const run = h.run("plan", "existing");
+    await tick();
+    assert.deepEqual(h.host.modelChanges, ["beta/model-b"]);
+    assert.deepEqual(h.host.userMessages, []);
+    release();
+    await run;
+    assert.deepEqual(h.host.modelChanges, ["beta/model-b", "gamma/model-c"]);
+    assert.deepEqual(h.host.userMessageModels, [executeModel]);
+    await h.run("mode", "off");
+    assert.equal(h.host.model, MODEL_A);
+  } finally { release(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a named plan from the mode picker applies the plan model", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-plan-model-"));
+  try {
+    defineMode("plan", { model: MODEL_B });
+    const h = mount({ tools: [...BASE_TOOLS], models: [MODEL_A, MODEL_B], current: MODEL_A });
+    h.ctx.cwd = root;
+    h.ctx.ui.custom = async () => "picker-name";
+    await h.fire("session_start", { reason: "startup" });
+    await h.run("mode", "plan");
+    assert.equal(getMode(), "plan");
+    assert.equal(h.host.model, MODEL_B);
+    await h.run("mode", "off");
+    assert.equal(h.host.model, MODEL_A);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("missing plan model leaves the current model usable", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-plan-model-"));
+  try {
+    defineMode("plan", { model: MODEL_B });
+    const h = mount({ tools: [...BASE_TOOLS], models: [MODEL_A], current: MODEL_A });
+    h.ctx.cwd = root;
+    await h.fire("session_start", { reason: "startup" });
+    await h.run("plan", "new-name");
+    assert.equal(getMode(), "plan");
+    assert.equal(h.host.model, MODEL_A);
+    assert.deepEqual(h.host.modelChanges, []);
+    await h.run("mode", "off");
+    assert.equal(h.host.model, MODEL_A);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("unnamed plan entry applies its model and cancelled naming changes nothing", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-plan-model-"));
+  try {
+    defineMode("plan", { model: MODEL_B });
+    const h = mount({ tools: [...BASE_TOOLS], models: [MODEL_A, MODEL_B], current: MODEL_A });
+    h.ctx.cwd = root;
+    await h.fire("session_start", { reason: "startup" });
+    h.ctx.ui.custom = async () => undefined;
+    await h.run("plan");
+    assert.equal(getMode(), "off");
+    assert.equal(h.host.model, MODEL_A);
+    h.ctx.ui.custom = async () => "";
+    await h.run("plan");
+    assert.equal(getMode(), "plan");
+    assert.equal(h.host.model, MODEL_B);
+    await h.run("mode", "off");
+    assert.equal(h.host.model, MODEL_A);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("a mode model captures a restore point and releases it on exit", async () => {

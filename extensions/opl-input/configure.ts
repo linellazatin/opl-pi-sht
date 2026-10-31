@@ -81,7 +81,9 @@ export function registerInputConfiguratorTab(): void {
   const holder = globalThis as Record<string, unknown>;
   const registry = holder[CONFIGURATOR_REGISTRY_KEY];
   if (Array.isArray(registry)) {
-    if (!registry.some((entry) => entry?.id === "opl-input")) registry.push(tab);
+    const index = registry.findIndex((entry) => entry?.id === "opl-input");
+    if (index === -1) registry.push(tab);
+    else registry[index] = tab;
   } else {
     holder[CONFIGURATOR_REGISTRY_KEY] = [tab];
   }

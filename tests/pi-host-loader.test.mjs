@@ -73,6 +73,41 @@ test("Pi host loader loads every package extension without errors", async () => 
   });
 });
 
+test("Pi host resource reload replaces configurator tab factories", async () => {
+  const key = "__oplConfiguratorTabs";
+  const previous = globalThis[key];
+  delete globalThis[key];
+  try {
+    await withAgentDir(async (agentDir) => {
+      const { DefaultResourceLoader, SettingsManager } = host.module;
+      const cwd = join(agentDir, "workspace");
+      mkdirSync(cwd);
+      const settingsManager = SettingsManager.inMemory({});
+      const resourceLoader = new DefaultResourceLoader({
+        cwd, agentDir, settingsManager,
+        additionalExtensionPaths: [join(process.cwd(), "extensions/opl-footer/index.ts"), join(process.cwd(), "extensions/opl-input/index.ts")],
+        noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+      });
+      await resourceLoader.reload();
+      assert.deepEqual(resourceLoader.getExtensions().errors, []);
+      const first = [...globalThis[key]];
+      const firstExtensions = resourceLoader.getExtensions().extensions;
+      await resourceLoader.reload();
+      assert.deepEqual(resourceLoader.getExtensions().errors, []);
+      assert.notEqual(resourceLoader.getExtensions().extensions[0], firstExtensions[0], "reload must create a new extension instance");
+      const second = globalThis[key];
+      for (const id of ["opl-footer", "opl-input"]) {
+        assert.notEqual(second.find((tab) => tab.id === id), first.find((tab) => tab.id === id), `${id} kept the old factory after reload`);
+        assert.equal(second.filter((tab) => tab.id === id).length, 1);
+      }
+      console.log(`[pi-host] configurator reload checked with ${host.source}`);
+    });
+  } finally {
+    if (previous === undefined) delete globalThis[key];
+    else globalThis[key] = previous;
+  }
+});
+
 // Pi 1.2 added custom-triggered before_agent_start events. Older hosts still run the
 // loader check above and the extension unit cases, but cannot exercise this host contract.
 for (const mode of ["chat", "plan"]) {

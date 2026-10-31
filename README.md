@@ -15,7 +15,11 @@
 A portable collection of various Pi coding agent extensions. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
 
 >
-> **Validation**: Pi `1.4.0` passes strict typechecking and all 508 tests; the declared `0.87.0` floor passes strict typechecking and 506 tests, with two >=1.2 host lifecycle cases skipped. All 12 extensions load on both versions. Custom/user mode runs on Pi `1.4.0` are covered by real-host tests with synthetic model responses. Earlier loader checks also passed on Pi `1.2.0`, `1.1.0` and locked Pi `1.0.0`. Live provider and interactive TUI behavior are not covered by these checks.
+> **Validation**: Pi `1.4.0` passes strict typechecking and 546 tests; the `0.87.0` floor passes strict typechecking and 544 tests, with two >=1.2 host lifecycle cases skipped. All 12 extensions load on both versions. Tests cover resource-loader tab replacement on both and custom/user mode runs on Pi `1.4.0` with synthetic responses.
+>
+> ### v0.3.1 - mode and configurator fixes
+>
+> Plan paths now use the session directory, OFF and execute tool policies apply consistently, and named plans use the configured plan model. Configurator tabs refresh on reload and its failure screen closes with Escape. [CHANGELOG](CHANGELOG.md).
 >
 > ### BIG A👀️ UPDATE
 >
@@ -31,8 +35,6 @@ A portable collection of various Pi coding agent extensions. Repository director
 > - **Stronger release checks**: clean installs use a repaired lockfile, release validation runs strict typechecking and the full test suite, and floor CI verifies compatibility against Pi `0.87.0`. `noUncheckedIndexedAccess` remains enabled to catch unsafe array access. [Tests](#tests).
 > - **Breaking behavior changes**: loopback access is now opt-in (`allowLoopback: false`), and the entire `64:ff9b:1::/48` local-use translation prefix is blocked even with network opt-ins enabled. The well-known `64:ff9b::/96` prefix still follows embedded-IPv4 policy. Stale browser selections now return an error requiring explicit recovery. [Network policy](extensions/opl-browser/README.md#network-policy), [Page selection](extensions/opl-browser/README.md#extension-features).
 > - **Added**: separate, extensible [`opl-configurator`](extensions/opl-configurator/README.md#extension-features), and [`compactions`](extensions/opl-footer/README.md#available-segments) segment in `opl-footer`.
->
-> See [CHANGELOG](CHANGELOG.md) for more details.
 >
 > Having issues? [Opl a ticket](https://github.com/linellazatin/opl-pi-sht/issues/new).
 >
@@ -67,7 +69,7 @@ npx playwright install chromium
 {
   "packages": [
     {
-      "source": "npm:@openlines/opl-pi-sht@0.3.0",
+      "source": "npm:@openlines/opl-pi-sht@0.3.1",
       "extensions": ["extensions/opl-init/index.ts", "extensions/opl-todo/index.ts"]
     }
   ]
@@ -248,6 +250,8 @@ npm test
 ```
 
 `npm run test:shared` runs the cross-extension checks: agent-directory resolution, parity of the duplicated host and git guards, installer, package metadata, and the `globalThis` seams between `opl-modes`, `opl-footer`, `opl-input` and `opl-configurator`. `npm run typecheck` runs `tsc` in strict mode over all 90 extension sources and is separate from `npm test`. Release validation uses `npm ci`, strict typechecking and the full suite; package tests exercise npm packing to exclude live configs. Run one extension suite with `npm run test:opl-<name>` for `browser`, `configurator`, `footer`, `guardian`, `init`, `input`, `modes`, `questionnaire`, `todo`, `webaccess`, `simplebench`, or `ctxtrim`. `npm run test:pi-host` uses the Pi build this machine actually runs (the installed managed release, falling back to the `>=0.87.0` devDependency when none is present) and its real extension loader to load every entrypoint and assert no loader errors. On Pi >=1.2.0 it also checks custom/user `before_agent_start` events, busy-during-start semantics and mode-prompt persistence after real file-tool execution, using isolated fixtures and synthetic model responses; those host-specific cases are skipped on older Pi. Every helper, functional, and selected-entrypoint smoke check uses Bun's named-test reporter; output includes per-test status, timings, and pass/fail totals. Functional tests cover deterministic helpers where practical; smoke tests bundle entrypoints and parse config. They do not test live TUI behavior, provider credentials, network access, or PDF extraction.
+
+Release tags must match `package.json` as `v<version>`. The release workflow publishes to npm before creating the GitHub release. If npm publication succeeds but GitHub release creation fails, verify the published version and create the GitHub release separately rather than republishing the same npm version.
 
 CI runs strict typechecking and the suite against the committed lockfile, the Pi `0.87.0` floor, and a rolling `current` job that resolves `pi-coding-agent`, `pi-tui` and `pi-ai` from `~1.4.0`. The rolling job ignores the lockfile for range resolution, reports exact resolved versions, disables managed-install discovery and requires the loader to use its selected devDependency. The tilde range selects stable releases >=1.4.0 and <1.5.0, so only 1.4 patches are followed, not later minor releases or every version in that range; patches may still regress extension behavior, so a green run is evidence for its resolved versions, not a blanket compatibility promise. Keep the locked job for reproducibility. New upstream releases are checked on the next push or pull request, not automatically at publication.
 

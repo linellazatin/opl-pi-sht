@@ -28,7 +28,7 @@ const tab = {
 - `label` is the short text in the tab bar.
 - `create(api)` returns a component with the same contract as `ctx.ui.custom`'s return value. `api` carries `{ ctx, tui, theme, keybindings, done }`.
 
-The shell reads the registry lazily when `/configurator` runs, so extension load order does not matter. Entries are validated rather than trusted: malformed entries and duplicate ids or hotkeys are dropped, and a tab whose `create` throws is skipped without taking the whole configurator down.
+The shell reads the registry lazily when `/configurator` runs, so extension load order does not matter. Entries are validated rather than trusted: malformed entries and duplicate ids or hotkeys are dropped, and a tab whose `create` throws is skipped without taking the whole configurator down. The footer and input replace their own tab entries on reload, so their factories use the current extension instances. If every tab fails to load, Escape closes the diagnostic screen.
 
 ## Keyboard model
 

@@ -68,7 +68,9 @@ export function registerFooterConfiguratorTab(onSaved: (ctx: ExtensionContext) =
   const holder = globalThis as Record<string, unknown>;
   const registry = holder[CONFIGURATOR_REGISTRY_KEY];
   if (Array.isArray(registry)) {
-    if (!registry.some((entry) => entry?.id === "opl-footer")) registry.push(tab);
+    const index = registry.findIndex((entry) => entry?.id === "opl-footer");
+    if (index === -1) registry.push(tab);
+    else registry[index] = tab;
   } else {
     holder[CONFIGURATOR_REGISTRY_KEY] = [tab];
   }

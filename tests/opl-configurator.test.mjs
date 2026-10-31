@@ -111,6 +111,22 @@ test("registerInputConfiguratorTab publishes a well-formed, unique input tab", (
   });
 });
 
+test("re-registering tabs replaces stale factories without changing order or other entries", () => {
+  const other = validTab({ id: "other", hotkey: "o" });
+  withGlobal(CONFIGURATOR_REGISTRY_KEY, [other], () => {
+    registerFooterConfiguratorTab(() => {});
+    registerInputConfiguratorTab();
+    const first = [...globalThis[CONFIGURATOR_REGISTRY_KEY]];
+    registerFooterConfiguratorTab(() => {});
+    registerInputConfiguratorTab();
+    const next = globalThis[CONFIGURATOR_REGISTRY_KEY];
+    assert.deepEqual(next.map((tab) => tab.id), ["other", "opl-footer", "opl-input"]);
+    assert.equal(next[0], other);
+    assert.notEqual(next[1], first[1]);
+    assert.notEqual(next[2], first[2]);
+  });
+});
+
 test("companionTypeValues starts with built-ins and folds in declared plus current types", () => {
   assert.deepEqual(companionTypeValues({}), ["cat", "dog", "bunny"]);
   assert.deepEqual(companionTypeValues({ companion: {} }), ["cat", "dog", "bunny"]);
@@ -119,6 +135,28 @@ test("companionTypeValues starts with built-ins and folds in declared plus curre
     companionTypeValues({ companion: { type: "dog", types: [{ typeName: "otter" }, { typeName: "cat" }, { typeName: 7 }, null] } }),
     ["cat", "dog", "bunny", "otter"],
   );
+});
+
+test("the fallback closes on escape when every tab fails to build", () => {
+  const broken = [
+    validTab({ id: "throws", hotkey: "a", create: () => { throw new Error("broken"); } }),
+    validTab({ id: "invalid", hotkey: "b", create: () => ({}) }),
+  ];
+  withGlobal(CONFIGURATOR_REGISTRY_KEY, broken, () => {
+    let component;
+    let closed = 0;
+    const theme = { fg: (_color, text) => text };
+    const ctx = { mode: "tui", ui: { custom(factory) {
+      component = factory({ requestRender() {} }, theme, {}, () => { closed++; });
+      return Promise.resolve();
+    } } };
+    showConfigurator(ctx);
+    assert.match(component.render(80)[0], /No instrumented extensions could be loaded/);
+    component.handleInput("x");
+    assert.equal(closed, 0);
+    component.handleInput("\x1b");
+    assert.equal(closed, 1);
+  });
 });
 
 test("the shell reserves esc, focuses tabs by hotkey, and delegates everything else", () => {
