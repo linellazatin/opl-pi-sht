@@ -3,9 +3,10 @@
 ## [0.3.1] - Mode and configurator fixes
 
 - **`opl-modes`**: capture the session directory before restoring mode state or processing startup flags, so plans resolve from `ExtensionContext.cwd` rather than the harness directory.
-- **`opl-modes`**: apply pinned OFF tools on fresh startup and configured execute tools on entry as well as resume, preserving the tool snapshot for exit.
+- **`opl-modes`**: apply pinned OFF tools on fresh startup, including before `--chat` or `--plan` takes its snapshot, and configured execute tools on entry as well as resume, preserving the tool snapshot for exit.
 - **`opl-modes`**: apply the configured plan model when creating or loading a named plan and wait for it before an immediate execute handoff.
 - **`opl-configurator`, `opl-footer`, `opl-input`**: replace stale configurator tab factories on reload and allow Escape to close the shell when all tabs fail to load.
+- **Release workflow**: require the tag to match the package version and publish to npm before creating the GitHub release.
 
 ## [NO extension runtime changes -> NO version bump] CI + docs update for Pi v1.4.0
 
