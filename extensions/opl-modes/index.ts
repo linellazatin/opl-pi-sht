@@ -111,7 +111,7 @@ export default function modeSwitcher(pi: ExtensionAPI) {
       async execute(_toolCallId, params) {
         const mode = getMode();
         const modeDef = getModeDefinition(mode);
-        const modeAllowed = modeDef?.tools ?? null; // null = mode inherits all tools
+        const modeAllowed = modeDef?.tools ?? getModeDefinition("off")?.tools ?? null; // Unlisted modes inherit the pinned baseline, if any.
         const current = pi.getActiveTools();
         const enable = lazyToolsToEnable(params.tools as string[] | undefined, current, modeAllowed);
         if (enable.length > 0) pi.setActiveTools([...current, ...enable]);
@@ -536,6 +536,13 @@ export default function modeSwitcher(pi: ExtensionAPI) {
 
     const mode = getMode();
     const modeDef = getModeDefinition(mode);
+
+    // A restored plan or execution needs the pinned resting set as its inherited baseline,
+    // not the host tools active before this branch was restored.
+    const offTools = getModeDefinition("off")?.tools;
+    if ((mode === "plan" || mode === "execute") && offTools) {
+      saveAndSetActiveTools(withPlanComplete("off", offTools), true);
+    }
 
     if (modeDef?.tools) {
       // Honor allowPlanComplete here too, otherwise a resume drops the tool a mode was given.

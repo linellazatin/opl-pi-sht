@@ -62,8 +62,10 @@ function mount({ tools = [], active, models = [], current, journal = [] } = {}) 
     modelChanges: [],
     userMessages: [],
     userMessageModels: [],
+    userMessageTools: [],
     sentMessages: [],
     entryRenderers: [],
+    registeredTools: new Map(),
   };
   const events = new Map();
   const commands = new Map();
@@ -74,7 +76,7 @@ function mount({ tools = [], active, models = [], current, journal = [] } = {}) 
       if (!events.has(name)) events.set(name, []);
       events.get(name).push(handler);
     },
-    registerTool(tool) { if (!tools.includes(tool.name)) tools.push(tool.name); },
+    registerTool(tool) { host.registeredTools.set(tool.name, tool); if (!tools.includes(tool.name)) tools.push(tool.name); },
     registerCommand(name, def) { commands.set(name, def); },
     registerFlag() {},
     registerShortcut() {},
@@ -91,7 +93,7 @@ function mount({ tools = [], active, models = [], current, journal = [] } = {}) 
       return true;
     },
     appendEntry(type, data) { host.journal.push({ type: "custom", customType: type, data }); },
-    sendUserMessage(text) { host.userMessages.push(text); host.userMessageModels.push(host.model); },
+    sendUserMessage(text) { host.userMessages.push(text); host.userMessageModels.push(host.model); host.userMessageTools.push([...host.active]); },
     sendMessage(message) { host.sentMessages.push(message); },
     events: { emit() {} },
   };
@@ -351,6 +353,120 @@ test("execute without a tool override inherits the pre-plan active tools", async
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+for (const reason of ["resume", "fork", "startup"]) {
+  test(`${reason} into execute uses pinned OFF tools before any follow-up`, async () => {
+    defineMode("off", { tools: ["read", "grep"] });
+    const journal = [{ type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: null, restoreModel: null } }];
+    const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash", "edit"], models: [MODEL_A], journal });
+    await h.fire("session_start", { reason });
+    assert.deepEqual(h.active(), ["read", "grep", "plan_complete"]);
+    assert.equal(h.host.userMessages.length, reason === "startup" ? 0 : 1);
+    if (reason !== "startup") assert.deepEqual(h.host.userMessageTools[0], ["read", "grep", "plan_complete"]);
+    await h.run("mode", "off");
+    assert.deepEqual(h.active(), ["read", "grep"]);
+  });
+}
+
+test("restored plan inherits the pinned OFF baseline when execution starts", async () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-resume-plan-"));
+  try {
+    const dir = join(root, ".pi", "plans");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plan-probe.md"), "# Plan: Probe\\n\\nImplement.\\n");
+    defineMode("off", { tools: ["read", "grep"] });
+    const journal = [{ type: "custom", customType: "mode-switcher", data: { mode: "plan", activePlanFile: "plan-probe.md", restoreModel: null } }];
+    const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash", "edit"], models: [MODEL_A], journal });
+    h.ctx.cwd = root;
+    await h.fire("session_start", { reason: "resume" });
+    await h.run("execute");
+    assert.deepEqual(h.active(), ["read", "grep", "plan_complete"]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("resumed execute without a pinned OFF list retains the host tool set", async () => {
+  const journal = [{ type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: null, restoreModel: null } }];
+  const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash", "edit"], models: [MODEL_A], journal });
+  await h.fire("session_start", { reason: "resume" });
+  assert.deepEqual(h.active(), ["read", "bash", "edit", "plan_complete"]);
+});
+
+test("resumed execute keeps lazy tools withheld from the pinned OFF baseline", async () => {
+  LAZY_TOOLS.add("browser");
+  defineMode("off", { tools: ["read", "browser"] });
+  const journal = [{ type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: null, restoreModel: null } }];
+  const h = mount({ tools: [...BASE_TOOLS, "browser"], active: ["read", "edit", "browser"], models: [MODEL_A], journal });
+  await h.fire("session_start", { reason: "resume" });
+  assert.deepEqual(h.active(), ["read", "load_tools", "plan_complete"]);
+});
+
+for (const restored of [false, true]) {
+  for (const policy of ["pinned", "explicit", "unpinned"]) {
+    test(`execute lazy loading respects ${policy} policy (${restored ? "restored" : "fresh"})`, async () => {
+      LAZY_TOOLS.add("browser");
+      LAZY_TOOLS.add("simplebench");
+      if (policy !== "unpinned") defineMode("off", { tools: ["read", "browser"] });
+      if (policy === "explicit") defineMode("execute", { tools: ["read", "simplebench"] });
+      const journal = restored ? [{ type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: null, restoreModel: null } }] : [];
+      const h = mount({ tools: [...BASE_TOOLS, "browser", "simplebench"], models: [MODEL_A], journal });
+      await h.fire("session_start", { reason: restored ? "resume" : "startup" });
+      if (!restored) {
+        const root = mkdtempSync(join(tmpdir(), "opl-lazy-execute-"));
+        try {
+          h.ctx.cwd = root;
+          h.host.flags = { plan: true };
+          await h.fire("session_start", { reason: "startup" });
+          h.ctx.hasUI = true;
+          h.ctx.ui.custom = async () => "execute";
+          await h.fire("agent_end", { messages: [{ role: "assistant", content: [{ type: "text", text: "# Plan:\n1. Implement." }] }] });
+        } finally { rmSync(root, { recursive: true, force: true }); }
+      }
+      assert.equal(getMode(), "execute");
+      const loader = h.host.registeredTools.get("load_tools");
+      assert.ok(loader);
+      // Both explicit requests and load-all must respect the effective policy.
+      const result = await loader.execute("probe", { tools: [policy === "explicit" ? "browser" : "simplebench"] });
+      assert.deepEqual(result.details.enabled, policy === "unpinned" ? ["simplebench"] : []);
+      await loader.execute("probe-all", {});
+      assert.equal(h.active().includes("browser"), policy !== "explicit");
+      assert.equal(h.active().includes("simplebench"), policy !== "pinned");
+    });
+  }
+}
+
+test("tool-less custom modes inherit the pinned OFF lazy-tool policy", async () => {
+  LAZY_TOOLS.add("browser");
+  LAZY_TOOLS.add("simplebench");
+  defineMode("off", { tools: ["read", "browser"] });
+  defineMode("review-probe", { prompt: "Inspect." });
+  const h = mount({ tools: [...BASE_TOOLS, "browser", "simplebench"], models: [MODEL_A] });
+  await h.fire("session_start", { reason: "startup" });
+  await h.run("mode", "review-probe");
+  const result = await h.host.registeredTools.get("load_tools").execute("probe", {});
+  assert.deepEqual(result.details.enabled, ["browser"]);
+  assert.ok(!h.active().includes("simplebench"));
+});
+
+test("switching branches to execute applies the pinned OFF baseline", async () => {
+  defineMode("off", { tools: ["read", "grep"] });
+  const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash", "edit"], models: [MODEL_A] });
+  await h.fire("session_start", { reason: "startup" });
+  h.host.journal = [{ type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: null, restoreModel: null } }];
+  await h.fire("session_tree", {});
+  assert.deepEqual(h.active(), ["read", "grep", "plan_complete"]);
+  assert.equal(h.host.userMessages.length, 0);
+});
+
+test("restored execute preserves explicit tools and completion policy with pinned OFF", async () => {
+  defineMode("off", { tools: ["read", "grep"] });
+  defineMode("execute", { tools: ["read", "edit"], allowPlanComplete: false });
+  const journal = [{ type: "custom", customType: "mode-switcher", data: { mode: "execute", activePlanFile: null, restoreModel: null } }];
+  const h = mount({ tools: [...BASE_TOOLS], active: ["read", "bash"], models: [MODEL_A], journal });
+  await h.fire("session_start", { reason: "resume" });
+  assert.deepEqual(h.active(), ["read", "edit"]);
+  await h.run("mode", "off");
+  assert.deepEqual(h.active(), ["read", "grep"]);
 });
 
 test("resumed execute restores the original active set after a configured tool policy", async () => {
