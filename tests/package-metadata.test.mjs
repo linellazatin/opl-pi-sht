@@ -43,6 +43,7 @@ test("nested extension manifests keep their own version line", () => {
 
 test("release validates its tag before publishing and creates the GitHub release afterwards", () => {
   const workflow = readFileSync(join(ROOT, ".github/workflows/release.yml"), "utf8");
+  assert.doesNotMatch(workflow, /package-manager-cache:/, "setup-node v4 does not support package-manager-cache");
   const validation = workflow.match(/- name: Validate release version\n\s+run: \|\n((?: {10}.+\n)+)/);
   assert.ok(validation, "release workflow must validate tag and package version");
   const command = validation[1].replace(/^ {10}/gm, "");
