@@ -31,9 +31,9 @@ Any mode can start plan execution via the mode picker's `Execute:` entries or `/
 
 ### Tool inheritance warning
 
-A custom mode with no `tools` array inherits **all** tools, including `write` and `edit` — it is write-capable by default. Always specify an explicit read-only tool list for restrictive modes.
+A custom mode with no `tools` array inherits the resting tool set, including `write` and `edit` when available. A pinned `modes.off.tools` list narrows that baseline. Always specify an explicit read-only tool list for restrictive modes.
 
-`off` behaves the same way: it restores the tools that were active before the mode (never a wider set). Set `modes.off.tools` to pin the resting tool set instead — for example to keep `subagent`/`browser` out of normal mode entirely. The pinned set also applies before `--chat` or `--plan` startup takes its snapshot, and on startup when no mode entry is restored. Pinning replaces the snapshot taken on mode entry, so a later mode that lists no `tools` inherits the pinned set rather than the older, wider one. `load_tools` is offered in `off` because withheld lazy tools are otherwise unreachable there.
+`off` behaves the same way: it restores the tools that were active before the mode (never a wider set). Set `modes.off.tools` to pin the resting tool set instead — for example to keep `subagent`/`browser` out of normal mode entirely. The pinned set also applies before `--chat` or `--plan` startup takes its snapshot, on startup when no mode entry is restored, and as the inherited baseline when plan or execute state is restored. Pinning replaces the snapshot taken on mode entry, so a later mode that lists no `tools` inherits the pinned set rather than the older, wider one. `load_tools` is offered in `off` because withheld lazy tools are otherwise unreachable there.
 
 Set `modes.execute.tools` to replace the tools available during execution; otherwise execute inherits the pre-plan active set. The configured list is applied on entry and resume, with lazy loading and `allowPlanComplete` still in effect. Exiting restores the previous set or the pinned OFF baseline.
 
@@ -129,9 +129,9 @@ Use `modes.<name>.appearance` to keep any mode's visual identity with its defini
 
 Behavior:
 
-- Listed tools are removed from the active set wherever opl-modes computes it. In practice this only affects modes that would otherwise include them: `off`/`execute` (which inherit all tools) and custom modes that list them. Read-only `chat`/`plan` already exclude these tools, so nothing changes there.
+- Listed tools are removed from the active set wherever opl-modes computes it. In practice this only affects modes that would otherwise include them: `off`/`execute` (which inherit the resting tool set unless overridden) and custom modes that permit them. Read-only `chat`/`plan` already exclude these tools, so nothing changes there.
 - When at least one lazy tool is withheld from a mode, opl-modes registers and activates a `load_tools` tool. The model calls `load_tools({ tools: [...] })` (or with no argument to enable all currently-allowed lazy tools) to activate them before use.
-- `load_tools` is bounded by the current mode's tool policy: it can only enable a lazy tool the active mode already permits, so a read-only mode cannot enable a write-capable tool.
+- `load_tools` is bounded by the current mode's tool policy: explicit tool lists take precedence; execute and custom modes without a list inherit `modes.off.tools` when pinned. Both named requests and load-all respect that baseline.
 - Core built-ins (`read`, `edit`, `write`, `bash`, `powershell`, `grep`, `find`, `ls`), `plan_complete`, and `load_tools` itself are protected and silently ignored if listed in `lazyTools`.
 - Switching modes re-applies the policy, so a lazy tool enabled earlier returns to inactive on the next mode change and must be re-enabled.
 - A mode `prompt` that instructs the model to use a lazy tool must also tell it to call `load_tools` first, otherwise the instruction names a tool the model cannot see. The bundled `research` mode does exactly that.

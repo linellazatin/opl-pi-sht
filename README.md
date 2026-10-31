@@ -15,7 +15,7 @@
 A portable collection of various Pi coding agent extensions. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
 
 >
-> **Validation**: Pi `1.4.0` passes strict typechecking and 531 tests; the `0.87.0` floor passes strict typechecking and 529 tests, with two >=1.2 host lifecycle cases skipped. All 12 extensions load on both versions. Tests cover resource-loader tab replacement on both and custom/user mode runs on Pi `1.4.0` with synthetic responses.
+> **Validation**: Pi `1.4.0` passes strict typechecking and 546 tests; the `0.87.0` floor passes strict typechecking and 544 tests, with two >=1.2 host lifecycle cases skipped. All 12 extensions load on both versions. Tests cover resource-loader tab replacement on both and custom/user mode runs on Pi `1.4.0` with synthetic responses.
 >
 > ### v0.3.1 - mode and configurator fixes
 >
