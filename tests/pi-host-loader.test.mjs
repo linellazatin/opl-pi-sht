@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "bun:test";
 
 // Load the extensions with the Pi build this machine actually runs, not the
@@ -30,15 +30,19 @@ async function loadHost() {
   const installed = findManagedInstallEntry();
   if (installed) {
     const module = await import(pathToFileURL(installed.entry).href);
-    return { module, version: installed.version, source: `installed pi ${installed.version}` };
+    return { module, entry: installed.entry, version: installed.version, source: `installed pi ${installed.version}` };
   }
-  const module = await import("@earendil-works/pi-coding-agent");
-  return { module, version: module.VERSION, source: `devDependency pi ${module.VERSION ?? "unknown"}` };
+  const entry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+  const module = await import(pathToFileURL(entry).href);
+  return { module, entry, version: module.VERSION, source: `devDependency pi ${module.VERSION ?? "unknown"}` };
 }
 
 const host = await loadHost();
 const [major, minor] = host.version.split(".").map(Number);
 const supportsCustomRunLifecycle = major > 1 || (major === 1 && minor >= 2);
+const supportsResponsesToolChanges = major > 1 || (major === 1 && minor >= 4);
+const hostAiEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-ai", pathToFileURL(host.entry).href));
+const hostAi = await import(pathToFileURL(hostAiEntry).href);
 
 async function withAgentDir(run) {
   const agentDir = mkdtempSync(join(tmpdir(), "opl-pi-host-loader-"));
@@ -108,13 +112,43 @@ test("Pi host resource reload replaces configurator tab factories", async () => 
   }
 });
 
+(supportsResponsesToolChanges ? test : test.skip)("Pi Responses converter declarations are trimmed by the loaded ctxtrim handler", async () => {
+  await withAgentDir(async (agentDir) => {
+    const converterPath = join(dirname(hostAiEntry), "api/openai-responses-shared.js");
+    const { convertResponsesMessages } = await import(pathToFileURL(converterPath).href);
+    const runtime = await host.module.ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath: null, refreshOnCreate: false });
+    const model = runtime.getModels("openai-codex").find((candidate) => candidate.compat?.supportsAdditionalTools && candidate.compat?.supportsMidConvoSystemMessages);
+    assert.ok(model, "selected host must have a model using additional_tools");
+    const context = hostAi.normalizeContext({ systemPrompt: "Fixture.", tools: [{
+      name: "ctx_execute", description: "Verbose fixture. Keep execution routing.",
+      parameters: { type: "object", properties: { code: { type: "string", description: "Code to run. More prose." } }, required: ["code"] },
+    }], messages: [{ role: "user", content: "Fixture.", timestamp: 0 }] });
+    const input = convertResponsesMessages(model, context, new Set([model.provider]), {
+      includeSystemPrompt: false, supportsAdditionalTools: true, supportsMidConvoSystemMessages: true, toolOptions: { strict: null },
+    });
+    const payload = { model: model.id, input };
+    const before = structuredClone(payload);
+    assert.ok(input.some((item) => item.type === "additional_tools"), "exercise the actual declaration encoding");
+    const loaded = await host.module.discoverAndLoadExtensions(["extensions/opl-ctxtrim/index.ts"], process.cwd(), agentDir);
+    assert.deepEqual(loaded.errors, []);
+    const handler = loaded.extensions[0].handlers.get("before_provider_request")[0];
+    const out = await handler({ payload }, {});
+    const declaration = out.input.find((item) => item.type === "additional_tools").tools[0];
+    assert.match(declaration.description, /^Run code in a sandbox;/);
+    assert.equal(declaration.parameters.properties.code.description, "Code to run.");
+    assert.deepEqual(declaration.parameters.required, ["code"]);
+    assert.deepEqual(out.input.filter((item) => item.type !== "additional_tools"), input.filter((item) => item.type !== "additional_tools"));
+    assert.deepEqual(payload, before);
+  });
+});
+
 // Pi 1.2 added custom-triggered before_agent_start events. Older hosts still run the
 // loader check above and the extension unit cases, but cannot exercise this host contract.
 for (const mode of ["chat", "plan"]) {
   (supportsCustomRunLifecycle ? test : test.skip)(`Pi host keeps ${mode} instructions across custom and user runs with tools`, async () => {
     await withAgentDir(async (agentDir) => {
       const { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } = host.module;
-      const { AssistantMessageEventStream, getCurrentSystemMessage } = await import("@earendil-works/pi-ai");
+      const { AssistantMessageEventStream, getCurrentSystemMessage } = hostAi;
       const cwd = join(agentDir, "workspace");
       mkdirSync(cwd);
       writeFileSync(join(cwd, "note.txt"), "compatibility fixture\n");

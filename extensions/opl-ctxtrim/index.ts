@@ -143,6 +143,15 @@ function toolArrays(payload: Record<string, unknown>): unknown[][] {
     for (const entry of payload.tools) arraysInto(arrays, entry, DECLARATION_KEYS);
   }
   for (const key of TOOL_CONFIG_KEYS) arraysInto(arrays, payload[key], DECLARATION_KEYS);
+  // Responses can carry declarations in input, not only in top-level tools.
+  if (Array.isArray(payload.input)) {
+    for (const item of payload.input) {
+      if (!item || typeof item !== "object") continue;
+      if (item.type === "additional_tools" || item.type === "tool_search_output") {
+        arraysInto(arrays, item, []);
+      }
+    }
+  }
   return arrays;
 }
 
