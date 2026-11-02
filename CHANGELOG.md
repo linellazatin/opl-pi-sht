@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.2] - Pi 1.5.0 validation and enhancements
+
+- **`opl-questionnaire`**: added blocked/question reporting for custom dialogs on Pi >=1.5 while preserving older-host behavior. Real-host fixture tests covered rendering, answers, custom text, cancellation and status/editor restoration.
+- **`opl-ctxtrim`**: trimmed allowlisted context-mode declarations in OpenAI Responses `additional_tools` and `tool_search_output` input items, preserving conversation data and schema validation rules.
+- **CI and validation**: advanced rolling checks to Pi `~1.5.0` while retaining locked and `0.87.0` jobs; validated all nine registered extension tools with the selected host's coercing validator, including argument immutability.
+- **Packaging**: included the collection's root `CHANGELOG.md` for Pi's default package changelog discovery.
+- **Verification**: strict typechecking and full suites passed on Pi `1.5.0` (563 tests), `0.87.0` floor (560 tests), and a clean locked install (560 tests). Older hosts skipped two newer lifecycle cases and one Responses-converter case; compatibility floor remained `0.87.0`.
+
 ## [0.3.1] - Mode and configurator fixes
 
 - **`opl-modes`**: capture the session directory before restoring mode state or processing startup flags, so plans resolve from `ExtensionContext.cwd` rather than the harness directory.
