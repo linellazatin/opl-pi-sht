@@ -44,6 +44,7 @@ const host = await loadHost();
 const [major, minor] = host.version.split(".").map(Number);
 const supportsCustomRunLifecycle = major > 1 || (major === 1 && minor >= 2);
 const supportsResponsesToolChanges = major > 1 || (major === 1 && minor >= 4);
+const supportsProgramStatus = major > 1 || (major === 1 && minor >= 5);
 const hostAiEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-ai", pathToFileURL(host.entry).href));
 const hostAi = await import(pathToFileURL(hostAiEntry).href);
 
@@ -216,6 +217,143 @@ test("Pi host validator checks and normalizes real extension arguments without m
     assert.deepEqual(declaration.parameters.required, ["code"]);
     assert.deepEqual(out.input.filter((item) => item.type !== "additional_tools"), input.filter((item) => item.type !== "additional_tools"));
     assert.deepEqual(payload, before);
+  });
+});
+
+// These use the actual selected-host dialog/status implementation and real
+// questionnaire rendering/input, with controlled focus/terminal fixtures, not a live TUI.
+async function withQuestionnaireDialog(run) {
+  await withAgentDir(async (agentDir) => {
+    const { InteractiveMode } = await import(pathToFileURL(join(dirname(host.entry), "modes/interactive/interactive-mode.js")).href);
+    const { initTheme } = await import(pathToFileURL(join(dirname(host.entry), "modes/interactive/theme/theme.js")).href);
+    initTheme("dark", false);
+    const tuiEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-tui", pathToFileURL(host.entry).href));
+    const { Container, visibleWidth } = await import(pathToFileURL(tuiEntry).href);
+    const reporterModule = supportsProgramStatus ? await import(pathToFileURL(join(dirname(host.entry), "modes/interactive/program-status-reporter.js")).href) : null;
+    const statusModule = supportsProgramStatus ? await import(pathToFileURL(join(dirname(tuiEntry), "program-status.js")).href) : null;
+    const loaded = await host.module.discoverAndLoadExtensions(["extensions/opl-questionnaire/index.ts"], process.cwd(), agentDir);
+    assert.deepEqual(loaded.errors, []);
+    const tool = loaded.extensions[0].tools.get("questionnaire").definition;
+    const question = (id = "scope") => ({ id, prompt: `Choose ${id}`, allowOther: true, options: [{ value: "a", label: "Option A" }] });
+    function fixture() {
+      const statuses = [], reports = [];
+      const receiver = Object.create(InteractiveMode.prototype);
+      let draft = "preserved editor draft";
+      receiver.editor = { getText: () => draft, setText: (value) => { draft = value; }, render: () => [draft], invalidate() {} };
+      receiver.editorContainer = new Container();
+      receiver.editorContainer.addChild(receiver.editor);
+      receiver.extensionDialogs = [];
+      receiver.keybindings = { matches: () => false };
+      receiver.disposeActiveSelector = () => {};
+      const terminal = { columns: 100, rows: 30, setProgramStatus(status) { statuses.push(status); reports.push(statusModule.formatProgramStatus(status)); } };
+      receiver.ui = { terminal, requestRender() {}, setFocus(component) { this.focused = component; }, focused: receiver.editor };
+      receiver.programStatus = supportsProgramStatus
+        ? new reporterModule.ProgramStatusReporter(() => terminal, () => "Fixture")
+        : { setBlocked() { throw new Error("old host must ignore metadata"); } };
+      if (supportsProgramStatus) receiver.programStatus.handleEvent({ type: "agent_start" });
+      let capturedOptions;
+      const ctx = { mode: "tui", ui: { custom(factory, options) { capturedOptions = options; return receiver.showExtensionCustom(factory, options); } } };
+      return { receiver, statuses, reports, ctx, options: () => capturedOptions, draft: () => draft };
+    }
+    async function open(questions) {
+      const f = fixture();
+      const result = tool.execute("fixture", { questions }, undefined, undefined, f.ctx);
+      for (let i = 0; i < 10 && f.receiver.ui.focused === f.receiver.editor; i++) await Promise.resolve();
+      const component = f.receiver.ui.focused;
+      assert.notEqual(component, f.receiver.editor, "actual host mounts and focuses the questionnaire");
+      assert.deepEqual(f.options(), { overlay: false, blocked: { kind: "question", message: "Answer the questionnaire" } });
+      const lines = f.receiver.editorContainer.render(80);
+      assert.ok(lines.some((line) => line.includes("Choose")));
+      assert.ok(lines.every((line) => visibleWidth(line) <= 80));
+      if (supportsProgramStatus) {
+        assert.equal(f.statuses.at(-1).state, "blocked");
+        assert.equal(f.statuses.at(-1).kind, "question");
+        assert.ok(f.reports.at(-1).includes("state=blocked"));
+        assert.ok(f.reports.at(-1).includes("kind=question"));
+      } else assert.deepEqual(f.statuses, []);
+      return { ...f, component, result };
+    }
+    function restored(f) {
+      assert.equal(f.receiver.ui.focused, f.receiver.editor);
+      assert.equal(f.draft(), "preserved editor draft");
+      if (supportsProgramStatus) {
+        assert.equal(f.statuses.at(-1).state, "working", "closing clears blocked status and resumes the run");
+        assert.equal(f.receiver.extensionDialogs.length, 0);
+        f.receiver.programStatus.handleEvent({ type: "agent_settled", aborted: false });
+        assert.equal(f.statuses.at(-1).state, "done");
+      } else assert.deepEqual(f.statuses, []);
+    }
+    await run({ tool, question, fixture, open, restored });
+  });
+}
+
+for (const cancel of [false, true]) {
+  test(`Pi questionnaire ${cancel ? "cancellation" : "answer"} restores editor and run status`, async () => {
+    await withQuestionnaireDialog(async ({ question, open, restored }) => {
+      const f = await open([question()]);
+      f.component.handleInput(cancel ? "\x1b" : "1");
+      const result = await f.result;
+      assert.equal(result.details.cancelled, cancel);
+      if (!cancel) assert.equal(result.details.answers[0].value, "a");
+      restored(f);
+    });
+  });
+}
+
+test("Pi questionnaire remains mounted until every question is answered and submitted", async () => {
+  await withQuestionnaireDialog(async ({ question, open, restored }) => {
+    const f = await open([question("scope"), question("priority")]);
+    // Premature submission must not close the dialog.
+    f.component.handleInput("\t");
+    f.component.handleInput("\t");
+    f.component.handleInput("\r");
+    assert.notEqual(f.receiver.ui.focused, f.receiver.editor);
+    f.component.handleInput("\t");
+    f.component.handleInput("1");
+    assert.notEqual(f.receiver.ui.focused, f.receiver.editor);
+    f.component.handleInput("1");
+    assert.notEqual(f.receiver.ui.focused, f.receiver.editor);
+    f.component.handleInput("\r");
+    const result = await f.result;
+    assert.deepEqual(result.details.answers.map((answer) => answer.id), ["scope", "priority"]);
+    restored(f);
+  });
+});
+
+test("Pi questionnaire custom text uses the host editor and submits", async () => {
+  await withQuestionnaireDialog(async ({ question, open, restored }) => {
+    const f = await open([question()]);
+    f.component.handleInput("2");
+    f.component.handleInput("custom answer");
+    f.component.handleInput("\r");
+    const result = await f.result;
+    assert.equal(result.details.answers[0].wasCustom, true);
+    assert.equal(result.details.answers[0].value, "custom answer");
+    restored(f);
+  });
+});
+
+test("Pi questionnaire invalid and noninteractive calls do not mount or report blocked", async () => {
+  await withQuestionnaireDialog(async ({ tool, question, fixture }) => {
+    const f = fixture();
+    const invalid = await tool.execute("fixture", { questions: [] }, undefined, undefined, f.ctx);
+    assert.equal(invalid.isError, true);
+    const headless = await tool.execute("fixture", { questions: [question()] }, undefined, undefined, { ...f.ctx, mode: "print" });
+    assert.equal(headless.isError, true);
+    assert.equal(f.options(), undefined);
+    assert.equal(f.receiver.ui.focused, f.receiver.editor);
+    assert.ok(!f.statuses.some((status) => status.state === "blocked"));
+  });
+});
+
+test("Pi custom factory failure does not leave blocked status or lose the editor draft", async () => {
+  await withQuestionnaireDialog(async ({ fixture }) => {
+    const f = fixture();
+    await assert.rejects(f.receiver.showExtensionCustom(() => { throw new Error("fixture failure"); }, {
+      overlay: false, blocked: { kind: "question", message: "Fixture" },
+    }), /fixture failure/);
+    assert.ok(!f.statuses.some((status) => status.state === "blocked"));
+    assert.equal(f.draft(), "preserved editor draft");
   });
 });
 
