@@ -16,6 +16,7 @@ Adds a model-callable interactive questionnaire for discrete choices, preference
 - Returns structured answers containing question ID, selected value and label, custom-text flag, and option index where applicable.
 - Blocks submission until every multi-question prompt has an answer.
 - Returns a clear error in headless sessions so the model can use plain-text questions instead.
+- On Pi >=1.5, marks the custom dialog as blocked on a question while awaiting an answer; the host restores run status after answering or cancelling. Pi 0.87.0 ignores the metadata and keeps the existing dialog behavior. Terminal status display depends on terminal support; automated checks exercise the actual host with controlled UI/terminal fixtures, not physical-terminal capability negotiation.
 
 ## Configuration
 
