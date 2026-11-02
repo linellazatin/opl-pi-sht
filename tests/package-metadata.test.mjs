@@ -122,12 +122,13 @@ test("every tracked sample parameter is present in the live config", () => {
   }
 });
 
-test("npm packages include sample configs and exclude operator configs", async () => {
+test("npm packages include changelog and sample configs but exclude operator configs", async () => {
  const fixture = mkdtempSync(join(tmpdir(), "opl-pack-"));
  try {
   writeFileSync(join(fixture, "package.json"), JSON.stringify(root));
   writeFileSync(join(fixture, ".gitignore"), readFileSync(join(ROOT, ".gitignore")));
   writeFileSync(join(fixture, "README.md"), "package readme");
+  writeFileSync(join(fixture, "CHANGELOG.md"), "## [0.3.1]\n\nPacked release notes.\n");
   writeFileSync(join(fixture, "LICENSE"), "package license");
   mkdirSync(join(fixture, "configs"));
   mkdirSync(join(fixture, "extensions", "opl-todo"), { recursive: true });
@@ -140,7 +141,7 @@ test("npm packages include sample configs and exclude operator configs", async (
   const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
   assert.equal(await proc.exited, 0, stderr);
   const paths = JSON.parse(stdout)[0].files.map(file => file.path);
-  for (const path of ["configs/opl-todo.json.sample", "extensions/opl-todo/index.ts", "images/example.png", "README.md", "LICENSE"])
+  for (const path of ["configs/opl-todo.json.sample", "extensions/opl-todo/index.ts", "images/example.png", "README.md", "LICENSE", "CHANGELOG.md"])
    assert.ok(paths.includes(path), `missing ${path}`);
   assert.ok(!paths.includes("configs/opl-todo.json"), "operator config must never ship");
  } finally { rmSync(fixture, { recursive: true, force: true }); }

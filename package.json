@@ -9,7 +9,8 @@
   "files": [
     "extensions/",
     "configs/*.json.sample",
-    "images/"
+    "images/",
+    "CHANGELOG.md"
   ],
   "keywords": [
     "pi",

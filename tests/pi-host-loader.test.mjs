@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import { test } from "bun:test";
 
 // Load the extensions with the Pi build this machine actually runs, not the
@@ -37,6 +39,7 @@ async function loadHost() {
   return { module, entry, version: module.VERSION, source: `devDependency pi ${module.VERSION ?? "unknown"}` };
 }
 
+const execFileAsync = promisify(execFile);
 const host = await loadHost();
 const [major, minor] = host.version.split(".").map(Number);
 const supportsCustomRunLifecycle = major > 1 || (major === 1 && minor >= 2);
@@ -114,6 +117,30 @@ test("Pi host resource reload replaces configurator tab factories", async () => 
     else globalThis[key] = previous;
   }
 });
+
+test("Pi parses versioned changelog entries from the actual npm package", async () => {
+  await withAgentDir(async (agentDir) => {
+    const { stdout } = await execFileAsync("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", agentDir], {
+      cwd: process.cwd(), env: { ...process.env, npm_config_cache: join(agentDir, "npm-cache") }, timeout: 15_000,
+    });
+    const packed = JSON.parse(stdout)[0];
+    const paths = packed.files.map((file) => file.path);
+    assert.ok(paths.includes("CHANGELOG.md"));
+    assert.equal(paths.filter((path) => /^extensions\/[^/]+\/index\.ts$/.test(path)).length, 12);
+    assert.ok(paths.some((path) => path.endsWith(".json.sample")));
+    assert.ok(!paths.some((path) => /^configs\/.*\.json$/.test(path)), "live configs must not ship");
+    const { stdout: changelog } = await execFileAsync("tar", ["-xOf", join(agentDir, packed.filename), "package/CHANGELOG.md"], { timeout: 5_000 });
+    assert.equal(changelog, readFileSync("CHANGELOG.md", "utf8"), "packed changelog must be complete");
+    const changelogPath = join(agentDir, "CHANGELOG.md");
+    writeFileSync(changelogPath, changelog);
+    const { parseChangelog } = await import(pathToFileURL(join(dirname(host.entry), "utils/changelog.js")).href);
+    const entries = parseChangelog(changelogPath);
+    const version = JSON.parse(readFileSync("package.json", "utf8")).version;
+    assert.equal(`${entries[0].major}.${entries[0].minor}.${entries[0].patch}`, version);
+    assert.ok(entries[0].content.split("\n").length > 2, "release notes include content, not only a heading");
+    assert.ok(entries.length > 1, "historical versioned entries remain parseable");
+  });
+}, 20_000);
 
 test("Pi host validator checks and normalizes real extension arguments without mutating calls", async () => {
   await withAgentDir(async (agentDir) => {
