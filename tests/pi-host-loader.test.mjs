@@ -50,6 +50,9 @@ async function withAgentDir(run) {
   const previousOffline = process.env.PI_OFFLINE;
   process.env.PI_CODING_AGENT_DIR = agentDir;
   process.env.PI_OFFLINE = "1";
+  // Configure lazy tools before the first load: older hosts cache helper modules.
+  mkdirSync(join(agentDir, "configs"));
+  writeFileSync(join(agentDir, "configs/opl-modes.json"), JSON.stringify({ lazyTools: ["browser", "simplebench"] }));
   try {
     await run(agentDir);
   } finally {
@@ -110,6 +113,53 @@ test("Pi host resource reload replaces configurator tab factories", async () => 
     if (previous === undefined) delete globalThis[key];
     else globalThis[key] = previous;
   }
+});
+
+test("Pi host validator checks and normalizes real extension arguments without mutating calls", async () => {
+  await withAgentDir(async (agentDir) => {
+    const loaded = await host.module.discoverAndLoadExtensions(["extensions"], process.cwd(), agentDir);
+    assert.deepEqual(loaded.errors, []);
+    const tools = new Map(loaded.extensions.flatMap((extension) => [...extension.tools.values()].map(({ definition }) => [definition.name, definition])));
+    const question = { id: "scope", prompt: "Pick", options: [{ value: "a", label: "A" }] };
+    const valid = {
+      browser: { action: "pages" }, web_search: { query: "fixture" }, fetch_content: { url: "https://example.com" },
+      get_search_content: { responseId: "fixture" }, questionnaire: { questions: [question] }, todo: { action: "list" },
+      simplebench: { no_artifact: true }, plan_complete: {}, load_tools: { tools: ["browser"] },
+    };
+    assert.deepEqual([...tools.keys()].sort(), Object.keys(valid).sort(), "every registered tool needs validator coverage");
+    let checks = 0;
+    const check = (name, args, expected, rejects = false) => {
+      const call = { type: "toolCall", id: "fixture", name, arguments: structuredClone(args) };
+      const before = structuredClone(call);
+      if (rejects) assert.throws(() => hostAi.validateToolArguments(tools.get(name), call), Error, `${name}: ${JSON.stringify(args)}`);
+      else assert.deepEqual(hostAi.validateToolArguments(tools.get(name), call), expected, `${name}: ${JSON.stringify(args)}`);
+      assert.deepEqual(call, before, "normalization must not rewrite transcript arguments");
+      checks++;
+    };
+    for (const [name, args] of Object.entries(valid)) {
+      check(name, args, args);
+      for (const key of tools.get(name).parameters.required ?? []) {
+        const missing = { ...args };
+        delete missing[key];
+        check(name, missing, undefined, true);
+      }
+      const property = Object.keys(tools.get(name).parameters.properties)[0];
+      if (property) check(name, { ...args, [property]: { invalid: "object" } }, undefined, true);
+    }
+    check("todo", { action: "invalid" }, undefined, true);
+    check("questionnaire", { questions: [{ ...question, options: [{ label: "missing value" }] }] }, undefined, true);
+    check("todo", { action: "toggle", id: "42" }, { action: "toggle", id: 42 });
+    check("browser", { action: "screenshot", fullPage: "false", timeoutMs: "42" }, { action: "screenshot", fullPage: false, timeoutMs: 42 });
+    check("simplebench", { no_artifact: "true" }, { no_artifact: true });
+    check("get_search_content", { responseId: "fixture", offset: "42" }, { responseId: "fixture", offset: 42 });
+    check("questionnaire", { questions: [{ ...question, label: null, allowOther: "false" }] }, { questions: [{ ...question, allowOther: false }] });
+    check("browser", { action: "pages", index: null, fullPage: null, values: null }, { action: "pages" });
+    check("web_search", { query: null, queries: ["fixture"] }, { queries: ["fixture"] });
+    check("load_tools", { tools: null }, {});
+    check("web_search", { queries: "fixture" }, { queries: ["fixture"] });
+    check("questionnaire", { questions: question }, { questions: [question] });
+    console.log(`[pi-host] ${checks} validator cases across ${tools.size} tools with ${host.source}; pi-ai ${JSON.parse(readFileSync(join(dirname(hostAiEntry), "../package.json"), "utf8")).version}`);
+  });
 });
 
 (supportsResponsesToolChanges ? test : test.skip)("Pi Responses converter declarations are trimmed by the loaded ctxtrim handler", async () => {
