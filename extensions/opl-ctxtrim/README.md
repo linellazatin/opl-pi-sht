@@ -28,13 +28,13 @@ Pi serializes the same context-mode tool definitions differently for each provid
 
 | Provider format | Tool name location | Parameter schema location |
 |---|---|---|
-| OpenAI Responses | `tools[].name` | `tools[].parameters` |
+| OpenAI Responses | `tools[].name`, or `input[].tools[].name` on `additional_tools` / `tool_search_output` items | Declaration's `parameters` |
 | OpenAI Chat Completions / Mistral | `tools[].function.name` | `tools[].function.parameters` |
 | Anthropic | `tools[].name` | `tools[].input_schema` |
 | Google/Gemini | `tools[].functionDeclarations[].name` | Declaration's `parametersJsonSchema` or `parameters` |
 | Amazon Bedrock Converse | `toolConfig.tools[].toolSpec.name` | `toolSpec.inputSchema.json` |
 
-The locator also accepts `toolSpecifications[]`, `tool_config` wrappers and direct named declarations with `parameters`, `input_schema` or `parametersJsonSchema`. These are structural compatibility paths, not additional tool policies. Messages, system prompts, routing anchors, tool results and indexed content are not trimmed. Unknown shapes are returned unchanged.
+The locator also accepts `toolSpecifications[]`, `tool_config` wrappers and direct named declarations with `parameters`, `input_schema` or `parametersJsonSchema`. These are structural compatibility paths, not additional tool policies. Only declaration-bearing `additional_tools` and `tool_search_output` input items are inspected; conversation text, system prompts, routing anchors, ordinary tool results and indexed content are not trimmed. Unknown shapes are returned unchanged.
 
 A context-mode release that adds or renames a `ctx_*` tool is invisible to the table, and therefore invisible to the savings too. The test suite prints those tools as `uncovered ctx_* tools (review after upgrade)` so the gap is a review item rather than a silent loss. The measured server snapshot was v1.0.169; that number is not a compatibility guarantee.
 
@@ -104,6 +104,7 @@ Removing or lazily exposing entire `ctx_*` tools could save more than descriptio
 - CTX_DESCRIPTIONS map (the only names ever rewritten)
 - tool-array discovery across provider shapes 
   - tools[], functionDeclarations, toolSpecifications, toolConfig / tool_config
+  - input[].tools[] on additional_tools / tool_search_output items
 - description-only trimming of parameters recursively
 
 Exports `trimPayload`, `CTX_DESCRIPTIONS`, and `shortenParamDescription` for testing. The extension is self-contained and dependency-free.

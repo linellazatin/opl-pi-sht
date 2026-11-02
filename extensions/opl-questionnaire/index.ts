@@ -99,6 +99,10 @@ export default function questionnaire(pi: ExtensionAPI) {
 			const isMulti = questions.length > 1;
 			const totalTabs = questions.length + 1; // questions + Submit
 
+			const dialogOptions = {
+				overlay: false,
+				blocked: { kind: "question" as const, message: "Answer the questionnaire" },
+			};
 			const result = await ctx.ui.custom<QuestionnaireResult>((tui, theme, _kb, done) => {
 				// State
 				let currentTab = 0;
@@ -403,7 +407,7 @@ export default function questionnaire(pi: ExtensionAPI) {
 					},
 					handleInput,
 				};
-			});
+			}, dialogOptions);
 
 			if (result.cancelled) {
 				return {

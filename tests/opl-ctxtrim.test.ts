@@ -42,6 +42,59 @@ test("trims an OpenAI Responses ctx_* tool and preserves validation keywords", (
   assert.equal(tool.parameters.properties.timeout.description, "Max ms.");
 });
 
+for (const type of ["additional_tools", "tool_search_output"]) {
+  test(`trims Responses ${type} declarations without touching conversation data`, () => {
+    const declaration = { ...responsesTool("ctx_execute"), defer_loading: true };
+    const untouched = ["read", "ctx_future", "constructor", "toString", "__proto__"].map((name) => responsesTool(name));
+    const conversation = [
+      { role: "user", content: LONG, tools: [responsesTool("ctx_execute")] },
+      { type: "function_call_output", output: { tools: [responsesTool("ctx_execute")] } },
+      { type: "message", content: [{ type, tools: [responsesTool("ctx_execute")] }] },
+    ];
+    const payload = { input: [{ type, call_id: "routing-anchor", tools: [declaration, ...untouched, null, 42, {}] }, ...conversation] };
+    const snapshot = structuredClone(payload);
+    const out = trimPayload(payload);
+    const item = out.input[0] as any;
+    const trimmed = item.tools?.[0] as typeof declaration;
+    assert.equal(trimmed.description, CTX_DESCRIPTIONS.ctx_execute);
+    assert.equal(trimmed.parameters.properties.language.description, "Runtime language.");
+    assert.equal(trimmed.parameters.properties.timeout.description, "Max ms.");
+    assert.deepEqual(trimmed, {
+      ...declaration, description: CTX_DESCRIPTIONS.ctx_execute,
+      parameters: { ...declaration.parameters, properties: {
+        language: { ...declaration.parameters.properties.language, description: "Runtime language." },
+        timeout: { ...declaration.parameters.properties.timeout, description: "Max ms." },
+      } },
+    });
+    assert.equal(item.call_id, "routing-anchor");
+    assert.deepEqual(item.tools?.slice(1), [...untouched, null, 42, {}]);
+    assert.deepEqual(out.input.slice(1), conversation);
+    assert.deepEqual(payload, snapshot, "input must not be mutated");
+  });
+}
+
+test("trims mixed top-level and Responses input declarations", () => {
+  const payload = { tools: [responsesTool("ctx_search")], input: [
+    { type: "additional_tools", tools: [responsesTool("ctx_index")] },
+    { type: "tool_search_output", tools: [responsesTool("ctx_stats")] },
+  ] };
+  const out = trimPayload(payload);
+  assert.equal(out.tools[0]?.description, CTX_DESCRIPTIONS.ctx_search);
+  assert.equal(out.input[0]?.tools[0]?.description, CTX_DESCRIPTIONS.ctx_index);
+  assert.equal(out.input[1]?.tools[0]?.description, CTX_DESCRIPTIONS.ctx_stats);
+});
+
+test("ignores malformed and non-declaration Responses input items", () => {
+  for (const input of [null, {}, "input", [null, 42, {},
+    { type: "additional_tools", tools: {} }, { type: "tool_search_output", tools: "tools" },
+    { type: "additional_tools", tools: [responsesTool("ctx_future"), responsesTool("constructor")] },
+    { type: "message", tools: [responsesTool("ctx_execute")] },
+  ]]) {
+    const payload = { input };
+    assert.equal(trimPayload(payload), payload);
+  }
+});
+
 test("trims an OpenAI Chat Completions ctx_* tool", () => {
   const payload = { tools: [{ type: "function", function: { name: "ctx_search", description: LONG, parameters: { type: "object", properties: {} } } }] };
   const out = trimPayload(payload) as typeof payload;

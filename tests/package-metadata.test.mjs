@@ -59,6 +59,21 @@ test("release validates its tag before publishing and creates the GitHub release
   assert.ok(check < publish && publish < release, "validate, publish, then create the GitHub release");
 });
 
+test("rolling compatibility CI selects Pi 1.5 patches and rejects managed-host leakage", () => {
+  const workflow = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
+  const current = workflow.split("\n  current:")[1]?.split("\n  floor:")[0];
+  assert.ok(current, "keep the rolling compatibility job");
+  for (const name of ["pi-coding-agent", "pi-ai", "pi-tui"]) {
+    assert.ok(current.includes(`@earendil-works/${name}@~1.5.0`), `${name} must track 1.5.x`);
+  }
+  assert.match(current, /--package-lock=false/, "rolling selection must not be pinned by the lockfile");
+  assert.match(current, /PI_MANAGED_INSTALL_ROOT:/);
+  assert.match(current, /OPL_PI_HOST_SOURCE=devDependency pi/);
+  assert.match(workflow, /npm ci/);
+  assert.match(workflow, /pi-coding-agent@0\.87\.0/);
+  assert.match(workflow, /typebox@1\.3\.27/);
+});
+
 test("the live-config ignore rule is anchored to configs/", () => {
 	const ignore = readFileSync(join(ROOT, ".gitignore"), "utf8")
 		.split("\n")
@@ -107,12 +122,13 @@ test("every tracked sample parameter is present in the live config", () => {
   }
 });
 
-test("npm packages include sample configs and exclude operator configs", async () => {
+test("npm packages include changelog and sample configs but exclude operator configs", async () => {
  const fixture = mkdtempSync(join(tmpdir(), "opl-pack-"));
  try {
   writeFileSync(join(fixture, "package.json"), JSON.stringify(root));
   writeFileSync(join(fixture, ".gitignore"), readFileSync(join(ROOT, ".gitignore")));
   writeFileSync(join(fixture, "README.md"), "package readme");
+  writeFileSync(join(fixture, "CHANGELOG.md"), "## [0.3.1]\n\nPacked release notes.\n");
   writeFileSync(join(fixture, "LICENSE"), "package license");
   mkdirSync(join(fixture, "configs"));
   mkdirSync(join(fixture, "extensions", "opl-todo"), { recursive: true });
@@ -125,7 +141,7 @@ test("npm packages include sample configs and exclude operator configs", async (
   const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
   assert.equal(await proc.exited, 0, stderr);
   const paths = JSON.parse(stdout)[0].files.map(file => file.path);
-  for (const path of ["configs/opl-todo.json.sample", "extensions/opl-todo/index.ts", "images/example.png", "README.md", "LICENSE"])
+  for (const path of ["configs/opl-todo.json.sample", "extensions/opl-todo/index.ts", "images/example.png", "README.md", "LICENSE", "CHANGELOG.md"])
    assert.ok(paths.includes(path), `missing ${path}`);
   assert.ok(!paths.includes("configs/opl-todo.json"), "operator config must never ship");
  } finally { rmSync(fixture, { recursive: true, force: true }); }
