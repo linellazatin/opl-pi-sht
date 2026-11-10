@@ -30,11 +30,11 @@ Pi serializes the same context-mode tool definitions differently for each provid
 |---|---|---|
 | OpenAI Responses | `tools[].name`, or `input[].tools[].name` on `additional_tools` / `tool_search_output` items | Declaration's `parameters` |
 | OpenAI Chat Completions / Mistral | `tools[].function.name` | `tools[].function.parameters` |
-| Anthropic | `tools[].name` | `tools[].input_schema` |
+| Anthropic | `tools[].name`, and inline `tool_addition` message blocks on threads with native mid-conversation tool changes | Declaration's `input_schema` |
 | Google/Gemini | `tools[].functionDeclarations[].name` | Declaration's `parametersJsonSchema` or `parameters` |
 | Amazon Bedrock Converse | `toolConfig.tools[].toolSpec.name` | `toolSpec.inputSchema.json` |
 
-The locator also accepts `toolSpecifications[]`, `tool_config` wrappers and direct named declarations with `parameters`, `input_schema` or `parametersJsonSchema`. These are structural compatibility paths, not additional tool policies. Only declaration-bearing `additional_tools` and `tool_search_output` input items are inspected; conversation text, system prompts, routing anchors, ordinary tool results and indexed content are not trimmed. Unknown shapes are returned unchanged.
+The locator also accepts `toolSpecifications[]`, `tool_config` wrappers and direct named declarations with `parameters`, `input_schema` or `parametersJsonSchema`. These are structural compatibility paths, not additional tool policies. Only declaration-bearing `additional_tools` and `tool_search_output` input items are inspected, plus Anthropic `tool_addition` content blocks (Pi 1.5.1 sends a thread's tool additions inside `messages[].content`, and `before_provider_request` runs before the thread payload is prepared, so a top-level-only walker would miss them). Conversation text, system prompts, routing anchors, ordinary tool results and indexed content are not trimmed. Unknown shapes are returned unchanged.
 
 A context-mode release that adds or renames a `ctx_*` tool is invisible to the table, and therefore invisible to the savings too. The test suite prints those tools as `uncovered ctx_* tools (review after upgrade)` so the gap is a review item rather than a silent loss. The measured server snapshot was v1.0.169; that number is not a compatibility guarantee.
 
