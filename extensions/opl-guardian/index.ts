@@ -158,13 +158,18 @@ export function createToolCallHandler(config: GuardianConfig) {
 
     const command = event.input.command;
     const preview = command.replace(/\s+/g, " ").trim();
+    // The cap is a UTF-16 index, so a command with astral text can end half a pair short;
+    // drop the dangling half rather than show the user a replacement character.
+    const clipped = preview.length > 256 && preview.charCodeAt(255) >= 0xd800 && preview.charCodeAt(255) <= 0xdbff
+      ? preview.slice(0, 255)
+      : preview.slice(0, 256);
     // Fail closed: order "No" first so an accidental confirmation (or a replayed
     // input event hitting a freshly-focused dialog) denies instead of approves.
     // Only an explicit "Yes" selection approves the command.
     const options = ["No", "Yes"];
     if (ctx.mode === "rpc") {
       try {
-        const choice = await ctx.ui.select(red(`Dangerous command:\n\n${preview.slice(0, 256)}\n\nAllow?`), options);
+        const choice = await ctx.ui.select(red(`Dangerous command:\n\n${clipped}\n\nAllow?`), options);
         if (choice === "Yes") return undefined;
       } catch {
         // A failed RPC dialog is not approval.
@@ -172,7 +177,7 @@ export function createToolCallHandler(config: GuardianConfig) {
       return { block: true, reason: "[opl-guardian] Command blocked; confirmation was declined or unavailable." };
     }
 
-    const choice = await ctx.ui.select(red(`Dangerous command:\n\n${preview.slice(0, 256)}\n\nAllow?`), options);
+    const choice = await ctx.ui.select(red(`Dangerous command:\n\n${clipped}\n\nAllow?`), options);
     if (choice === "Yes") return undefined;
     const reason = "[opl-guardian] Command blocked by user because it matches a dangerous pattern.";
     ctx.ui.notify(red(reason), "warning");

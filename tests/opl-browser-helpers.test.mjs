@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { extractMarkdown } from "../extensions/opl-browser/extract.ts";
 import { assertHttpUrl, assertSafeHttpUrl, decideSubresource, safeScreenshotPath } from "../extensions/opl-browser/validate.ts";
-import { paginateStored, continuationNotice } from "../extensions/opl-browser/paging.ts";
+import { paginateStored, previewText, continuationNotice } from "../extensions/opl-browser/paging.ts";
 import { DEFAULT_CONFIG, loadUserConfig } from "../extensions/opl-browser/config.ts";
 import { assertFrameTargetsSafe, installGuard, makeRouteHandler, makeWebSocketGuard } from "../extensions/opl-browser/browser.ts";
 import { MAX_LOG_ENTRIES, pushLogEntry } from "../extensions/opl-browser/browser.ts";
@@ -457,4 +457,20 @@ test("nat64 and 6to4 forms that embed a public ipv4 still pass", async () => {
   for (const url of publicForms) {
     assert.equal(await assertSafeHttpUrl(url, { allowPrivateNetwork: false }), new URL(url).href, url);
   }
+});
+
+test("browser paging and previews never split a surrogate pair", () => {
+  const text = "a".repeat(9) + "😀🐙🚀".repeat(8);
+  let offset = 0;
+  let joined = "";
+  for (;;) {
+    const page = paginateStored(text, offset, 10);
+    assert.ok(page.text.isWellFormed(), "browser page split a surrogate pair");
+    joined += page.text;
+    if (page.nextOffset === null) break;
+    offset = page.nextOffset;
+  }
+  assert.equal(joined, text);
+  assert.ok(previewText("aaaaaaaaa😀more", 10).isWellFormed());
+  assert.equal(previewText("abc", 10), "abc");
 });

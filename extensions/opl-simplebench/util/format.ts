@@ -224,7 +224,11 @@ export function pct(used: number, total: number): string {
  * ```
  */
 export function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max) + "..." : s;
+  if (s.length <= max) return s;
+  // A UTF-16 cap can land between the halves of a surrogate pair; drop the dangling half.
+  const last = s.charCodeAt(max - 1);
+  const cut = last >= 0xd800 && last <= 0xdbff ? max - 1 : max;
+  return s.slice(0, cut) + "...";
 }
 
 /**

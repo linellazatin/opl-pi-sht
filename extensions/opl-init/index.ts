@@ -26,6 +26,13 @@ const MAX_DIR_ENTRIES = 40;
 // previously-written guide: it is a fingerprint input.
 const GUIDE_SCHEMA_VERSION = 1;
 
+/** Cut a character cap at a codepoint boundary: a lone surrogate would corrupt the text it feeds to the model. */
+function clipUnits(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const last = text.charCodeAt(maxChars - 1);
+  return last >= 0xd800 && last <= 0xdbff ? text.slice(0, maxChars - 1) : text.slice(0, maxChars);
+}
+
 type Crawl = {
   tree: string[];
   extCounts: Map<string, number>;
@@ -277,7 +284,7 @@ function crawl(root: string): Crawl {
           try {
             result.manifests.push({
               path: relative(root, path),
-              content: readFileSync(path, "utf8").slice(0, MAX_MANIFEST_PARSE_BYTES),
+              content: clipUnits(readFileSync(path, "utf8"), MAX_MANIFEST_PARSE_BYTES),
             });
           } catch {
             // Skip unreadable manifests.
@@ -523,7 +530,7 @@ function evidencePacket(
   for (const rel of paths) {
     let head: string;
     try {
-      head = readFileSync(join(root, rel), "utf8").slice(0, MAX_README_HEAD_BYTES);
+      head = clipUnits(readFileSync(join(root, rel), "utf8"), MAX_README_HEAD_BYTES);
     } catch {
       continue;
     }

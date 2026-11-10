@@ -727,3 +727,13 @@ test("a bash call whose command is not a string is blocked instead of coerced", 
   const allowed = await handler({ type: "tool_call", toolCallId: "c2", toolName: "bash", input: { command: "echo hi" } }, ctx);
   assert.equal(allowed, undefined);
 });
+
+test("dangerous-command dialog preview never splits a surrogate pair", async () => {
+  const { config } = parseGuardianConfig({ permissionGate: { patterns: ["danger"] }, protectedPaths: { paths: [] } });
+  const command = `danger ${"😀".repeat(200)}`; // the 256-unit cap lands mid-pair
+  const { state, context } = fakeToolContext({ choice: "no" });
+  const result = await createToolCallHandler(config)({ type: "tool_call", toolCallId: "cp", toolName: "bash", input: { command } }, context);
+  assert.equal(result.block, true);
+  assert.ok(state.selectTitle.includes("danger"));
+  assert.ok(state.selectTitle.isWellFormed(), "the confirmation dialog carried a lone surrogate");
+});
