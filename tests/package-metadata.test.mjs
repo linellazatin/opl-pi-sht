@@ -69,6 +69,21 @@ test("rolling compatibility CI selects Pi 1.5 patches and rejects managed-host l
   assert.match(current, /--package-lock=false/, "rolling selection must not be pinned by the lockfile");
   assert.match(current, /PI_MANAGED_INSTALL_ROOT:/);
   assert.match(current, /OPL_PI_HOST_SOURCE=devDependency pi/);
+  // Host drift has to be caught without waiting for a push, and the run has to name the host
+  // it proved: a green rolling job that silently resolved 1.5.0 proves nothing new.
+  assert.match(workflow, /^  schedule:\n    - cron: /m, "the rolling job needs a schedule so a new Pi release is tested before the next commit");
+  assert.match(workflow, /^  workflow_dispatch:$/m, "and it must be runnable on demand");
+  assert.match(current, /GITHUB_STEP_SUMMARY/, "resolved host versions belong in the run summary");
+  const minimumMatch = current.match(/const MINIMUM = \[(\d+), (\d+), (\d+)\];/);
+  assert.ok(minimumMatch, "the rolling job must assert a minimum resolved host version");
+  const rangeMatch = current.match(/@earendil-works\/pi-coding-agent@~(\d+)\.(\d+)\.(\d+)/);
+  assert.ok(rangeMatch, "the rolling range must be visible for the minimum-version cross-check");
+  if (minimumMatch && rangeMatch) {
+    const minimum = minimumMatch.slice(1).map(Number);
+    const range = rangeMatch.slice(1).map(Number);
+    assert.deepEqual(minimum.slice(0, 2), range.slice(0, 2), "the asserted minimum must stay inside the rolling range");
+    assert.ok(minimum[2] >= range[2], "the minimum may not precede the range it is checked against");
+  }
   assert.match(workflow, /npm ci/);
   assert.match(workflow, /pi-coding-agent@0\.87\.0/);
   assert.match(workflow, /typebox@1\.3\.27/);
