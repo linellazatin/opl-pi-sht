@@ -4,15 +4,17 @@
 // classifiers keep working, and the installed pi-tui still emits those exact markers.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { test } from "bun:test";
 
 import { isBorderLike, isSolidBorder, scrollIndicatorText } from "../extensions/opl-input/index.ts";
+import { hostDescriptor, hostFile, hostPackageVersion } from "./support/pi-host.mjs";
 
-const require = createRequire(import.meta.url);
-const editorModule = require.resolve("@earendil-works/pi-tui/dist/components/editor.js");
-const editorSource = readFileSync(editorModule, "utf8");
-const piTuiVersion = require("@earendil-works/pi-tui/package.json").version;
+// Resolved through the shared host seam, so this sniffs the same pi-tui the host loader
+// test loads extensions with - not whichever copy node_modules happens to hold.
+const host = hostDescriptor();
+const editorSource = readFileSync(hostFile(host, "@earendil-works/pi-tui/dist/components/editor.js"), "utf8");
+const piTuiVersion = hostPackageVersion(host, "@earendil-works/pi-tui");
+console.log(`[opl-input] pi-tui markers read from ${piTuiVersion} via ${host.source}`);
 
 test("border and scroll lines are recognised, content lines are not", () => {
   const colour = (s) => `\u001b[38;5;244m${s}\u001b[39m`;
@@ -32,8 +34,9 @@ test("border and scroll lines are recognised, content lines are not", () => {
 });
 
 test("the pi-tui text this extension sniffs is still there", () => {
-  // Measured byte-identical in 0.87.0, 0.99.1 and 1.1.0. If this fails, pi-tui changed the
-  // editor's border or scroll-indicator format and opl-input's re-framing must be updated.
+  // Measured byte-identical in 0.87.0, 0.99.1, 1.1.0, 1.5.1 and 1.5.2. If this fails, pi-tui
+  // changed the editor's border or scroll-indicator format and opl-input's re-framing must
+  // be updated.
   assert.ok(
     editorSource.includes("`─── ${direction} ${hiddenLineCount} more `"),
     `pi-tui ${piTuiVersion} no longer builds the scroll indicator this way`,

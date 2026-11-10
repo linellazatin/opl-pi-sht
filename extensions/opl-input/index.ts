@@ -19,7 +19,7 @@ function plainText(line: string): string {
 // indicator, and pi-tui exposes neither as an API nor as a stable class: it is plain text.
 // These two markers are the whole contract, so they live here instead of being duplicated in
 // each renderer, and tests/opl-input-pi-tui-markers.test.mjs asserts the installed pi-tui
-// still emits them. Verified byte-identical in pi-tui 0.87.0, 0.99.1 and 1.1.0
+// still emits them. Verified byte-identical in pi-tui 0.87.0, 0.99.1, 1.1.0, 1.5.1 and 1.5.2
 // (dist/components/editor.js: `─── ${direction} ${hiddenLineCount} more `).
 const BORDER_CHAR = "─";
 const SCROLL_INDICATOR_RE = /((?:↑|↓)\s*\d+\s*more)/;

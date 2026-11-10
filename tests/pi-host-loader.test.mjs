@@ -1,43 +1,16 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { test } from "bun:test";
 
-// Load the extensions with the Pi build this machine actually runs, not the
-// local devDependency, so a new release's loader (and its `@earendil-works/*`
-// aliases) is exercised before users hit it. Falls back to the resolved
-// devDependency when no managed install is present, e.g. in CI.
-function findManagedInstallEntry() {
-  const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
-  const installRoot = process.env.PI_MANAGED_INSTALL_ROOT || join(agentDir, "install");
-  const versionFile = join(installRoot, "current-version");
-  if (!existsSync(versionFile)) return null;
-
-  const version = readFileSync(versionFile, "utf8").trim();
-  if (!version) return null;
-  const packageDir = join(installRoot, "releases", version, "node_modules", "@earendil-works", "pi-coding-agent");
-  const packageJsonPath = join(packageDir, "package.json");
-  if (!existsSync(packageJsonPath)) return null;
-
-  const manifest = JSON.parse(readFileSync(packageJsonPath, "utf8"));
-  const entry = join(packageDir, manifest.main ?? "dist/index.js");
-  return existsSync(entry) ? { entry, version: manifest.version ?? version } : null;
-}
-
-async function loadHost() {
-  const installed = findManagedInstallEntry();
-  if (installed) {
-    const module = await import(pathToFileURL(installed.entry).href);
-    return { module, entry: installed.entry, version: installed.version, source: `installed pi ${installed.version}` };
-  }
-  const entry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
-  const module = await import(pathToFileURL(entry).href);
-  return { module, entry, version: module.VERSION, source: `devDependency pi ${module.VERSION ?? "unknown"}` };
-}
+// Host resolution (managed install first, devDependency fallback) lives in
+// tests/support/pi-host.mjs and is shared with the pi-tui marker test, so both
+// read the same Pi build.
+import { hostFile, loadHost } from "./support/pi-host.mjs";
 
 const execFileAsync = promisify(execFile);
 const host = await loadHost();
@@ -45,7 +18,7 @@ const [major, minor] = host.version.split(".").map(Number);
 const supportsCustomRunLifecycle = major > 1 || (major === 1 && minor >= 2);
 const supportsResponsesToolChanges = major > 1 || (major === 1 && minor >= 4);
 const supportsProgramStatus = major > 1 || (major === 1 && minor >= 5);
-const hostAiEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-ai", pathToFileURL(host.entry).href));
+const hostAiEntry = hostFile(host, "@earendil-works/pi-ai");
 const hostAi = await import(pathToFileURL(hostAiEntry).href);
 
 async function withAgentDir(run) {
@@ -227,7 +200,7 @@ async function withQuestionnaireDialog(run) {
     const { InteractiveMode } = await import(pathToFileURL(join(dirname(host.entry), "modes/interactive/interactive-mode.js")).href);
     const { initTheme } = await import(pathToFileURL(join(dirname(host.entry), "modes/interactive/theme/theme.js")).href);
     initTheme("dark", false);
-    const tuiEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-tui", pathToFileURL(host.entry).href));
+    const tuiEntry = hostFile(host, "@earendil-works/pi-tui");
     const { Container, visibleWidth } = await import(pathToFileURL(tuiEntry).href);
     const reporterModule = supportsProgramStatus ? await import(pathToFileURL(join(dirname(host.entry), "modes/interactive/program-status-reporter.js")).href) : null;
     const statusModule = supportsProgramStatus ? await import(pathToFileURL(join(dirname(tuiEntry), "program-status.js")).href) : null;
