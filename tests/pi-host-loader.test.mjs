@@ -193,6 +193,33 @@ test("Pi host validator checks and normalizes real extension arguments without m
   });
 });
 
+(supportsResponsesToolChanges ? test : test.skip)("Pi inline Anthropic tool_addition declarations are trimmed by the loaded ctxtrim handler", async () => {
+  // The Anthropic converter is not exported, so pin the shape from the selected host's own
+  // source and then run the real handler against it: a fixture that quietly drifts from the
+  // provider request would otherwise keep this test green while production stayed untrimmed.
+  const source = readFileSync(join(dirname(hostAiEntry), "api/anthropic-messages.js"), "utf8");
+  assert.match(source, /type: "tool_addition", tool: \{ type: "tool_definition", definition \}/, "host no longer nests inline tool definitions this way");
+
+  const verbose = "Verbose context-mode description. Routing prose that should be replaced. ".repeat(8);
+  const payload = {
+    model: "claude-opus-5",
+    tools: [{ name: "ctx_search", description: verbose, input_schema: { type: "object", properties: { queries: { type: "string", description: "Queries array. More prose." } } } }],
+    messages: [{ role: "system", content: [{ type: "tool_addition", tool: { type: "tool_definition", definition: { name: "ctx_search", description: verbose, input_schema: { type: "object", properties: { queries: { type: "string", description: "Queries array. More prose." } } } } } }] }],
+  };
+  const before = structuredClone(payload);
+  await withAgentDir(async (agentDir) => {
+    const loaded = await host.module.discoverAndLoadExtensions(["extensions/opl-ctxtrim/index.ts"], process.cwd(), agentDir);
+    assert.deepEqual(loaded.errors, []);
+    const handler = loaded.extensions[0].handlers.get("before_provider_request")[0];
+    const out = await handler({ payload }, {});
+    for (const declaration of [out.tools[0], out.messages[0].content[0].tool.definition]) {
+      assert.match(declaration.description, /^Search the indexed knowledge base/);
+      assert.equal(declaration.input_schema.properties.queries.description, "Queries array.");
+    }
+    assert.deepEqual(payload, before, "input must not be mutated");
+  });
+});
+
 // These use the actual selected-host dialog/status implementation and real
 // questionnaire rendering/input, with controlled focus/terminal fixtures, not a live TUI.
 async function withQuestionnaireDialog(run) {

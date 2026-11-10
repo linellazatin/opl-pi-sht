@@ -330,3 +330,67 @@ test("asserts a byte saving on a full ctx_* payload in both the OpenAI and Googl
     assert.ok(saved / before > 0.4, `${label}: only ${pct}% saved, expected the trimmer to remove over 40%`);
   }
 });
+
+// Pi 1.5.1 keeps the Anthropic cached prefix alive by freezing payload.tools at the first
+// request's tool set and carrying every later tool change inside message content:
+// { type: "tool_addition", tool: { type: "tool_definition", definition } }
+// (pi-ai dist/api/anthropic-messages.js). A ctx_* tool re-added mid-conversation - exactly
+// what opl-modes' lazy loading does - therefore rides somewhere the trims used to not look.
+function anthropicTool(name: string, description = VERBOSE) {
+  return {
+    name,
+    description,
+    input_schema: {
+      type: "object",
+      properties: { code: { type: "string", description: "Code to run. Second sentence dropped." } },
+      required: ["code"],
+    },
+  };
+}
+
+function additionBlock(tool: unknown) {
+  return { role: "system", content: [{ type: "tool_addition", tool: { type: "tool_definition", definition: tool } }] };
+}
+
+test("trims ctx_* declarations carried inline by Anthropic tool_addition blocks", () => {
+  const payload = {
+    model: "claude-opus-5",
+    system: [{ type: "text", text: "Pi." }],
+    tools: [anthropicTool("ctx_execute")],
+    messages: [
+      { role: "user", content: VERBOSE },
+      additionBlock(anthropicTool("ctx_search")),
+      additionBlock(anthropicTool("ctx_future_tool")),
+      { role: "system", content: [{ type: "tool_removal", tool: { type: "tool_reference", name: "ctx_purge" } }] },
+      { role: "assistant", content: [{ type: "text", text: "kept" }] },
+    ],
+  };
+  const snapshot = structuredClone(payload);
+  const out = trimPayload(payload) as typeof payload;
+
+  const added = (out.messages[1] as any).content[0].tool.definition;
+  assert.equal(added.description, CTX_DESCRIPTIONS.ctx_search);
+  assert.equal(added.input_schema.properties.code.description, "Code to run.");
+  assert.deepEqual(added.input_schema.required, ["code"], "validation keywords survive");
+  assert.equal(
+    (out.messages[2] as any).content[0].tool.definition.description,
+    VERBOSE,
+    "an unknown ctx_* tool must keep its own semantics",
+  );
+  assert.deepEqual(out.messages[3], snapshot.messages[3], "tool_removal carries a name, nothing to trim");
+  assert.deepEqual(out.messages[0], snapshot.messages[0], "conversation data is not touched");
+  assert.equal((out.tools[0] as any).description, CTX_DESCRIPTIONS.ctx_execute, "the frozen top-level set still trims");
+  assert.deepEqual(payload, snapshot, "input must not be mutated");
+});
+
+test("inline tool scanning survives malformed message content", () => {
+  const payloads = [
+    { messages: null },
+    { messages: [null, "string", 42] },
+    { messages: [{ content: null }, { content: [] }, { content: {} }] },
+    { messages: [{ content: [{ type: "tool_addition" }, { type: "tool_addition", tool: null }, { type: "tool_addition", tool: { type: "other" } }] }] },
+  ];
+  for (const payload of payloads) {
+    assert.equal(trimPayload(payload), payload, `${JSON.stringify(payload)} must pass through untouched`);
+  }
+});
