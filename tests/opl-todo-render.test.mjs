@@ -99,3 +99,88 @@ test("session_start reconstruction skips malformed results and keeps valid state
   assert.deepEqual(list.details.todos, [{ id: 1, text: "real task", done: false }]);
   assert.equal(list.details.nextId, 2);
 });
+
+// Pi 1.5.1's resetExtensionUI() removes and disposes every extension overlay on /reload and
+// on a session switch, newest first, and deliberately leaves the custom() promise pending.
+// A retained OverlayHandle then only flips a detached `hidden` flag: setHidden(false) can
+// never bring the widget back. So the handle must die with the session, and the next
+// session_start must mount again - while one instance must not stack two overlays.
+function overlayFixture(branch = []) {
+  const mounts = [];
+  const calls = [];
+  const theme = { fg: (_c, s) => String(s), bold: (s) => String(s) };
+  const handlers = {};
+  const shortcuts = {};
+  const ext = require("../extensions/opl-todo/index.ts").default;
+  ext({
+    registerTool: () => {},
+    on: (ev, fn) => { handlers[ev] = fn; },
+    registerShortcut: (key, options) => { shortcuts[key] = options.handler; },
+    registerCommand: () => {},
+    appendEntry: () => {},
+  });
+  const ctx = {
+    mode: "tui",
+    sessionManager: { getBranch: () => branch },
+    ui: {
+      custom(factory, options) {
+        const handle = {
+          hidden: false,
+          removed: false,
+          setHidden(value) { calls.push(["setHidden", value, this.removed]); this.hidden = value; },
+          isHidden() { return this.hidden; },
+          hide() { this.removed = true; },
+        };
+        mounts.push(handle);
+        factory({ requestRender() {} }, theme, {}, () => {});
+        options.onHandle(handle);
+        return Promise.resolve();
+      },
+    },
+  };
+  return { ctx, handlers, shortcuts, mounts, calls };
+}
+
+const { createRequire } = await import("node:module");
+const require = createRequire(import.meta.url);
+
+test("one session mounts one overlay, and a reload-style restart reuses it", async () => {
+  const f = overlayFixture();
+  await f.handlers.session_start({}, f.ctx);
+  await f.handlers.session_start({}, f.ctx);
+  assert.equal(f.mounts.length, 1, "a second session_start stacked another overlay");
+});
+
+test("session_shutdown drops the handle so the next session re-mounts the widget", async () => {
+  const f = overlayFixture();
+  await f.handlers.session_start({}, f.ctx);
+  assert.equal(f.mounts.length, 1);
+  const first = f.mounts[0];
+
+  // Pi disposes the overlay before the old instance is torn down.
+  first.hide();
+  await f.handlers.session_shutdown({ reason: "reload" }, f.ctx);
+  f.calls.length = 0;
+
+  await f.shortcuts["ctrl+alt+t"](f.ctx);
+  assert.deepEqual(f.calls, [], "a dead overlay handle must not receive setHidden");
+
+  await f.handlers.session_start({}, f.ctx);
+  assert.equal(f.mounts.length, 2, "the new session must mount the widget again");
+  assert.notEqual(f.mounts[1], first);
+});
+
+test("session_shutdown stops the widget state from being toggled through a stale handle", async () => {
+  const f = overlayFixture();
+  assert.ok(f.handlers.session_shutdown, "opl-todo must clear its overlay handle on session_shutdown");
+  await f.handlers.session_start({}, f.ctx);
+  const mounted = f.mounts[0];
+  const hiddenBefore = mounted.hidden;
+
+  await f.handlers.session_shutdown({ reason: "quit" }, f.ctx);
+  f.calls.length = 0;
+  f.shortcuts["ctrl+alt+t"](f.ctx);
+
+  assert.deepEqual(f.calls, [], "no setHidden may reach an overlay this instance no longer owns");
+  assert.equal(mounted.hidden, hiddenBefore);
+});

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -18,6 +18,11 @@ const [major, minor] = host.version.split(".").map(Number);
 const supportsCustomRunLifecycle = major > 1 || (major === 1 && minor >= 2);
 const supportsResponsesToolChanges = major > 1 || (major === 1 && minor >= 4);
 const supportsProgramStatus = major > 1 || (major === 1 && minor >= 5);
+// Pi 1.5.1 replaced ui.hideOverlay() (topmost only) with a registry it drains newest-first,
+// so the cleanup tests below self-skip on hosts that never had the registry.
+const interactiveModePath = join(dirname(host.entry), "modes/interactive/interactive-mode.js");
+const resetsExtensionOverlayRegistry = existsSync(interactiveModePath)
+  && readFileSync(interactiveModePath, "utf8").includes("this.extensionOverlays.delete(");
 const hostAiEntry = hostFile(host, "@earendil-works/pi-ai");
 const hostAi = await import(pathToFileURL(hostAiEntry).href);
 
@@ -217,6 +222,54 @@ test("Pi host validator checks and normalizes real extension arguments without m
       assert.equal(declaration.input_schema.properties.queries.description, "Queries array.");
     }
     assert.deepEqual(payload, before, "input must not be mutated");
+  });
+});
+
+(resetsExtensionOverlayRegistry ? test : test.skip)("Pi resetExtensionUI drains every extension overlay and opl-todo forgets its handle", async () => {
+  await withAgentDir(async (agentDir) => {
+    // Real host method, stubbed collaborators: the 1.5.1 contract our recovery depends on is
+    // that ALL extension overlays are removed, newest first, including a hidden one, because
+    // reload and session switches never call the extension's done().
+    const { InteractiveMode } = await import(pathToFileURL(join(dirname(host.entry), "modes/interactive/interactive-mode.js")).href);
+    const receiver = Object.create(InteractiveMode.prototype);
+    const removed = [];
+    const overlay = (id) => ({ dispose: () => removed.push(`dispose:${id}`) });
+    receiver.extensionDialogs = [];
+    receiver.extensionOverlays = new Map();
+    for (const id of ["older", "newer"]) {
+      const component = overlay(id);
+      receiver.extensionOverlays.set(id, () => {
+        receiver.extensionOverlays.delete(id);
+        component.dispose?.();
+      });
+    }
+    receiver.showTopExtensionDialog = () => {};
+    receiver.clearExtensionTerminalInputListeners = () => {};
+    receiver.setExtensionFooter = () => {};
+    receiver.setExtensionHeader = () => {};
+    receiver.clearExtensionWidgets = () => {};
+    receiver.setCustomEditorComponent = () => {};
+    receiver.setupAutocompleteProvider = () => {};
+    receiver.footerDataProvider = { clearExtensionStatuses: () => {} };
+    receiver.footer = { invalidate: () => {} };
+    receiver.autocompleteProviderWrappers = [];
+    receiver.defaultEditor = {};
+    receiver.activeStatusIndicator = undefined;
+    receiver.updateTerminalTitle = () => {};
+    receiver.setWorkingIndicator = () => {};
+    receiver.setHiddenThinkingLabel = () => {};
+
+    receiver.resetExtensionUI();
+    assert.deepEqual(removed, ["dispose:newer", "dispose:older"], "every extension overlay must be disposed, newest first");
+    assert.equal(receiver.extensionOverlays.size, 0);
+
+    // And the extension side of the seam: opl-todo must clean up on session_shutdown, since
+    // the host leaves the custom() promise pending and a retained OverlayHandle is inert.
+    const loaded = await host.module.discoverAndLoadExtensions(["extensions/opl-todo/index.ts"], process.cwd(), agentDir);
+    assert.deepEqual(loaded.errors, []);
+    const handlers = loaded.extensions[0].handlers;
+    assert.ok(handlers.has("session_shutdown"), "opl-todo must register session_shutdown to drop the overlay handle");
+    assert.ok(handlers.has("session_start"), "opl-todo must re-mount the widget on session_start");
   });
 });
 
