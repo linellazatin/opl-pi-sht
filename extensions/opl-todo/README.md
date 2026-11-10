@@ -15,7 +15,7 @@ Provides branch-aware model-managed tasks with a non-capturing overlay and full-
 - Starts a fresh batch at ID `#1` when adding after every prior task is complete.
 - Displays a top-right overlay without taking editor focus; hides below 80 columns and caps its height to the configured terminal percentage. The row count comes from the overlay renderer - pi-tui reports the dimensions it is about to draw into on every frame - so a redirected stdout or an embedded terminal of a different shape cannot make the widget size itself against the wrong screen. Until the first frame reports a height, a 24-row terminal is assumed.
 - Shows `✓ All done!` and hides after the configured delay; `clear` hides immediately.
-- Reconstructs state on session start, `/reload`, and session-tree changes. A completed restored list is cleared so the next add begins a new batch.
+- Reconstructs state on session start, `/reload`, and session-tree changes. A completed restored list is cleared so the next add begins a new batch. Pi 1.5.1 removes every extension overlay on reload and session switches without resolving the `custom()` call, so the widget forgets its handle on `session_shutdown` and mounts a fresh overlay on the next start; one instance never stacks two overlays.
 
 ## Configuration
 

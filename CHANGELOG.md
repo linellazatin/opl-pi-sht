@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.3] - Pi 1.5.1 + .2 compatibility
+
+- **Host alignment**: the committed lockfile now pins `@earendil-works/pi-coding-agent`, `pi-tui` and `pi-ai` at `1.5.2`; `tests/support/pi-host.mjs` gives the loader and pi-tui marker tests one shared managed-install-first host resolver, so the local loop reads the Pi build the machine actually runs.
+- **`opl-footer`**: idle cache warming (default `cacheWarming: "idle"` on Pi 1.5.1) appends `type: "usage"` session entries, and the footer now bills those entries in cost, tokens and API calls instead of showing less than Pi's own session totals.
+- **`opl-ctxtrim`**: known `ctx_*` descriptions are trimmed inside Anthropic inline `tool_addition` message blocks, which is where native mid-conversation tool changes put tool definitions on threads.
+- **`opl-todo`**: `session_shutdown` clears the overlay handle. Pi 1.5.1's `resetExtensionUI()` drains the whole extension overlay registry on `/reload` and session switches without resolving `custom()`, so a retained handle could no longer bring the widget back; the next `session_start` remounts and one instance can no longer stack two overlays.
+- **Truncation**: character caps in `opl-webaccess` (`truncate`, `get_search_content` offsets), `opl-browser` previews and paging, `opl-guardian`'s dangerous-command dialog, `opl-simplebench` report truncation and `opl-init`'s readme/manifest caps now snap to codepoint boundaries instead of emitting half an emoji.
+- **Tests**: characterization coverage for nested `parentToolCallId` tool calls in `opl-modes` and `opl-guardian`, and for the host's coercing Bash validator (arrays rejected, scalars stringified, transcript arguments never rewritten), which is why the extensions' non-string command guards are defense-in-depth.
+- **CI**: the workflow gains a weekly schedule and `workflow_dispatch`, the rolling job fails if the resolved host is older than the verified `1.5.1` minimum, and it writes all three resolved versions to the step summary.
+- **Verification**: strict typechecking plus 582 tests pass on the installed Pi `1.5.1` host and on the `1.5.2` devDependency; the `0.87.0` floor passes 577 with five host-gated cases skipped. All 12 extensions load in every environment. Compatibility floor remains `0.87.0`.
+
 ## [0.3.2] - Pi 1.5.0 validation and enhancements
 
 - **`opl-questionnaire`**: added blocked/question reporting for custom dialogs on Pi >=1.5 while preserving older-host behavior. Real-host fixture tests covered rendering, answers, custom text, cancellation and status/editor restoration.

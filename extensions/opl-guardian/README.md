@@ -21,7 +21,7 @@ If migrating from the standalone extensions, manually move their settings into t
 
 ### Dangerous Bash commands
 
-The default patterns cover recursive `rm` flags (including `-rf`, `-fr`, and separate `-f -r`), `sudo`, `chmod`/`chown` to mode `777`, `printenv`, and `env` **as a command** — `env`, `env | grep PATH`, `; env`, `$(env)` prompt, while `grep -n 'env' README.md` or `cat config/env.ts` do not. Matching commands require confirmation. Without a confirmation UI they are blocked by default.
+The default patterns cover recursive `rm` flags (including `-rf`, `-fr`, and separate `-f -r`), `sudo`, `chmod`/`chown` to mode `777`, `printenv`, and `env` **as a command** — `env`, `env | grep PATH`, `; env`, `$(env)` prompt, while `grep -n 'env' README.md` or `cat config/env.ts` do not. Matching commands require confirmation. Without a confirmation UI they are blocked by default. The dialog preview is capped at 256 characters and the cap never splits a surrogate pair. Nested calls (Pi >=1.5 `parentToolCallId`) are gated like top-level ones.
 
 ### Protected paths
 

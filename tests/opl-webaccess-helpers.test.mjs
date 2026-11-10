@@ -440,3 +440,37 @@ test("assertSafeHttpUrl still returns only the URL", async () => {
   const url = await assertSafeHttpUrl("http://example.com/x", { resolveHost: async () => ["93.184.216.34"] });
   assert.equal(url, "http://example.com/x");
 });
+
+// Char caps are UTF-16 indices, so a cap that lands between the halves of a surrogate pair
+// emits a dangling half-character: valid-looking JSON that decodes to invalid text and
+// re-encodes through UTF-8 as U+FFFD. Truncation and paging must stay on pair boundaries.
+test("truncate keeps surrogate pairs intact", () => {
+  const text = "a".repeat(9) + "😀🐙🚀".repeat(20);
+  assert.ok(truncate(text, 10).isWellFormed(), "preview ended on a lone surrogate");
+  assert.ok(truncate(text, 10).includes("[Content truncated"));
+  assert.ok(text.isWellFormed());
+});
+
+test("paginateContent pages on pair boundaries and reassembles exactly", () => {
+  const text = "a".repeat(9) + "😀🐙🚀".repeat(8);
+  let offset = 0;
+  let joined = "";
+  let pages = 0;
+  for (;;) {
+    const page = paginateContent(text, offset, 10);
+    assert.ok(page.text.isWellFormed(), `page ${pages} split a surrogate pair`);
+    joined += page.text;
+    pages++;
+    if (page.nextOffset === null) break;
+    assert.ok(page.nextOffset > page.offset, "pagination must advance");
+    offset = page.nextOffset;
+    assert.ok(pages < 100, "pagination must terminate");
+  }
+  assert.equal(joined, text, "paging must not lose or duplicate characters");
+
+  // A model-supplied offset can still land on the low half of a pair.
+  const midPair = paginateContent("ab😀def", 3, 10);
+  assert.ok(midPair.text.isWellFormed(), "page began on a dangling low surrogate");
+  assert.equal(midPair.text, "😀def");
+  assert.equal(midPair.offset, 2);
+});

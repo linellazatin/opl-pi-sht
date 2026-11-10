@@ -5,6 +5,12 @@ on:
   push:
     branches:
       - main
+  # The rolling job resolves the current Pi release afresh, so host drift has to be caught
+  # without waiting for a push: a Pi release that breaks these extensions would otherwise
+  # stay invisible until the next commit. Schedules only run on the default branch.
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
 
 jobs:
   test:
@@ -52,6 +58,30 @@ jobs:
           npm ls --depth=0 @earendil-works/pi-coding-agent @earendil-works/pi-tui @earendil-works/pi-ai
           version=$(node -p "require('./node_modules/@earendil-works/pi-coding-agent/package.json').version")
           echo "OPL_PI_HOST_SOURCE=devDependency pi $version" >> "$GITHUB_ENV"
+          node - "$version" <<'NODE'
+          const { createRequire } = require("node:module");
+          const { appendFileSync } = require("node:fs");
+          const req = createRequire(process.cwd() + "/");
+          const [version] = process.argv.slice(2);
+          // The oldest release this collection is verified against; raise it together with the
+          // documented validation note, never above what the suite has actually been run on.
+          const MINIMUM = [1, 5, 1];
+          if (!/^\d+\.\d+\.\d+$/.test(version)) {
+            console.error(`Rolling job resolved pi-coding-agent "${version}"; expected a stable x.y.z release.`);
+            process.exit(1);
+          }
+          const got = version.split(".").map(Number);
+          const older = got.reduce((cmp, _part, i) => (cmp !== 0 ? cmp : (got[i] ?? 0) - MINIMUM[i]), 0) < 0;
+          if (older) {
+            console.error(`Rolling job resolved pi-coding-agent ${version}, expected >= ${MINIMUM.join(".")}.`);
+            console.error("Either the tilde range stopped tracking the verified release or the registry rolled back.");
+            process.exit(1);
+          }
+          const rows = ["pi-coding-agent", "pi-tui", "pi-ai"]
+            .map((name) => `- ${name}: ${req(`./node_modules/@earendil-works/${name}/package.json`).version}`)
+            .join("\n");
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Resolved Pi host (requirement >= ${MINIMUM.join(".")})\n${rows}\n`);
+          NODE
       - name: Typecheck against current Pi
         run: npm run typecheck
       - name: Test against current Pi

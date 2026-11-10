@@ -3,7 +3,7 @@ import { Type } from "typebox";
 
 import { loadUserConfig } from "./config.js";
 import { runAction, closeBrowser, type BrowserParams } from "./browser.js";
-import { paginateStored, continuationNotice } from "./paging.js";
+import { paginateStored, previewText, continuationNotice } from "./paging.js";
 
 // ponytail: in-memory store with 1h TTL. Large outputs (snapshot, console,
 // network, evaluate) are kept out of context; only a preview + id are returned.
@@ -90,7 +90,7 @@ export default function (pi: ExtensionAPI) {
         return { content: [{ type: "text", text }], details: result.file ? { file: result.file } : {} };
       }
       const id = store(p.action, text);
-      const preview = text.slice(0, cfg.previewChars);
+      const preview = previewText(text, cfg.previewChars);
       return {
         content: [{ type: "text", text: `${preview}\n\n… truncated. Full result via action:get responseId: ${id}` }],
         details: { responseId: id, action: p.action, chars: text.length },

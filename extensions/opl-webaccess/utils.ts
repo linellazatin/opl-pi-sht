@@ -10,10 +10,26 @@ export function isAbortError(err: unknown): boolean {
   return msg.includes("abort") || msg.includes("cancelled");
 }
 
+/** A UTF-16 cap can land between the halves of a surrogate pair; these say which side. */
+const isHighSurrogate = (text: string, index: number): boolean => {
+  const code = text.charCodeAt(index);
+  return code >= 0xd800 && code <= 0xdbff;
+};
+const isLowSurrogate = (text: string, index: number): boolean => {
+  const code = text.charCodeAt(index);
+  return code >= 0xdc00 && code <= 0xdfff;
+};
+
+/** Cut to `maxChars` UTF-16 units without splitting a pair (the pair stays whole on one side). */
+function clipUnits(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return text.slice(0, isHighSurrogate(text, maxChars - 1) ? maxChars - 1 : maxChars);
+}
+
 export function truncate(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return (
-    text.slice(0, maxChars) +
+    clipUnits(text, maxChars) +
     "\n\n[Content truncated. Use get_search_content with the responseId to retrieve the full content.]"
   );
 }
@@ -29,8 +45,12 @@ export interface ContentPage {
 export function paginateContent(text: string, offset: number, maxChars: number): ContentPage {
   const totalChars = text.length;
   const safeOffset = Number.isFinite(offset) ? Math.floor(offset) : 0;
-  const start = Math.min(Math.max(0, safeOffset), totalChars);
-  const end = Math.min(start + maxChars, totalChars);
+  // Page ends snap back off a pair, so pair-aligned offsets stay aligned; snap a
+  // model-supplied offset that landed on the second half back onto the whole pair.
+  let start = Math.min(Math.max(0, safeOffset), totalChars);
+  if (start > 0 && isLowSurrogate(text, start) && isHighSurrogate(text, start - 1)) start -= 1;
+  let end = Math.min(start + maxChars, totalChars);
+  if (end < totalChars && isHighSurrogate(text, end - 1)) end -= 1;
   return {
     text: text.slice(start, end),
     offset: start,

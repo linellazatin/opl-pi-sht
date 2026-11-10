@@ -722,3 +722,10 @@ test("simplebench tool: the model-facing schema is TypeBox with every field opti
   assert.ok(!Value.Check(schema, { model: 5 }), "a non-string model must be rejected");
   assert.ok(!Value.Check(schema, { coding_lite: "yes" }), "a non-boolean flag must be rejected");
 });
+
+test("truncate never splits a surrogate pair", async () => {
+  const { truncate } = await import("../extensions/opl-simplebench/util/format");
+  assert.equal(truncate("a😀bc", 2), "a...");
+  assert.ok(truncate("a😀bc", 2).isWellFormed());
+  assert.equal(truncate("short", 10), "short");
+});

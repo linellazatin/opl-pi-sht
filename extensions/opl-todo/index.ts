@@ -251,9 +251,11 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	// ── Session events ──────────────────────────────────────────────────
-	pi.on("session_start", async (_event, ctx) => {
-		reconstructState(ctx);
-		if (ctx.mode !== "tui") return;
+	// One live overlay per extension instance. Pi disposes every extension overlay before it
+	// tears the instance down (see session_shutdown below), so a second mount here would only
+	// ever stack a duplicate widget on top of the one this instance still owns.
+	const mountWidget = (ctx: ExtensionContext) => {
+		if (ctx.mode !== "tui" || overlayHandle) return;
 
 		void ctx.ui.custom<void>(
 			(tui, theme, _kb, _done) => {
@@ -281,9 +283,24 @@ export default function (pi: ExtensionAPI) {
 				},
 			},
 		);
+	};
+
+	pi.on("session_start", async (_event, ctx) => {
+		reconstructState(ctx);
+		mountWidget(ctx);
 	});
 
 	pi.on("session_tree", async (_event, ctx) => reconstructState(ctx));
+
+	// Pi >=1.5.1 removes and disposes every extension overlay on /reload and on a session
+	// switch, and deliberately leaves the custom() promise pending. A retained handle can then
+	// only flip a detached flag, so the widget would look visible while nothing is drawn.
+	// Forget it here; the next session_start mounts a fresh overlay.
+	pi.on("session_shutdown", async () => {
+		clearTimeout(autoHideTimer);
+		overlayHandle = undefined;
+		tuiRef = undefined;
+	});
 
 	// ── Shortcuts ────────────────────────────────────────────────────────────
 	pi.registerShortcut(CONFIG.shortcuts.toggleWidget as KeyId, {

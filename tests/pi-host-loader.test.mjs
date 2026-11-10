@@ -1,43 +1,16 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { test } from "bun:test";
 
-// Load the extensions with the Pi build this machine actually runs, not the
-// local devDependency, so a new release's loader (and its `@earendil-works/*`
-// aliases) is exercised before users hit it. Falls back to the resolved
-// devDependency when no managed install is present, e.g. in CI.
-function findManagedInstallEntry() {
-  const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
-  const installRoot = process.env.PI_MANAGED_INSTALL_ROOT || join(agentDir, "install");
-  const versionFile = join(installRoot, "current-version");
-  if (!existsSync(versionFile)) return null;
-
-  const version = readFileSync(versionFile, "utf8").trim();
-  if (!version) return null;
-  const packageDir = join(installRoot, "releases", version, "node_modules", "@earendil-works", "pi-coding-agent");
-  const packageJsonPath = join(packageDir, "package.json");
-  if (!existsSync(packageJsonPath)) return null;
-
-  const manifest = JSON.parse(readFileSync(packageJsonPath, "utf8"));
-  const entry = join(packageDir, manifest.main ?? "dist/index.js");
-  return existsSync(entry) ? { entry, version: manifest.version ?? version } : null;
-}
-
-async function loadHost() {
-  const installed = findManagedInstallEntry();
-  if (installed) {
-    const module = await import(pathToFileURL(installed.entry).href);
-    return { module, entry: installed.entry, version: installed.version, source: `installed pi ${installed.version}` };
-  }
-  const entry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
-  const module = await import(pathToFileURL(entry).href);
-  return { module, entry, version: module.VERSION, source: `devDependency pi ${module.VERSION ?? "unknown"}` };
-}
+// Host resolution (managed install first, devDependency fallback) lives in
+// tests/support/pi-host.mjs and is shared with the pi-tui marker test, so both
+// read the same Pi build.
+import { hostFile, loadHost } from "./support/pi-host.mjs";
 
 const execFileAsync = promisify(execFile);
 const host = await loadHost();
@@ -45,7 +18,12 @@ const [major, minor] = host.version.split(".").map(Number);
 const supportsCustomRunLifecycle = major > 1 || (major === 1 && minor >= 2);
 const supportsResponsesToolChanges = major > 1 || (major === 1 && minor >= 4);
 const supportsProgramStatus = major > 1 || (major === 1 && minor >= 5);
-const hostAiEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-ai", pathToFileURL(host.entry).href));
+// Pi 1.5.1 replaced ui.hideOverlay() (topmost only) with a registry it drains newest-first,
+// so the cleanup tests below self-skip on hosts that never had the registry.
+const interactiveModePath = join(dirname(host.entry), "modes/interactive/interactive-mode.js");
+const resetsExtensionOverlayRegistry = existsSync(interactiveModePath)
+  && readFileSync(interactiveModePath, "utf8").includes("this.extensionOverlays.delete(");
+const hostAiEntry = hostFile(host, "@earendil-works/pi-ai");
 const hostAi = await import(pathToFileURL(hostAiEntry).href);
 
 async function withAgentDir(run) {
@@ -220,6 +198,81 @@ test("Pi host validator checks and normalizes real extension arguments without m
   });
 });
 
+(supportsResponsesToolChanges ? test : test.skip)("Pi inline Anthropic tool_addition declarations are trimmed by the loaded ctxtrim handler", async () => {
+  // The Anthropic converter is not exported, so pin the shape from the selected host's own
+  // source and then run the real handler against it: a fixture that quietly drifts from the
+  // provider request would otherwise keep this test green while production stayed untrimmed.
+  const source = readFileSync(join(dirname(hostAiEntry), "api/anthropic-messages.js"), "utf8");
+  assert.match(source, /type: "tool_addition", tool: \{ type: "tool_definition", definition \}/, "host no longer nests inline tool definitions this way");
+
+  const verbose = "Verbose context-mode description. Routing prose that should be replaced. ".repeat(8);
+  const payload = {
+    model: "claude-opus-5",
+    tools: [{ name: "ctx_search", description: verbose, input_schema: { type: "object", properties: { queries: { type: "string", description: "Queries array. More prose." } } } }],
+    messages: [{ role: "system", content: [{ type: "tool_addition", tool: { type: "tool_definition", definition: { name: "ctx_search", description: verbose, input_schema: { type: "object", properties: { queries: { type: "string", description: "Queries array. More prose." } } } } } }] }],
+  };
+  const before = structuredClone(payload);
+  await withAgentDir(async (agentDir) => {
+    const loaded = await host.module.discoverAndLoadExtensions(["extensions/opl-ctxtrim/index.ts"], process.cwd(), agentDir);
+    assert.deepEqual(loaded.errors, []);
+    const handler = loaded.extensions[0].handlers.get("before_provider_request")[0];
+    const out = await handler({ payload }, {});
+    for (const declaration of [out.tools[0], out.messages[0].content[0].tool.definition]) {
+      assert.match(declaration.description, /^Search the indexed knowledge base/);
+      assert.equal(declaration.input_schema.properties.queries.description, "Queries array.");
+    }
+    assert.deepEqual(payload, before, "input must not be mutated");
+  });
+});
+
+(resetsExtensionOverlayRegistry ? test : test.skip)("Pi resetExtensionUI drains every extension overlay and opl-todo forgets its handle", async () => {
+  await withAgentDir(async (agentDir) => {
+    // Real host method, stubbed collaborators: the 1.5.1 contract our recovery depends on is
+    // that ALL extension overlays are removed, newest first, including a hidden one, because
+    // reload and session switches never call the extension's done().
+    const { InteractiveMode } = await import(pathToFileURL(join(dirname(host.entry), "modes/interactive/interactive-mode.js")).href);
+    const receiver = Object.create(InteractiveMode.prototype);
+    const removed = [];
+    const overlay = (id) => ({ dispose: () => removed.push(`dispose:${id}`) });
+    receiver.extensionDialogs = [];
+    receiver.extensionOverlays = new Map();
+    for (const id of ["older", "newer"]) {
+      const component = overlay(id);
+      receiver.extensionOverlays.set(id, () => {
+        receiver.extensionOverlays.delete(id);
+        component.dispose?.();
+      });
+    }
+    receiver.showTopExtensionDialog = () => {};
+    receiver.clearExtensionTerminalInputListeners = () => {};
+    receiver.setExtensionFooter = () => {};
+    receiver.setExtensionHeader = () => {};
+    receiver.clearExtensionWidgets = () => {};
+    receiver.setCustomEditorComponent = () => {};
+    receiver.setupAutocompleteProvider = () => {};
+    receiver.footerDataProvider = { clearExtensionStatuses: () => {} };
+    receiver.footer = { invalidate: () => {} };
+    receiver.autocompleteProviderWrappers = [];
+    receiver.defaultEditor = {};
+    receiver.activeStatusIndicator = undefined;
+    receiver.updateTerminalTitle = () => {};
+    receiver.setWorkingIndicator = () => {};
+    receiver.setHiddenThinkingLabel = () => {};
+
+    receiver.resetExtensionUI();
+    assert.deepEqual(removed, ["dispose:newer", "dispose:older"], "every extension overlay must be disposed, newest first");
+    assert.equal(receiver.extensionOverlays.size, 0);
+
+    // And the extension side of the seam: opl-todo must clean up on session_shutdown, since
+    // the host leaves the custom() promise pending and a retained OverlayHandle is inert.
+    const loaded = await host.module.discoverAndLoadExtensions(["extensions/opl-todo/index.ts"], process.cwd(), agentDir);
+    assert.deepEqual(loaded.errors, []);
+    const handlers = loaded.extensions[0].handlers;
+    assert.ok(handlers.has("session_shutdown"), "opl-todo must register session_shutdown to drop the overlay handle");
+    assert.ok(handlers.has("session_start"), "opl-todo must re-mount the widget on session_start");
+  });
+});
+
 // These use the actual selected-host dialog/status implementation and real
 // questionnaire rendering/input, with controlled focus/terminal fixtures, not a live TUI.
 async function withQuestionnaireDialog(run) {
@@ -227,7 +280,7 @@ async function withQuestionnaireDialog(run) {
     const { InteractiveMode } = await import(pathToFileURL(join(dirname(host.entry), "modes/interactive/interactive-mode.js")).href);
     const { initTheme } = await import(pathToFileURL(join(dirname(host.entry), "modes/interactive/theme/theme.js")).href);
     initTheme("dark", false);
-    const tuiEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-tui", pathToFileURL(host.entry).href));
+    const tuiEntry = hostFile(host, "@earendil-works/pi-tui");
     const { Container, visibleWidth } = await import(pathToFileURL(tuiEntry).href);
     const reporterModule = supportsProgramStatus ? await import(pathToFileURL(join(dirname(host.entry), "modes/interactive/program-status-reporter.js")).href) : null;
     const statusModule = supportsProgramStatus ? await import(pathToFileURL(join(dirname(tuiEntry), "program-status.js")).href) : null;
@@ -445,3 +498,20 @@ for (const mode of ["chat", "plan"]) {
     });
   }, 15_000);
 }
+
+test("Pi normalizes built-in Bash arguments before extension handlers run", async () => {
+  // Why the extensions' non-string command guards are defense-in-depth rather than the
+  // primary gate: the host's coercing validator already rejects arrays and stringifies
+  // scalars, and it never rewrites the transcripted arguments themselves.
+  const { createBashToolDefinition } = await import(pathToFileURL(join(dirname(host.entry), "core/tools/bash.js")).href);
+  const definition = createBashToolDefinition(process.cwd());
+  const validate = (args) => hostAi.validateToolArguments(definition, { type: "toolCall", id: "fixture", name: "bash", arguments: args });
+  assert.throws(() => validate({ command: ["rm", "-rf"] }), /command/);
+  assert.throws(() => validate({ count: 3 }), /command/);
+  assert.deepEqual(validate({ command: 42 }), { command: "42" });
+  assert.deepEqual(validate({ command: null }), { command: "null" });
+  assert.deepEqual(validate({ command: "ls", count: null }), { command: "ls", count: null });
+  const call = { type: "toolCall", id: "fixture", name: "bash", arguments: { command: 42 } };
+  hostAi.validateToolArguments(definition, call);
+  assert.deepEqual(call.arguments, { command: 42 }, "normalization must not rewrite transcript arguments");
+});

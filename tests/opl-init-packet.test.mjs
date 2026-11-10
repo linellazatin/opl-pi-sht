@@ -64,3 +64,15 @@ test("evidence packet includes readme heads and enforces its budget", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("readme head truncation never splits a surrogate pair", () => {
+  const root = mkdtempSync(join(tmpdir(), "opl-init-cp-"));
+  try {
+    writeFileSync(join(root, "package.json"), "{}");
+    writeFileSync(join(root, "README.md"), "R".repeat(2047) + "😀 tail");
+    const packet = evidencePacket(root, "baseline", { manifests: [], workspaceMembers: [] });
+    assert.ok(packet.isWellFormed(), "evidence packet ended a readme head on a lone surrogate");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

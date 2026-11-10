@@ -152,6 +152,26 @@ function toolArrays(payload: Record<string, unknown>): unknown[][] {
       }
     }
   }
+  // Anthropic message threads send system and tools once, then keep the prefix alive by
+  // freezing payload.tools at that first set and carrying later tool changes inside message
+  // content: { type: "tool_addition", tool: { type: "tool_definition", definition } }
+  // (pi-ai dist/api/anthropic-messages.js:1271). A tool enabled after the first request -
+  // opl-modes' lazy loading, an MCP reconnect - therefore never appears in payload.tools,
+  // and a `tool_removal` block carries only a name. Each definition is its own one-entry
+  // array so the same view/trim path handles it.
+  if (Array.isArray(payload.messages)) {
+    for (const item of payload.messages) {
+      const content = (item as { content?: unknown })?.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        if (!block || typeof block !== "object" || (block as { type?: unknown }).type !== "tool_addition") continue;
+        const holder = (block as { tool?: unknown }).tool;
+        if (!holder || typeof holder !== "object" || (holder as { type?: unknown }).type !== "tool_definition") continue;
+        const definition = (holder as { definition?: unknown }).definition;
+        if (definition && typeof definition === "object" && !Array.isArray(definition)) arrays.push([definition]);
+      }
+    }
+  }
   return arrays;
 }
 
