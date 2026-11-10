@@ -11,6 +11,7 @@ import * as openRouterUsage from "../extensions/opl-footer/openrouter-usage.ts";
 import { nextTabIndex, restoreSelectedItem } from "../extensions/opl-footer/configure-navigation.ts";
 import { applyColor, resolveColorToRgb } from "../extensions/opl-footer/theme.ts";
 import { CONFIGURABLE_SEGMENTS, getLayoutSegments, hasSegmentSeparator, moveLayoutSegment, setLayoutSegment, setSegmentSeparator } from "../extensions/opl-footer/config.ts";
+import { deriveBranchFacts } from "../extensions/opl-footer/index.ts";
 
 test("malformed colors render uncolored with no escape sequence at all", () => {
   const theme = { fg: (color) => { throw new Error(`unknown theme color: ${color}`); } };
@@ -429,4 +430,50 @@ test("git probes back off outside a repository and recover on invalidation", asy
     else process.env.OPL_GIT_LOG = prevLog;
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// Pi >=1.5.1 defaults `cacheWarming` to "idle" and bills each refresh by appending a
+// `type: "usage"` session entry (core/cache-warmer.js -> sessionManager.appendUsage).
+// Pi's own totals count those entries, so the footer must too, or its `$` and token cells
+// disagree with the `Cache warmed: $X` line in the chat above it.
+test("idle cache-warm usage entries are part of the session cost and tokens", () => {
+  const assistant = {
+    type: "message",
+    message: {
+      role: "assistant", stopReason: "endTurn",
+      usage: { input: 1000, output: 200, cacheRead: 5000, cacheWrite: 0, cost: { total: 0.01 } },
+      content: [{ type: "toolCall", id: "c1", name: "read", arguments: {} }],
+    },
+  };
+  const warm = {
+    type: "usage", kind: "cache_warm", provider: "anthropic", model: "claude-opus-5",
+    usage: { input: 40, output: 0, cacheRead: 0, cacheWrite: 62000, cost: { total: 0.25 } },
+  };
+  const facts = deriveBranchFacts([assistant, warm], "k", { contextWindow: 200000, needsEstimate: false, projectedMessages: undefined });
+
+  assert.equal(facts.usageStats.cost, 0.26, "the warm refresh is money the session spent");
+  assert.equal(facts.usageStats.input, 1040);
+  assert.equal(facts.usageStats.cacheWrite, 62000);
+  assert.equal(facts.branchApiCalls, 2, "a warm request is a provider call");
+  assert.equal(facts.branchToolCalls, 1, "the warm entry carries no tool calls");
+  assert.equal(facts.branchPrompts, 0, "a usage entry is not a prompt");
+});
+
+test("usage entries with missing or partial fields read as zero", () => {
+  for (const broken of [{ type: "usage" }, { type: "usage", usage: {} }, { type: "usage", usage: { cost: {} } }]) {
+    const facts = deriveBranchFacts([broken], "k", { contextWindow: 200000, needsEstimate: false, projectedMessages: undefined });
+    assert.deepEqual(facts.usageStats, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 }, JSON.stringify(broken));
+    assert.equal(facts.branchApiCalls, 1);
+  }
+});
+
+test("errored and aborted assistant replies stay uncounted while usage entries count", () => {
+  const failed = { type: "message", message: { role: "assistant", stopReason: "error", usage: { input: 999, cost: { total: 9 } } } };
+  const aborted = { type: "message", message: { role: "assistant", stopReason: "aborted", usage: { input: 999, cost: { total: 9 } } } };
+  const warm = { type: "usage", kind: "cache_warm", usage: { input: 10, output: 0, cacheRead: 0, cacheWrite: 20, cost: { total: 0.5 } } };
+  const facts = deriveBranchFacts([failed, aborted, warm], "k", { contextWindow: 200000, needsEstimate: false, projectedMessages: undefined });
+
+  assert.equal(facts.usageStats.cost, 0.5);
+  assert.equal(facts.usageStats.input, 10);
+  assert.equal(facts.branchApiCalls, 1);
 });

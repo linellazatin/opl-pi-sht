@@ -165,7 +165,17 @@ export interface AssistantMessageEvent {
   message: { role: string };
 }
 
-export type SessionEvent = ThinkingLevelEvent | AssistantMessageEvent | { type: string };
+// Pi appends model-attributed usage that never enters the LLM context, such as the
+// `cache_warm` entry idle prompt-cache refresh bills for (>=1.5.1 default).
+export interface UsageEntryEvent {
+  type: "usage";
+  kind?: string;
+  provider?: string;
+  model?: string;
+  usage?: unknown;
+}
+
+export type SessionEvent = ThinkingLevelEvent | AssistantMessageEvent | UsageEntryEvent | { type: string };
 
 // Rendered segment output
 export interface RenderedSegment {

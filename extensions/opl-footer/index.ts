@@ -3,7 +3,7 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 import type { TUI } from "@earendil-works/pi-tui";
 
-import type { SegmentContext, StatusLineSegmentId, UsageStats, SessionStats, SessionEvent, ThinkingLevelEvent, AssistantMessageEvent, ToolResultEvent, UserBashEvent } from "./types.js";
+import type { SegmentContext, StatusLineSegmentId, UsageStats, SessionStats, SessionEvent, ThinkingLevelEvent, AssistantMessageEvent, UsageEntryEvent, ToolResultEvent, UserBashEvent } from "./types.js";
 import { renderSegment } from "./segments/index.js";
 import { estimateContextUsage } from "./segments/context.js";
 import { createAgentStatusTracker } from "./segments/status.js";
@@ -52,6 +52,9 @@ const isAssistantMessageEvent = (e: SessionEvent): e is AssistantMessageEvent =>
 const isThinkingEvent = (e: SessionEvent): e is ThinkingLevelEvent =>
   e.type === "thinking_level_change";
 
+const isUsageEntry = (e: SessionEvent): e is UsageEntryEvent =>
+  e.type === "usage";
+
 /**
  * Branch-derived footer inputs. Every field is a pass over the whole branch and the
  * footer re-renders on each keypress, so they are memoised by session, leaf, branch
@@ -94,11 +97,19 @@ export function deriveBranchFacts(
     .filter(isAssistantMessageEvent)
     .map((e) => e.message as AssistantMessage)
     .filter((m) => m.stopReason !== "error" && m.stopReason !== "aborted");
+  // Bill every provider request the session paid for. Pi >=1.5.1 warms the prompt cache
+  // while idle and books those calls as `usage` entries instead of assistant replies, and
+  // its own totals count them, so the footer has to as well or `$` disagrees with the
+  // "Cache warmed" line above it. An errored or aborted reply is not billed and stays out.
+  const billedUsage = [
+    ...completedMessages.map((m) => (m as { usage?: unknown }).usage),
+    ...branch.filter(isUsageEntry).map((e) => e.usage),
+  ];
   // Session entries are host data: a missing usage block reads as zero instead of
   // throwing and blanking every row.
-  const usageStats = completedMessages.reduce<UsageStats>(
-    (acc, m) => {
-      const u = (m.usage ?? {}) as unknown as Partial<UsageStats> & { cost?: { total?: number } };
+  const usageStats = billedUsage.reduce<UsageStats>(
+    (acc, raw) => {
+      const u = (raw ?? {}) as unknown as Partial<UsageStats> & { cost?: { total?: number } };
       return {
         input: acc.input + (u.input ?? 0),
         output: acc.output + (u.output ?? 0),
@@ -128,7 +139,7 @@ export function deriveBranchFacts(
       (e) => e.type === "message" && (e as AssistantMessageEvent).message?.role === "user",
     ).length,
     branchCompactions: branch.filter((entry) => entry.type === "compaction").length,
-    branchApiCalls: completedMessages.length,
+    branchApiCalls: billedUsage.length,
     branchToolCalls: completedMessages.reduce((sum, msg) => {
       const content = (msg as { content?: unknown }).content;
       return sum + (Array.isArray(content) ? content.filter((block) => (block as any)?.type === "toolCall").length : 0);
