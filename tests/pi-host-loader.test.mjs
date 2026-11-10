@@ -498,3 +498,20 @@ for (const mode of ["chat", "plan"]) {
     });
   }, 15_000);
 }
+
+test("Pi normalizes built-in Bash arguments before extension handlers run", async () => {
+  // Why the extensions' non-string command guards are defense-in-depth rather than the
+  // primary gate: the host's coercing validator already rejects arrays and stringifies
+  // scalars, and it never rewrites the transcripted arguments themselves.
+  const { createBashToolDefinition } = await import(pathToFileURL(join(dirname(host.entry), "core/tools/bash.js")).href);
+  const definition = createBashToolDefinition(process.cwd());
+  const validate = (args) => hostAi.validateToolArguments(definition, { type: "toolCall", id: "fixture", name: "bash", arguments: args });
+  assert.throws(() => validate({ command: ["rm", "-rf"] }), /command/);
+  assert.throws(() => validate({ count: 3 }), /command/);
+  assert.deepEqual(validate({ command: 42 }), { command: "42" });
+  assert.deepEqual(validate({ command: null }), { command: "null" });
+  assert.deepEqual(validate({ command: "ls", count: null }), { command: "ls", count: null });
+  const call = { type: "toolCall", id: "fixture", name: "bash", arguments: { command: 42 } };
+  hostAi.validateToolArguments(definition, call);
+  assert.deepEqual(call.arguments, { command: 42 }, "normalization must not rewrite transcript arguments");
+});

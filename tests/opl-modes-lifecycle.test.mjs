@@ -879,3 +879,32 @@ test("a bash call whose command is not a string is blocked by the mode gate", as
   assert.ok(!ok.some((result) => result?.block === true && /not a string/.test(result.reason ?? "")));
   await h.fire("session_shutdown", {});
 });
+
+// Pi >=1.5 marks a call issued by another tool with parentToolCallId (codemode, nested
+// execution). These pin that the gates do not treat that field as a reason to skip policy:
+// a nested call is the same call, only issued from inside a tool.
+test("nested tool calls are gated like top-level calls", async () => {
+  const h = mount({ tools: BASE_TOOLS, active: ["read"], models: [MODEL_A] });
+  h.ctx.ui.custom = async () => "save";
+  await h.run("plan", "nested-seam-probe");
+  const nested = await h.fire("tool_call", {
+    type: "tool_call",
+    toolCallId: "c1/1",
+    parentToolCallId: "c1",
+    toolName: "bash",
+    input: { command: ["echo", "hi"] },
+  });
+  assert.ok(
+    nested.some((result) => result?.block === true && /not a string/.test(result.reason ?? "")),
+    JSON.stringify(nested),
+  );
+  const nestedPlanComplete = await h.fire("tool_call", {
+    type: "tool_call",
+    toolCallId: "c1/2",
+    parentToolCallId: "c1",
+    toolName: "plan_complete",
+    input: {},
+  });
+  assert.equal(nestedPlanComplete[0]?.block, true, "plan_complete stayed mode-gated when nested");
+  await h.fire("session_shutdown", {});
+});

@@ -737,3 +737,16 @@ test("dangerous-command dialog preview never splits a surrogate pair", async () 
   assert.ok(state.selectTitle.includes("danger"));
   assert.ok(state.selectTitle.isWellFormed(), "the confirmation dialog carried a lone surrogate");
 });
+
+test("nested tool calls are gated like top-level calls", async () => {
+  const { config } = parseGuardianConfig({ permissionGate: { patterns: ["danger"] } });
+  const handler = createToolCallHandler(config);
+  const { context, state } = fakeToolContext({ choice: "no" });
+  const nestedRead = { type: "tool_call", toolCallId: "p/1", parentToolCallId: "p", toolName: "read", input: { path: ".env" } };
+  const readResult = await handler(nestedRead, context);
+  assert.equal(readResult.block, true, "a nested call must not bypass the protected-path policy");
+  assert.match(readResult.reason, /\.env/);
+  const nestedBash = { type: "tool_call", toolCallId: "p/2", parentToolCallId: "p", toolName: "bash", input: { command: "run danger" } };
+  assert.equal((await handler(nestedBash, context)).block, true);
+  assert.equal(state.prompts, 1, "the nested command still reached the confirmation dialog");
+});
