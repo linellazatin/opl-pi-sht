@@ -27,6 +27,9 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async () => {
     await closeBrowser();
+    // Page snapshots are only re-fetchable while the browser that produced them
+    // is alive; honor the "expires on browser close" contract for the whole store.
+    STORE.clear();
   });
 
   pi.registerTool({
@@ -81,6 +84,10 @@ export default function (pi: ExtensionAPI) {
       } catch (e) {
         return err(`browser ${p.action}: ${e instanceof Error ? e.message : String(e)}`);
       }
+      // Closing the browser invalidates every stored page snapshot, so the
+      // "expires on browser close" message stays truthful even for a mid-session
+      // `action:close` (session_shutdown handles the remaining case).
+      if (p.action === "close") STORE.clear();
 
       // Defensive: never let a missing/invalid action text crash the size gate.
       const text = String(result.text ?? "");
