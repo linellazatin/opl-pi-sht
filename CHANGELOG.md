@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.4] - workflow split and extension hardening
+
+- **CI structure**: the two workflows are now `validate.yml` (every check: typecheck, suite, nested dependency audit, and a `hosts` matrix carrying the rolling `~1.5.0` and `0.87.0` floor legs) and `release.yml` (tag check, changelog extraction, `npm publish`, GitHub release). 
+  - `release.yml` calls `validate.yml` through `workflow_call` and gates on `needs: validate`, so the suite is no longer duplicated in both files and a tag is always published only after that tag's commit passed it. Because `validate.yml` does not trigger on tags, a release run executes the suite exactly once.
+- **CI**: the floor leg now pins its selected host through `$GITHUB_ENV`, the same seam the rolling leg uses, instead of step-level env that would have shadowed the rolling leg's resolved value. `release.yml` gains a `concurrency` group so two tags cannot race `npm publish`, and its write scopes are limited to the publish job while the called validation runs at `contents: read`.
+- **`opl-ctxtrim`**: when no known `ctx_*` tool is declared the payload is returned untouched, so the deep clone only happens on a trim.
+- **`opl-simplebench`**: the Bedrock reasoning-aware stream import is pinned at the type level so a host rename/removal fails typecheck, with a runtime guard; the module stays lazily loaded for non-Bedrock benchmarks.
+- **`opl-todo`**: the tool schema is single-library TypeBox (`Type.Unsafe` enum) instead of mixing pi-schema's `StringEnum` with `Type.Object`; byte-identical at runtime to what the host transpiles `StringEnum` into.
+- **`opl-browser`**: the in-memory store is cleared on `action:close` and `session_shutdown`, so the "expires on browser close" message is accurate.
+- **`opl-footer`**: the TTFT average is a rolling window capped at 256 samples, and branch-derived facts are memoised on session id + leaf id instead of walking `getBranch()` every frame (the leaf changes on every append, including idle `usage` entries).
+
 ## [0.3.3] - Pi 1.5.1 + .2 compatibility
 
 - **Host alignment**: the committed lockfile now pins `@earendil-works/pi-coding-agent`, `pi-tui` and `pi-ai` at `1.5.2`; `tests/support/pi-host.mjs` gives the loader and pi-tui marker tests one shared managed-install-first host resolver, so the local loop reads the Pi build the machine actually runs.
