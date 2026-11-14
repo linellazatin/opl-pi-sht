@@ -28,6 +28,7 @@ async function mount({ config = {}, throwOn = null, branchRef = { value: [] }, p
   let projectionsBuilt = 0;
   let themeLookups = 0;
   let renderRequests = 0;
+  let branchReads = 0;
   const pi = {
     on(name, handler) {
       if (!handlers.has(name)) handlers.set(name, []);
@@ -43,7 +44,10 @@ async function mount({ config = {}, throwOn = null, branchRef = { value: [] }, p
     modelRegistry: { isUsingOAuth: () => false },
     getContextUsage: () => usageRef.value,
     sessionManager: {
-      getBranch: () => branchRef.value,
+      getBranch: () => {
+        branchReads++;
+        return branchRef.value;
+      },
       getSessionId: () => sessionRef.value,
       getLeafId: () => leafRef.value,
       buildSessionProjection: () => {
@@ -77,6 +81,9 @@ async function mount({ config = {}, throwOn = null, branchRef = { value: [] }, p
     projectionsBuilt: () => projectionsBuilt,
     renderRequests: () => renderRequests,
     themeLookups: () => themeLookups,
+    branchReads: () => branchReads,
+    leafRef,
+    sessionRef,
     fire: async (name, event) => {
       for (const handler of handlers.get(name) ?? []) await handler(event, ctx);
     },
@@ -230,6 +237,7 @@ test("branch-derived counts and the projection estimate are derived once per bra
     h.render();
     h.render();
     assert.equal(h.projectionsBuilt(), 1, `projection built ${h.projectionsBuilt()} times for an unchanged branch`);
+    assert.equal(h.branchReads(), 1, "getBranch must not be re-walked while session and leaf are unchanged");
   } finally {
     h.dispose();
   }
@@ -237,9 +245,11 @@ test("branch-derived counts and the projection estimate are derived once per bra
 
 test("the estimate is re-derived when the branch grows", async () => {
   const branchRef = { value: [] };
+  const leafRef = { value: "leaf-1" };
   const h = await mount({
     config: singleRow(["tokens", "context_pct"]),
     branchRef,
+    leafRef,
     projectionMessages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
   });
   try {
@@ -251,6 +261,9 @@ test("the estimate is re-derived when the branch grows", async () => {
       ...branchRef.value,
       { type: "message", message: { role: "user", content: [{ type: "text", text: "next" }] } },
     ];
+    // The real host moves the leaf on every append; the footer keys facts on it, so the
+    // stub must mirror that or the growth is invisible to the cache.
+    leafRef.value = "leaf-2";
     h.render();
     assert.equal(h.projectionsBuilt(), 2, "a longer branch re-derives the facts");
   } finally {

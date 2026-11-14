@@ -357,9 +357,19 @@ function makeBedrockChatFn(providerInfo: { region?: string }): ChatFn {
   };
 }
 
+// pi-ai exposes no root export for the Bedrock reasoning-aware stream; this
+// subpath export is the adapter that pi's own `ModelRuntime` dispatches to for
+// the `bedrock-converse-stream` api. Pin it at the type level so a rename or
+// removal in a host release fails `npm run typecheck` (rolling + floor CI)
+// rather than surfacing as a runtime error mid-benchmark. The module itself
+// stays dynamically imported so the AWS stack is not loaded for non-Bedrock
+// benchmarks.
+type BedrockStreamSimple = typeof import("@earendil-works/pi-ai/api/bedrock-converse-stream")["streamSimple"];
+
 function makePiBedrockThinkingChatFn(modelConfig: BenchmarkModel): ChatFn {
   return async (_model, messages, options) => {
     const { streamSimple } = await import("@earendil-works/pi-ai/api/bedrock-converse-stream");
+    if (typeof streamSimple !== "function") throw new Error("pi-ai bedrock-converse-stream adapter no longer exports streamSimple");
     const systemPrompt = messages.filter(m => m.role === "system").map(m => m.content).join("\n") || undefined;
     const tools = (options?.tools as any[] | undefined)?.map(tool => ({
       name: tool.function?.name || tool.name,
@@ -368,7 +378,7 @@ function makePiBedrockThinkingChatFn(modelConfig: BenchmarkModel): ChatFn {
     }));
     const startedAt = new Date().toISOString();
     const start = Date.now();
-    const stream = streamSimple(modelConfig as any, {
+    const stream = (streamSimple as BedrockStreamSimple)(modelConfig as any, {
       ...(systemPrompt ? { systemPrompt } : {}),
       messages: messages.filter(m => m.role !== "system") as any,
       ...(tools?.length ? { tools } : {}),

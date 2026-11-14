@@ -1,19 +1,29 @@
-name: CI
+name: Validate
 
 on:
   pull_request:
   push:
     branches:
       - main
-  # The rolling job resolves the current Pi release afresh, so host drift has to be caught
+  # The hosts matrix resolves the current Pi release afresh, so host drift has to be caught
   # without waiting for a push: a Pi release that breaks these extensions would otherwise
   # stay invisible until the next commit. Schedules only run on the default branch.
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
+  # release.yml calls this workflow so a tag is published only after the suite it gates on
+  # has actually run on that tag's commit. A tag push does not match `branches: main`, so
+  # this workflow does not also self-trigger on the tag: the suite runs exactly once.
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
-  test:
+  # The reproducible target: the committed lockfile, unmodified. Also the only job that
+  # audits the two nested extension manifests, because the audit reads node_modules as
+  # installed by this job.
+  baseline:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,14 +41,35 @@ jobs:
           cd extensions/opl-browser && npm audit --omit=dev --audit-level=high
           cd ../opl-webaccess && npm audit --omit=dev --audit-level=high
 
-  # Rolling 1.5.x compatibility is separate from the reproducible lockfile and floor jobs.
-  # Resolve the tilde range afresh, report all three versions, and require the loader to
-  # use that devDependency rather than a managed install on the runner.
-  current:
+  # Both legs replace the host the lockfile resolved, so they share their setup and differ
+  # only in which host they install and how they pin it. `fail-fast: false` keeps a floor
+  # failure from hiding a current-host failure, and vice versa.
+  #
+  # Rolling 1.5.x is separate from the reproducible lockfile: resolve the tilde range afresh,
+  # report all three versions, and require the loader to use that devDependency rather than a
+  # managed install on the runner.
+  #
+  # The package declares a floor of pi >=0.87.0. The floor leg pins all three host packages to
+  # that floor, so the floor is exercised instead of only asserted. The machine's managed pi
+  # install must not leak in: without neutralising PI_MANAGED_INSTALL_ROOT the loader prefers
+  # it and the floor never runs. OPL_PI_HOST_SOURCE makes that preference a hard failure
+  # rather than a silently greener job, so each leg pins the host it selected - the rolling leg
+  # from the version it resolved, the floor leg from the version it installed.
+  hosts:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: current
+            agent_dir: /tmp/opl-current-agent
+            install_root: /tmp/opl-no-managed-install
+          - host: floor
+            agent_dir: /tmp/no-agent-dir
+            install_root: /tmp/no-install-root
     env:
-      PI_CODING_AGENT_DIR: /tmp/opl-current-agent
-      PI_MANAGED_INSTALL_ROOT: /tmp/opl-no-managed-install
+      PI_CODING_AGENT_DIR: ${{ matrix.agent_dir }}
+      PI_MANAGED_INSTALL_ROOT: ${{ matrix.install_root }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -48,12 +79,14 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: npm ci
       - name: Resolve current Pi 1.5.x
+        if: matrix.host == 'current'
         run: >
           npm install --no-save --package-lock=false --no-audit --no-fund
           '@earendil-works/pi-coding-agent@~1.5.0'
           '@earendil-works/pi-tui@~1.5.0'
           '@earendil-works/pi-ai@~1.5.0'
       - name: Report resolved versions and require the selected host
+        if: matrix.host == 'current'
         run: |
           npm ls --depth=0 @earendil-works/pi-coding-agent @earendil-works/pi-tui @earendil-works/pi-ai
           version=$(node -p "require('./node_modules/@earendil-works/pi-coding-agent/package.json').version")
@@ -82,41 +115,19 @@ jobs:
             .join("\n");
           appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Resolved Pi host (requirement >= ${MINIMUM.join(".")})\n${rows}\n`);
           NODE
-      - name: Typecheck against current Pi
+      # The floor writes the source it installed through the same GITHUB_ENV seam the rolling
+      # leg uses, rather than a step-level env: an empty step env would shadow the rolling
+      # leg's resolved value and drop its "wrong pi build exercised" assertion.
+      - name: Pin the declared floor and its selected host
+        if: matrix.host == 'floor'
+        run: |
+          npm install --no-save --no-audit --no-fund \
+            @earendil-works/pi-coding-agent@0.87.0 \
+            @earendil-works/pi-tui@0.87.0 \
+            @earendil-works/pi-ai@0.87.0 \
+            typebox@1.3.27
+          echo "OPL_PI_HOST_SOURCE=devDependency pi 0.87.0" >> "$GITHUB_ENV"
+      - name: Typecheck
         run: npm run typecheck
-      - name: Test against current Pi
+      - name: Test
         run: npm test
-
-  # The package declares a floor of pi >=0.87.0. This job pins all three host packages to that
-  # floor and runs the same suite there, so the floor is exercised instead of only asserted.
-  # The machine's managed pi install must not leak in: without the neutralisation below,
-  # tests/pi-host-loader.test.mjs prefers it and the floor never runs. OPL_PI_HOST_SOURCE makes
-  # that preference a hard failure rather than a silently greener job.
-  floor:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-      - uses: oven-sh/setup-bun@v2
-      - run: npm ci
-      - name: Pin the declared floor
-        run: >
-          npm install --no-save --no-audit --no-fund
-          @earendil-works/pi-coding-agent@0.87.0
-          @earendil-works/pi-tui@0.87.0
-          @earendil-works/pi-ai@0.87.0
-          typebox@1.3.27
-      - name: Typecheck at the floor
-        run: npm run typecheck
-        env:
-          PI_CODING_AGENT_DIR: /tmp/no-agent-dir
-          PI_MANAGED_INSTALL_ROOT: /tmp/no-install-root
-      - name: Test at the floor
-        run: npm test
-        env:
-          PI_CODING_AGENT_DIR: /tmp/no-agent-dir
-          PI_MANAGED_INSTALL_ROOT: /tmp/no-install-root
-          OPL_PI_HOST_SOURCE: devDependency pi 0.87.0
