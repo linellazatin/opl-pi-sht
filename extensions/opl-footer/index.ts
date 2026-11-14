@@ -397,6 +397,10 @@ export default function footer(pi: ExtensionAPI) {
   // Session stats accumulators (timing only; counts are reconstructed from the branch)
   let llmMs = 0;
   let toolMs = 0;
+  // The TTFT average is over a rolling window, not the whole session: a runaway
+  // prompt loop would otherwise grow this array unbounded and the footer re-rolls
+  // the average on every frame.
+  const MAX_TTFT_SAMPLES = 256;
   let ttftSamples: number[] = [];
   let turnStartMs = 0;
   let toolMsThisTurn = 0;
@@ -536,6 +540,7 @@ export default function footer(pi: ExtensionAPI) {
   pi.on("message_update", async (_event: unknown, _ctx: ExtensionContext) => {
     if (!ttftRecordedThisTurn && turnStartMs > 0) {
       ttftSamples.push(Date.now() - turnStartMs);
+      if (ttftSamples.length > MAX_TTFT_SAMPLES) ttftSamples.splice(0, ttftSamples.length - MAX_TTFT_SAMPLES);
       ttftRecordedThisTurn = true;
     }
   });
@@ -565,20 +570,24 @@ export default function footer(pi: ExtensionAPI) {
     const effectiveConfig = getEffectiveConfig();
     const colors = effectiveConfig.colors ?? getDefaultColors();
 
-    const branch = (ctx.sessionManager?.getBranch?.() ?? []) as SessionEvent[];
-
     // Prefer Pi's canonical context usage (0.87). Immediately after compaction it is
     // null until the next assistant reply, so estimate the rebuilt projection instead.
     const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
     const contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
 
     const needsEstimate = usage?.percent === null;
+    // Session id + leaf id identify the branch path (the leaf changes on every append,
+    // including idle cache-warm usage entries), so the derived facts are keyed without
+    // walking `getBranch()` on every frame. Structural rewrites that keep the leaf in
+    // place (compaction, tree switch) null `branchFacts` via their own events, and the
+    // first render after them re-walks here.
     const factsKey = JSON.stringify([
       ctx.sessionManager?.getSessionId?.(), ctx.sessionManager?.getLeafId?.(),
-      branch.length, contextWindow, needsEstimate,
+      contextWindow, needsEstimate,
     ]);
     let facts = branchFacts;
     if (!facts || facts.key !== factsKey) {
+      const branch = (ctx.sessionManager?.getBranch?.() ?? []) as SessionEvent[];
       const projectedMessages = needsEstimate
         ? ctx.sessionManager?.buildSessionProjection?.().messages
         : undefined;
