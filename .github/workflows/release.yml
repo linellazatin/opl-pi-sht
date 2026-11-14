@@ -1,32 +1,40 @@
-name: Create GitHub Release
+name: Release
 
 on:
   push:
     tags:
       - "v*"
 
+# Only the publish job needs write access. validate.yml declares `contents: read` itself, so a
+# called run cannot inherit the token scopes below.
 permissions:
-  id-token: write
-  contents: write
+  contents: read
+
+# Two tags in flight would race `npm publish` for the same version.
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
 
 jobs:
+  # The gate: the whole suite, on the tagged commit. A tag can point at a commit that never
+  # sat on main, and validate.yml does not trigger on tags, so this is the only run that
+  # proves the commit being published.
+  validate:
+    uses: ./.github/workflows/validate.yml
+
   release:
+    needs: validate
     runs-on: ubuntu-latest
     environment: npm
+    permissions:
+      id-token: write
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
-      - uses: oven-sh/setup-bun@v2
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-      - name: Audit nested extension deps
-        run: |
-          cd extensions/opl-browser && npm audit --omit=dev --audit-level=high
-          cd ../opl-webaccess && npm audit --omit=dev --audit-level=high
       - name: Validate release version
         run: |
           node -e 'const version = require("./package.json").version; if (process.env.GITHUB_REF_NAME !== `v${version}`) { console.error("Release tag must match package.json version"); process.exit(1); }'

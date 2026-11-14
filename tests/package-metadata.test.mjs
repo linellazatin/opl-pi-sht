@@ -59,10 +59,45 @@ test("release validates its tag before publishing and creates the GitHub release
   assert.ok(check < publish && publish < release, "validate, publish, then create the GitHub release");
 });
 
+// Job keys sit at two spaces and steps at six, so a job block ends at the next two-space key.
+// Both host legs live in one matrix job, so the legs are sliced by the step that pins the floor.
+function jobBlock(workflow, name) {
+  const lines = workflow.split("\n");
+  const start = lines.indexOf(`  ${name}:`);
+  if (start === -1) return null;
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^ {2}[a-z][\w-]*:$/.test(line));
+  return (end === -1 ? rest : rest.slice(0, end)).join("\n");
+}
+
+test("validate.yml delegates the tag check to release.yml rather than owning it", () => {
+  const workflow = readFileSync(join(ROOT, ".github/workflows/validate.yml"), "utf8");
+  assert.match(workflow, /^  workflow_call:$/m, "release.yml can only gate on a callable workflow");
+  assert.match(workflow, /^permissions:\n  contents: read$/m, "a called run must not inherit write scopes");
+  assert.doesNotMatch(workflow, /npm publish/, "publishing belongs to release.yml");
+});
+
+test("release delegates validation to validate.yml instead of re-running the suite", () => {
+  const release = readFileSync(join(ROOT, ".github/workflows/release.yml"), "utf8");
+  const validate = readFileSync(join(ROOT, ".github/workflows/validate.yml"), "utf8");
+  assert.ok(validate, "the suite and the host matrix live in validate.yml");
+  assert.match(release, /^  validate:\n    uses: \.\/\.github\/workflows\/validate\.yml$/m, "release must call validate.yml");
+  assert.match(release, /^    needs: validate$/m, "publishing must wait for the called validation");
+  for (const step of ["npm test", "npm run typecheck", "npm audit", "npm ci", "setup-bun@"]) {
+    assert.ok(!release.includes(step), `release.yml must not re-run \`${step}\`; validate.yml owns it`);
+  }
+  assert.match(release, /^concurrency:\n  group: [\w-]+\n  cancel-in-progress: false$/m, "two tags must not race npm publish");
+  // Only the publish job may hold write scopes; the called run is capped at contents: read.
+  const scopes = release.slice(release.indexOf("  release:\n"));
+  assert.match(scopes, /permissions:\n      id-token: write\n      contents: write/, "publishing keeps its OIDC and release scopes");
+});
+
 test("rolling compatibility CI selects Pi 1.5 patches and rejects managed-host leakage", () => {
-  const workflow = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
-  const current = workflow.split("\n  current:")[1]?.split("\n  floor:")[0];
-  assert.ok(current, "keep the rolling compatibility job");
+  const workflow = readFileSync(join(ROOT, ".github/workflows/validate.yml"), "utf8");
+  const hosts = jobBlock(workflow, "hosts");
+  assert.ok(hosts, "keep the rolling and floor host matrix job");
+  const current = hosts.split("Pin the declared floor")[0];
+  assert.ok(current, "keep the rolling compatibility leg");
   for (const name of ["pi-coding-agent", "pi-ai", "pi-tui"]) {
     assert.ok(current.includes(`@earendil-works/${name}@~1.5.0`), `${name} must track 1.5.x`);
   }
@@ -87,6 +122,13 @@ test("rolling compatibility CI selects Pi 1.5 patches and rejects managed-host l
   assert.match(workflow, /npm ci/);
   assert.match(workflow, /pi-coding-agent@0\.87\.0/);
   assert.match(workflow, /typebox@1\.3\.27/);
+  assert.match(hosts, /fail-fast: false/, "a floor failure must not hide a current-host failure");
+  // Both legs pin the host they selected through GITHUB_ENV. A step-level OPL_PI_HOST_SOURCE
+  // would shadow the rolling leg's resolved value and silently drop its wrong-host assertion,
+  // and an empty value is falsy, so the suite would skip the check instead of failing.
+  const floor = hosts.split("Pin the declared floor")[1] ?? "";
+  assert.match(floor, /OPL_PI_HOST_SOURCE=devDependency pi 0\.87\.0/, "the floor must pin the host it installed");
+  assert.doesNotMatch(workflow, /OPL_PI_HOST_SOURCE:/, "pin the selected host through GITHUB_ENV, not step env");
 });
 
 test("the live-config ignore rule is anchored to configs/", () => {
