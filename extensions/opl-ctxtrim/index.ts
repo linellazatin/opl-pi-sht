@@ -175,13 +175,26 @@ function toolArrays(payload: Record<string, unknown>): unknown[][] {
   return arrays;
 }
 
+// True when any tool in any declaration array is a known ctx_* tool. Runs on the
+// untouched payload before `structuredClone`, so a request with no context-mode tools
+// (the common case) does not pay for a deep clone of the whole transcript.
+function hasCtxTool(payload: Record<string, unknown>): boolean {
+  for (const tools of toolArrays(payload)) {
+    for (const tool of tools) {
+      const view = viewTool(tool);
+      if (view && Object.hasOwn(CTX_DESCRIPTIONS, view.name)) return true;
+    }
+  }
+  return false;
+}
+
 // Return a trimmed copy of a provider payload, or the original when nothing
 // matched. Never mutates the input.
 export function trimPayload<T>(payload: T): T {
   if (!payload || typeof payload !== "object") return payload;
+  if (!hasCtxTool(payload as Record<string, unknown>)) return payload;
   const clone = structuredClone(payload) as Record<string, unknown>;
   const arrays = toolArrays(clone);
-  if (arrays.length === 0) return payload;
   let changed = false;
   for (const tools of arrays) {
     for (const tool of tools) {
