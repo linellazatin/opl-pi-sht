@@ -4,7 +4,6 @@
  * See README.md for full documentation.
  */
 
-import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { KeyId, OverlayHandle, TUI } from "@earendil-works/pi-tui";
@@ -33,8 +32,17 @@ const TODO_STATE_ENTRY = "opl-todo-state";
 
 // ── Widget constants ─────────────────────────────────────────────────────────
 
+const TODO_ACTIONS = ["list", "add", "toggle", "clear"] as const;
+type TodoAction = (typeof TODO_ACTIONS)[number];
+
+// TypeBox has no first-class string-enum builder whose JSON form is the
+// provider-safe `{ type: "string", enum: [...] }`; `Type.Enum` carries no
+// `type` keyword and `Type.Union` of literals emits `anyOf`, which some
+// providers reject. `Type.Unsafe` wraps the exact JSON fragment here, and is
+// what Pi's own host loader transpiles its `StringEnum` helper into, so the
+// schema is a single library (TypeBox) at both typecheck and runtime.
 const TodoParams = Type.Object({
-	action: StringEnum(["list", "add", "toggle", "clear"] as const),
+	action: Type.Unsafe<TodoAction>({ type: "string", enum: TODO_ACTIONS }),
 	text: Type.Optional(Type.String({ description: "Todo text (for add)" })),
 	id: Type.Optional(Type.Number({ description: "Todo ID (for toggle)" })),
 });
