@@ -1,6 +1,9 @@
 // Functional tests for opl-modes config helpers and registry gating. Requires Bun.
 // Run: bun tests/opl-modes-helpers.test.mjs
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "bun:test";
 import { transition, restore, resetState, getMode, getRestoringModel, setRestoringModel } from "../extensions/opl-modes/state.ts";
 import {
@@ -21,6 +24,29 @@ import {
 import * as modeUtils from "../extensions/opl-modes/utils.ts";
 import { isDestructive, bashBlockReason } from "../extensions/opl-modes/utils.ts";
 import * as modeConfig from "../extensions/opl-modes/config.ts";
+
+test("git branch and remote mutations are blocked", () => {
+  for (const command of ["git branch new-branch", "git branch -f existing HEAD", "git remote set-branches origin main"]) {
+    assert.ok(bashBlockReason(command, DEFAULT_SAFE_PATTERNS, DEFAULT_DESTRUCTIVE_PATTERNS), command);
+  }
+  for (const command of ["git branch", "git branch -a", "git remote", "git remote -v"]) {
+    assert.equal(bashBlockReason(command, DEFAULT_SAFE_PATTERNS, DEFAULT_DESTRUCTIVE_PATTERNS), null, command);
+  }
+});
+
+test("plan listing skips unreadable entries and new plans never overwrite", () => {
+  const root = mkdtempSync(join(tmpdir(), "modes-plans-"));
+  try {
+    const dir = modeUtils.ensurePlanDir(root);
+    mkdirSync(join(dir, "plan-bad.md"));
+    writeFileSync(join(dir, "plan-good.md"), "# Plan: Good\n");
+    assert.deepEqual(modeUtils.listPlanFiles(root).map(p => p.title), ["Good"]);
+    const first = modeUtils.writeNewPlan(dir, "plan-same", "first");
+    const second = modeUtils.writeNewPlan(dir, "plan-same", "second");
+    assert.notEqual(first, second);
+    assert.equal(readFileSync(join(dir, first), "utf8"), "first");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 test("lazy-tool policy: resolution, subtraction, loader injection, and mode-bounded activation", () => {
   const lazy = new Set(["subagent", "browser"]);
