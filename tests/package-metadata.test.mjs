@@ -92,20 +92,20 @@ test("release delegates validation to validate.yml instead of re-running the sui
   assert.match(scopes, /permissions:\n      id-token: write\n      contents: write/, "publishing keeps its OIDC and release scopes");
 });
 
-test("rolling compatibility CI selects Pi 1.5 patches and rejects managed-host leakage", () => {
+test("rolling compatibility CI selects Pi 1.6 patches and rejects managed-host leakage", () => {
   const workflow = readFileSync(join(ROOT, ".github/workflows/validate.yml"), "utf8");
   const hosts = jobBlock(workflow, "hosts");
   assert.ok(hosts, "keep the rolling and floor host matrix job");
   const current = hosts.split("Pin the declared floor")[0];
   assert.ok(current, "keep the rolling compatibility leg");
   for (const name of ["pi-coding-agent", "pi-ai", "pi-tui"]) {
-    assert.ok(current.includes(`@earendil-works/${name}@~1.5.0`), `${name} must track 1.5.x`);
+    assert.ok(current.includes(`@earendil-works/${name}@~1.6.0`), `${name} must track 1.6.x`);
   }
   assert.match(current, /--package-lock=false/, "rolling selection must not be pinned by the lockfile");
   assert.match(current, /PI_MANAGED_INSTALL_ROOT:/);
   assert.match(current, /OPL_PI_HOST_SOURCE=devDependency pi/);
   // Host drift has to be caught without waiting for a push, and the run has to name the host
-  // it proved: a green rolling job that silently resolved 1.5.0 proves nothing new.
+  // it proved: a green rolling job that silently resolved an older version proves nothing new.
   assert.match(workflow, /^  schedule:\n    - cron: /m, "the rolling job needs a schedule so a new Pi release is tested before the next commit");
   assert.match(workflow, /^  workflow_dispatch:$/m, "and it must be runnable on demand");
   assert.match(current, /GITHUB_STEP_SUMMARY/, "resolved host versions belong in the run summary");
