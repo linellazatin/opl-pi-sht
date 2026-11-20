@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.5] - modes safety and Pi 1.6 validation
+
+- **`opl-modes`**: restrict default Git branch and remote commands to basic listings, create unnamed plans without overwriting existing files, and skip unreadable plan entries in selection lists.
+- **CI**: advance the rolling host check to Pi `~1.6.0`, retaining the locked baseline and `0.87.0` floor.
+
 ## [0.3.4] - workflow split and extension hardening
 
 - **CI structure**: the two workflows are now `validate.yml` (every check: typecheck, suite, nested dependency audit, and a `hosts` matrix carrying the rolling `~1.5.0` and `0.87.0` floor legs) and `release.yml` (tag check, changelog extraction, `npm publish`, GitHub release). 
