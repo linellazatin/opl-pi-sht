@@ -1,7 +1,7 @@
 /** Pure utilities: read-only Bash gate, plan file I/O, color helpers */
 
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { existsSync, readFileSync, readdirSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { PLAN_DIR, PLAN_FILE_PREFIX } from "./config.js";
@@ -208,6 +208,19 @@ export function sanitizePlanName(name: string): string | null {
   return trimmed.replace(/\s+/g, "-");
 }
 
+/** Atomically create a new plan without replacing an existing file. */
+export function writeNewPlan(dir: string, stem: string, content: string): string {
+  for (let n = 0; ; n++) {
+    const filename = `${stem}${n ? `-${n}` : ""}.md`;
+    try {
+      writeFileSync(join(dir, filename), content, { encoding: "utf8", flag: "wx" });
+      return filename;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+}
+
 /** List available plan files in .pi/plans/ with titles from # Plan: heading. */
 export function listPlanFiles(cwd: string): PlanFileSummary[] {
   const dir = join(cwd, PLAN_DIR);
@@ -217,11 +230,15 @@ export function listPlanFiles(cwd: string): PlanFileSummary[] {
     .filter((f) => f.startsWith(PLAN_FILE_PREFIX) && f.endsWith(".md"))
     .sort();
 
-  return files.map((filename) => {
-    const content = readFileSync(join(dir, filename), "utf-8");
-    const titleMatch = content.match(/^# Plan:\s*(.+)$/m);
-    const title = titleMatch?.[1] ? titleMatch[1].trim() : titleFromFilename(filename);
-    return { name: filename, title };
+  return files.flatMap((filename) => {
+    try {
+      const content = readFileSync(join(dir, filename), "utf-8");
+      const titleMatch = content.match(/^# Plan:\s*(.+)$/m);
+      const title = titleMatch?.[1] ? titleMatch[1].trim() : titleFromFilename(filename);
+      return [{ name: filename, title }];
+    } catch {
+      return [];
+    }
   });
 }
 

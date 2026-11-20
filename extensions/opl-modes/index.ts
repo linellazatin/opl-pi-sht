@@ -58,6 +58,7 @@ import {
   extractPlanText,
   isPlanLike,
   ensurePlanDir,
+  writeNewPlan,
   planFilePath,
   titleFromFilename,
   listPlanFiles,
@@ -746,16 +747,15 @@ export default function modeSwitcher(pi: ExtensionAPI) {
     if (planText) {
       const planDir = ensurePlanDir(getSessionCwd());
       const activeFile = getActivePlanFile();
-      let filename = activeFile;
-      if (!filename) {
-        const ts = new Date().toISOString().replace(/[T:]/g, "-").slice(0, 16);
-        filename = `${PLAN_FILE_PREFIX}${ts}.md`;
-        setActivePlanFile(filename, pi);
-      }
-      const filePath = join(planDir, filename);
-      const title = titleFromFilename(filename);
+      const ts = new Date().toISOString().replace(/[T:]/g, "-").slice(0, 16);
+      const stem = `${PLAN_FILE_PREFIX}${ts}`;
+      const title = titleFromFilename(activeFile ?? `${stem}.md`);
       const content = `# Plan: ${title}\n\n${planText.replace(/^\s*#{1,6}\s*Plan:[^\n]*\n?/, "").trimStart()}\n`;
-      writeFileSync(filePath, content, "utf-8");
+      if (activeFile) {
+        writeFileSync(join(planDir, activeFile), content, "utf-8");
+      } else {
+        setActivePlanFile(writeNewPlan(planDir, stem, content), pi);
+      }
       updateStatus(ctx);
 
       await showPlanMenu(ctx);

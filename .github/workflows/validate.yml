@@ -45,7 +45,7 @@ jobs:
   # only in which host they install and how they pin it. `fail-fast: false` keeps a floor
   # failure from hiding a current-host failure, and vice versa.
   #
-  # Rolling 1.5.x is separate from the reproducible lockfile: resolve the tilde range afresh,
+  # Rolling 1.6.x is separate from the reproducible lockfile: resolve the tilde range afresh,
   # report all three versions, and require the loader to use that devDependency rather than a
   # managed install on the runner.
   #
@@ -78,13 +78,13 @@ jobs:
           cache: npm
       - uses: oven-sh/setup-bun@v2
       - run: npm ci
-      - name: Resolve current Pi 1.5.x
+      - name: Resolve current Pi 1.6.x
         if: matrix.host == 'current'
         run: >
           npm install --no-save --package-lock=false --no-audit --no-fund
-          '@earendil-works/pi-coding-agent@~1.5.0'
-          '@earendil-works/pi-tui@~1.5.0'
-          '@earendil-works/pi-ai@~1.5.0'
+          '@earendil-works/pi-coding-agent@~1.6.0'
+          '@earendil-works/pi-tui@~1.6.0'
+          '@earendil-works/pi-ai@~1.6.0'
       - name: Report resolved versions and require the selected host
         if: matrix.host == 'current'
         run: |
@@ -98,7 +98,7 @@ jobs:
           const [version] = process.argv.slice(2);
           // The oldest release this collection is verified against; raise it together with the
           // documented validation note, never above what the suite has actually been run on.
-          const MINIMUM = [1, 5, 1];
+          const MINIMUM = [1, 6, 0];
           if (!/^\d+\.\d+\.\d+$/.test(version)) {
             console.error(`Rolling job resolved pi-coding-agent "${version}"; expected a stable x.y.z release.`);
             process.exit(1);
