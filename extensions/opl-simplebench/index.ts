@@ -165,7 +165,7 @@ pi.registerCommand("simplebench", {
     }
 
     if (parsedArgs.allModels) {
-      const providerInfo = detectProvider(ctx);
+      const providerInfo = await detectProvider(ctx);
       if (providerInfo.kind !== "ollama") {
         ctx.ui.notify(`--all is only supported for Ollama models. Current provider: ${providerInfo.name} (${providerInfo.kind})`, "error");
         return;

@@ -14,6 +14,10 @@ import { debugLog } from "./debug";
  *  standalone instead of importing a Pi type the extension host resolves at load time. */
 interface PiExtensionContext {
   model?: { provider?: string; id?: string };
+  /** Pi's credential resolver, present on every host from the 0.87.0 compatibility floor up. */
+  modelRegistry?: {
+    getApiKeyAndHeaders?(model: unknown): Promise<{ ok?: boolean; apiKey?: string }>;
+  };
 }
 
 // ============================================================================
@@ -570,9 +574,11 @@ function expandEnvVars(value: string): string {
 }
 
 /**
- * Look up a provider's stored credential in ~/.pi/agent/auth.json.
- * Shape: { "openrouter": { "type": "api_key", "key": "sk-or-..." } }
- * Returns "" when absent.
+ * Read a provider's stored credential from `auth.json` without resolving it.
+ *
+ * Fallback only: a context that has no Pi model registry (a programmatic run) has no way to
+ * resolve the value, so it may be a `!command` or `$VAR` reference. A Pi session goes through
+ * {@link resolveStoredAuthKey} instead. Returns "" when absent.
  */
 function readAuthJsonKey(providerName: string): string {
   try {
@@ -582,6 +588,31 @@ function readAuthJsonKey(providerName: string): string {
     return typeof entry?.key === "string" ? entry.key : "";
   } catch {
     return "";
+  }
+}
+
+/**
+ * Ask Pi to resolve the selected model's stored credential.
+ *
+ * Values in `auth.json` are config values, not literals: Pi resolves `!command` and `$VAR`
+ * references (and OAuth logins) when it hands a provider its key. Reading the file directly
+ * returns the reference text, so a benchmark would send `!op read ...` as a bearer token.
+ * `ctx.modelRegistry.getApiKeyAndHeaders()` exists on the 0.87.0 compatibility floor and
+ * applies the same resolution, so this delegates instead of duplicating that policy.
+ *
+ * Returns `null` when the host cannot answer (a programmatic context with no registry, or a
+ * resolver that throws) so the caller can fall back to the raw read. A resolved empty string
+ * is a real answer: there is no key to send, and the reference text must not be sent instead.
+ */
+async function resolveStoredAuthKey(ctx: PiExtensionContext): Promise<string | null> {
+  const getAuth = ctx.modelRegistry?.getApiKeyAndHeaders;
+  if (typeof getAuth !== "function" || !ctx.model) return null;
+  try {
+    const resolved = await getAuth(ctx.model);
+    if (!resolved || resolved.ok === false) return "";
+    return typeof resolved.apiKey === "string" ? resolved.apiKey : "";
+  } catch {
+    return null;
   }
 }
 
@@ -596,7 +627,7 @@ function readAuthJsonKey(providerName: string): string {
  * @param modelsJson - Optional pre-loaded models.json data (avoids redundant disk read)
  * @returns Provider information including kind, name, API details, and key
  */
-export function detectProvider(ctx: PiExtensionContext, modelsJson?: PiModelsJson): ProviderInfo {
+export async function detectProvider(ctx: PiExtensionContext, modelsJson?: PiModelsJson): Promise<ProviderInfo> {
   const model = ctx.model;
   if (!model) return { kind: "unknown", name: "none" };
 
@@ -654,11 +685,14 @@ export function detectProvider(ctx: PiExtensionContext, modelsJson?: PiModelsJso
   // Tier 2: Check built-in providers
   const builtin = BUILTIN_PROVIDERS[providerName];
   if (builtin) {
-    // Key priority: models.json entry → env var → auth.json (where Pi stores login credentials)
+    // Key priority: models.json entry -> env var -> Pi's resolved credential. The stored key is
+    // resolved by the host (see resolveStoredAuthKey); the raw file read only backs a context
+    // that has no registry, which is the programmatic test path rather than a Pi session.
     const userProviderCfg = (effectiveModelsJson.providers || {})[providerName];
     const apiKeyFromConfig = expandEnvVars(userProviderCfg?.apiKey || "");
     const apiKeyFromEnv = process.env[builtin.envKey] || "";
-    const apiKey = apiKeyFromConfig || apiKeyFromEnv || readAuthJsonKey(providerName);
+    let apiKey = apiKeyFromConfig || apiKeyFromEnv;
+    if (!apiKey) apiKey = (await resolveStoredAuthKey(ctx)) ?? readAuthJsonKey(providerName);
     
     return {
       kind: "builtin",

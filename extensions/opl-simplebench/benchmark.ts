@@ -768,7 +768,7 @@ async function testModelExtended(model: string, ctx?: any, options: SimplebenchO
   // programmatic run has no session, so the harness directory is all there is.
   const artifactDir = ctx?.cwd ?? process.cwd();
   const totalStart = Date.now();
-  const providerInfo = ctx ? detectProvider(ctx) : { kind: "ollama" as const, name: "ollama" };
+  const providerInfo = ctx ? await detectProvider(ctx) : { kind: "ollama" as const, name: "ollama" };
   const resolvedModel = resolveBenchmarkModel(ctx, model);
   const thinking = resolveThinkingMode(providerInfo, resolvedModel.model, options.thinkingMax === true);
   const suite: "baseline" | "coding-lite" | "test-all" = options.testAll ? "test-all" : options.codingLite ? "coding-lite" : "baseline";

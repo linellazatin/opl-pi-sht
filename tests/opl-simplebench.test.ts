@@ -13,6 +13,7 @@ import { scoreReasoning } from "../extensions/opl-simplebench/scoring";
 import { REASONING_TESTS, MULTISTEP_INSTRUCTION } from "../extensions/opl-simplebench/tests";
 import { CODING_LITE_TASKS, createCodingTaskDir, resolveCodingPath, runCodingTask, runCodingVerifier, type CodingTaskFixture } from "../extensions/opl-simplebench/coding";
 import { INHERITED_KEYS, scrubbedEnv } from "../extensions/opl-simplebench/util/exec-env";
+import { detectProvider } from "../extensions/opl-simplebench/util/providers";
 import { spawnSync } from "node:child_process";
 import { GROUNDED_RESEARCH_TASK_PROMPT, GROUNDED_URBAN_TREES_FIXTURE, isMinimalistResearchHtml, RESEARCH_TASK_PROMPT, runGroundedResearchTask, runResearchArtifactTask, verifyGroundedResearch } from "../extensions/opl-simplebench/research";
 import { applyLlamagputop, applyLlamagputopModelStats, buildServerStats, diffPrometheusMetrics, healthUrl, managementBaseUrl, normalizeLlamagputopStats, normalizeLlamaServerProps, parsePrometheusMetrics, statsUrl } from "../extensions/opl-simplebench/llama-server";
@@ -728,4 +729,103 @@ test("truncate never splits a surrogate pair", async () => {
   assert.equal(truncate("a😀bc", 2), "a...");
   assert.ok(truncate("a😀bc", 2).isWellFormed());
   assert.equal(truncate("short", 10), "short");
+});
+
+// --- Provider credential resolution ------------------------------------------
+
+/**
+ * Run one case with a throwaway agent directory. `auth.json` values are config values:
+ * Pi resolves `!command` and `$VAR` references (and OAuth logins) before a provider sees
+ * them, so a test fixture here holds the reference text, not a usable key.
+ */
+async function withStoredAuth(entries: Record<string, unknown>, run: () => Promise<void>): Promise<void> {
+  const prev = process.env.PI_CODING_AGENT_DIR;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "opl-simplebench-auth-"));
+  fs.writeFileSync(path.join(dir, "auth.json"), JSON.stringify(entries));
+  process.env.PI_CODING_AGENT_DIR = dir;
+  try {
+    await run();
+  } finally {
+    if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = prev;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const emptyModelsJson = { providers: {} };
+
+test("stored credentials are resolved by Pi instead of sent as reference text", async () => {
+  await withStoredAuth({ openrouter: { type: "api_key", key: "!op read op://private/openrouter" } }, async () => {
+    const seen: unknown[] = [];
+    const ctx = {
+      model: { provider: "openrouter", id: "openai/gpt-5" },
+      modelRegistry: {
+        getApiKeyAndHeaders: async (model: unknown) => {
+          seen.push(model);
+          return { ok: true, apiKey: "sk-resolved" };
+        },
+      },
+    };
+    const info = await detectProvider(ctx, emptyModelsJson);
+    assert.equal(info.apiKey, "sk-resolved", "the benchmark must send the resolved key, not the reference text");
+    assert.deepEqual(seen, [ctx.model], "Pi must resolve the selected model's own credential");
+  });
+});
+
+test("a stored entry without a literal key resolves through Pi too", async () => {
+  await withStoredAuth({ anthropic: { type: "oauth", access: "stored-access-token" } }, async () => {
+    const ctx = {
+      model: { provider: "anthropic", id: "claude-sonnet-5" },
+      modelRegistry: { getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "oauth-access-token" }) },
+    };
+    const info = await detectProvider(ctx, emptyModelsJson);
+    assert.equal(info.apiKey, "oauth-access-token", "an OAuth login has no auth.json key to read, so the host answer is the only key");
+  });
+});
+
+test("a failed host resolution never sends the reference text as a key", async () => {
+  await withStoredAuth({ openrouter: { type: "api_key", key: "!exit 1" } }, async () => {
+    const failing = { model: { provider: "openrouter", id: "x" }, modelRegistry: { getApiKeyAndHeaders: async () => ({ ok: false, error: "stored key did not resolve" }) } };
+    assert.equal((await detectProvider(failing, emptyModelsJson)).apiKey, "");
+
+    const throwing = { model: { provider: "openrouter", id: "x" }, modelRegistry: { getApiKeyAndHeaders: async () => { throw new Error("no auth store"); } } };
+    assert.equal((await detectProvider(throwing, emptyModelsJson)).apiKey, "!exit 1", "an unavailable resolver falls back to the raw read");
+  });
+});
+
+test("a context without a registry keeps the raw auth.json read", async () => {
+  await withStoredAuth({ openrouter: { type: "api_key", key: "sk-literal" } }, async () => {
+    const info = await detectProvider({ model: { provider: "openrouter", id: "x" } }, emptyModelsJson);
+    assert.equal(info.apiKey, "sk-literal", "programmatic runs without a host context must not lose their key");
+  });
+});
+
+test("configured and environment keys still outrank the stored credential", async () => {
+  await withStoredAuth({ openrouter: { type: "api_key", key: "!slow-command" } }, async () => {
+    let resolved = 0;
+    const ctx = {
+      model: { provider: "openrouter", id: "x" },
+      modelRegistry: { getApiKeyAndHeaders: async () => { resolved += 1; return { ok: true, apiKey: "host-key" }; } },
+    };
+    const previous = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = "env-key";
+    try {
+      assert.equal((await detectProvider(ctx, emptyModelsJson)).apiKey, "env-key");
+    } finally {
+      if (previous === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = previous;
+    }
+    assert.equal(resolved, 0, "the host resolver must not run when an environment key exists");
+
+    const previousConfigKey = process.env.SB_MODELS_JSON_KEY;
+    process.env.SB_MODELS_JSON_KEY = "config-key";
+    try {
+      const configured = { providers: { openrouter: { apiKey: "$SB_MODELS_JSON_KEY" } } };
+      assert.equal((await detectProvider(ctx, configured)).apiKey, "config-key");
+    } finally {
+      if (previousConfigKey === undefined) delete process.env.SB_MODELS_JSON_KEY;
+      else process.env.SB_MODELS_JSON_KEY = previousConfigKey;
+    }
+    assert.equal(resolved, 0, "models.json remains the highest-precedence source");
+  });
 });
