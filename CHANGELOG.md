@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.6] - simplebench credential resolution and Pi 1.6.1 re-validation
+
+- **`opl-simplebench`**: stored provider credentials are resolved by Pi (`ctx.modelRegistry.getApiKeyAndHeaders()`) instead of read from `auth.json` as text, so a `!command` or `$VAR` key and an OAuth login reach the provider as the key Pi would send rather than as the reference text. 
+  - `detectProvider` is now async; `models.json` keys and environment variables still outrank the stored credential, and the raw file read remains only the no-context fallback. 
+  - The host resolver is present on the `0.87.0` compatibility floor, so the fix needs no version gate.
+- **`opl-simplebench` docs**: provider authentication, the OpenRouter 401 row and the root operational notes describe the resolved-credential path, the empty-key refusal and the fallback.
+- **Compatibility**: re-assessed against Pi `1.6.1`. Its only breaking change removes `SettingsManager.getShowCacheMissNotices()`/`setShowCacheMissNotices()` (replaced by `getNotices()`/`setNotice()`), which no extension calls; the Pi 1.6.0 read-only render output is already satisfied by the current components. No other extension needed a runtime change.
+- **Verification**: strict typechecking passes with the Pi `1.6.0` devDependency and on the `0.87.0` floor; the full suite (591 tests) passes with the installed Pi `1.6.1` host, and the floor passes the simplebench suite. All 12 extensions load. Compatibility floor remains `0.87.0`.
+
 ## [0.3.5] - modes safety and Pi 1.6 validation
 
 - **`opl-modes`**: restrict default Git branch and remote commands to basic listings, create unnamed plans without overwriting existing files, and skip unreadable plan entries in selection lists.
