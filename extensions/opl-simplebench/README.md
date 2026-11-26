@@ -50,7 +50,7 @@ simplebench({ model: "global.openai.gpt-5.6-terra", test_all: true })
 - Provider-default sampling and reasoning by default, with explicit `--thinking-max` for OpenAI-compatible proxies and metadata-gated direct Bedrock models.
 - Full JSON artifacts containing exact prompts, responses, scores, errors, per-test timing, provider usage, and returned tool calls.
 - Aggregate request count, retry count, tool-call count, token totals where returned by the provider, output tok/s where calculable, and average/median/P95 latency.
-- Provider API keys from `models.json` (`$VAR`/`${VAR}` expansion), environment variables, or Pi `auth.json`.
+- Provider API keys from `models.json` (`$VAR`/`${VAR}` expansion), environment variables, or the credential Pi stores for the selected provider, resolved by Pi.
 - Amazon Bedrock Converse calls with SigV4 and AWS CLI credential export for assume-role/SSO profiles.
 - Category-based recommendations, avoiding a contradictory `WEAK` label when the closed-answer contract is moderate but JSON and tool-use tests pass.
 
@@ -246,13 +246,15 @@ Four categories can be in play: the closed-answer contract, instruction followin
 
 ## Provider authentication
 
+Stored credentials are resolved by Pi, not read verbatim. A `!command` or `$VAR` value in `auth.json`, and an OAuth login, arrive as the key Pi itself would send to that provider. Simplebench asks `ctx.modelRegistry` for the selected model's credential, so a reference that fails to resolve leaves the key empty instead of sending the reference text; the raw file is read only when there is no Pi context to resolve it (a programmatic run) or the resolver is unavailable.
+
 ### LiteLLM and OpenAI-compatible proxies
 
 Configure a provider API key in `models.json` as a literal value or a `$VAR`/`${VAR}` reference. Simplebench expands the reference before making the request. An invalid LiteLLM key can surface as a misleading database-related proxy error; verify the resolved key before changing the proxy database configuration.
 
 ### OpenRouter
 
-Simplebench uses, in order, a configured provider key, `OPENROUTER_API_KEY`, then Pi's stored `auth.json` API key. A `models.json` provider entry containing only `modelOverrides` does not replace OpenRouter's built-in base URL.
+Simplebench uses, in order, a configured provider key, `OPENROUTER_API_KEY`, then the credential Pi stores for OpenRouter (resolved by Pi, so a command-backed key or an OAuth login works). A `models.json` provider entry containing only `modelOverrides` does not replace OpenRouter's built-in base URL.
 
 ### Amazon Bedrock
 
@@ -271,7 +273,7 @@ AWS CLI v2 is therefore required when the selected profile uses SSO or an assume
 | Symptom | Likely cause and action |
 |---|---|
 | LiteLLM returns `No connected db.` | Usually invalid/missing proxy authentication, not a database requirement. Check the resolved provider key. |
-| OpenRouter returns 401 | Set `OPENROUTER_API_KEY`, configure the provider key, or authenticate Pi so `auth.json` has an API key. |
+| OpenRouter returns 401 | Set `OPENROUTER_API_KEY`, configure the provider key, or authenticate Pi so it stores that provider's credential; `!command`/`$VAR` keys and OAuth logins are resolved by Pi. |
 | Bedrock says credentials are unavailable | Run `aws configure export-credentials --profile "$AWS_PROFILE"` and resolve profile login/role issues first. |
 | Bedrock rejects `--thinking-max` | The selected model does not advertise max thinking in Pi metadata, or the provider rejected its model-specific reasoning request. |
 | Artifact is absent | Check the report for `--no-artifact` or an artifact-write warning; the file lands in the session directory, not where the shell was standing. |

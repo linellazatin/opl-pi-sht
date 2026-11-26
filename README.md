@@ -15,6 +15,11 @@
 A portable collection of various Pi coding agent extensions. Repository directories and config files use `opl-`; established Pi-facing commands and tool names stay compatible.
 
 >
+> ### v0.3.6 simplebench credential resolution and Pi 1.6.1 re-validation
+>
+> - [`opl-simplebench`](extensions/opl-simplebench/README.md#provider-authentication) resolves stored provider credentials through Pi, so `!command`/`$VAR` keys and OAuth logins arrive as the key Pi would send instead of their reference text; the raw read stays as the no-context fallback.
+> - Re-assessed on Pi `1.6.1`: its one breaking change (the removed cache-miss notice setting) is unused here, and the `0.87.0` floor is unchanged.
+>
 > ### v0.3.5 modes safety and Pi 1.6 validation
 >
 > - Restricted default Git branch and remote commands to basic listings; unnamed plans avoid overwrites, and unreadable plan entries are skipped.
@@ -74,7 +79,7 @@ npx playwright install chromium
 {
   "packages": [
     {
-      "source": "npm:@openlines/opl-pi-sht@0.3.5",
+      "source": "npm:@openlines/opl-pi-sht@0.3.6",
       "extensions": ["extensions/opl-init/index.ts", "extensions/opl-todo/index.ts"]
     }
   ]
